@@ -1,17 +1,29 @@
 package com.ecofood.app;
 
+import com.ecofood.app.services.DumpCallCoreServiceImpl;
+import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.ComponentScan;
 
 @SpringBootApplication
 @ComponentScan(basePackages = {
-		"com.ecofood",
+		"com.ecofood"
 })
-public class AppApplication {
+public class AppApplication implements CommandLineRunner {
+
+	private final DumpCallCoreServiceImpl dumpCallCoreService;
+
+	public AppApplication(DumpCallCoreServiceImpl dumpCallCoreService) {
+		this.dumpCallCoreService = dumpCallCoreService;
+	}
 
 	public static void main(String[] args) {
 		SpringApplication.run(AppApplication.class, args);
 	}
 
+	@Override
+	public void run(String... args) {
+		System.out.println(dumpCallCoreService.callDump());
+	}
 }
