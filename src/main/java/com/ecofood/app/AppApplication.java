@@ -10,20 +10,10 @@ import org.springframework.context.annotation.ComponentScan;
 @ComponentScan(basePackages = {
 		"com.ecofood"
 })
-public class AppApplication implements CommandLineRunner {
 
-	private final DumpCallCoreServiceImpl dumpCallCoreService;
-
-	public AppApplication(DumpCallCoreServiceImpl dumpCallCoreService) {
-		this.dumpCallCoreService = dumpCallCoreService;
-	}
+public class AppApplication {
 
 	public static void main(String[] args) {
 		SpringApplication.run(AppApplication.class, args);
-	}
-
-	@Override
-	public void run(String... args) {
-		System.out.println(dumpCallCoreService.callDump());
 	}
 }
