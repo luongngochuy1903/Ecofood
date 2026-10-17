@@ -7,7 +7,7 @@ import org.springframework.data.mongodb.config.EnableMongoAuditing;
 
 @SpringBootApplication
 @ComponentScan(basePackages = {
-		"com.ecofood",
+		"com.ecofood"
 })
 @EnableMongoAuditing
 public class AppApplication {

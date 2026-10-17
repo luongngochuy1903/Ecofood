@@ -40,7 +40,7 @@
 		<dependency>
 			<groupId>com.ecofood</groupId>
 			<artifactId>core</artifactId>
-			<version>1.0.0</version>
+			<version>1.0.2</version>
 		</dependency>
 		-->
 		<dependency>
@@ -133,6 +133,16 @@
 			<artifactId>spring-boot-starter-webmvc-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+
+
+		<dependency>
+			<groupId>com.newrelic.agent.java</groupId>
+			<artifactId>newrelic-java</artifactId>
+			<version>9.5.0</version>
+			<scope>provided</scope>
+			<type>zip</type>
+		</dependency>
+
 	</dependencies>
 
 	<!-- Commented out along with the com.ecofood:core dependency above —
