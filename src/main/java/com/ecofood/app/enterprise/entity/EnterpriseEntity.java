@@ -1,7 +1,7 @@
 package com.ecofood.app.enterprise.entity;
 
-import com.ecofood.app.common.entity.BaseEntity;
-import com.ecofood.app.common.entity.PartyStatus;
+import com.ecofood.core.entity.BaseEntity;
+import com.ecofood.core.entity.PartyStatus;
 import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
 import java.util.ArrayList;
 import java.util.List;

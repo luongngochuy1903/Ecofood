@@ -1,6 +1,7 @@
 package com.ecofood.app.enterprise.service;
 
-import com.ecofood.app.common.service.EnterpriseQueryService;
+import com.ecofood.core.dto.EnterpriseResponse;
+import com.ecofood.core.service.EnterpriseQueryService;
 import com.ecofood.app.enterprise.entity.EnterpriseEntity;
 import com.ecofood.app.enterprise.repository.EnterpriseRepository;
 import lombok.RequiredArgsConstructor;
@@ -20,9 +21,14 @@ public class EnterpriseQueryServiceImpl implements EnterpriseQueryService {
   private final EnterpriseRepository enterpriseRepository;
 
   @Override
-  public EnterpriseEntity getById(String enterpriseId) {
-    return enterpriseRepository
-        .findById(new ObjectId(enterpriseId))
-        .orElseThrow(() -> new IllegalArgumentException("Enterprise not found: " + enterpriseId));
+  public EnterpriseResponse getById(String enterpriseId) {
+    EnterpriseEntity enterprise =
+        enterpriseRepository
+            .findById(new ObjectId(enterpriseId))
+            .orElseThrow(() -> new IllegalArgumentException("Enterprise not found: " + enterpriseId));
+    return EnterpriseResponse.builder()
+        .enterpriseId(enterprise.getIdAsString())
+        .enterpriseCompanyName(enterprise.getPartyName())
+        .build();
   }
 }

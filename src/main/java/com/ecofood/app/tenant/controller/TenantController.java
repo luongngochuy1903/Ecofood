@@ -1,8 +1,8 @@
 package com.ecofood.app.tenant.controller;
 
-import com.ecofood.app.common.dto.TenantOnboardRequest;
-import com.ecofood.app.common.dto.TenantOnboardResponse;
-import com.ecofood.app.common.service.TenantService;
+import com.ecofood.core.dto.TenantOnboardRequest;
+import com.ecofood.core.dto.TenantOnboardResponse;
+import com.ecofood.core.service.TenantService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;

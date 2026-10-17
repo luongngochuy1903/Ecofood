@@ -1,10 +1,10 @@
 package com.ecofood.app.userACL.controller;
 
-import com.ecofood.app.common.dto.AssignTenantRolesRequest;
-import com.ecofood.app.common.dto.AssignTenantRolesResponse;
-import com.ecofood.app.common.dto.UserCreateRequest;
-import com.ecofood.app.common.dto.UserResponse;
-import com.ecofood.app.common.service.UserService;
+import com.ecofood.core.dto.AssignTenantRolesRequest;
+import com.ecofood.core.dto.AssignTenantRolesResponse;
+import com.ecofood.core.dto.UserCreateRequest;
+import com.ecofood.core.dto.UserResponse;
+import com.ecofood.core.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;

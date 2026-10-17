@@ -1,7 +1,7 @@
 package com.ecofood.app.userACL.service;
 
-import com.ecofood.app.common.service.UserRoleAssignmentService;
-import com.ecofood.app.userACL.entity.PartnerTypeEnum;
+import com.ecofood.core.service.UserRoleAssignmentService;
+import com.ecofood.core.enums.PartnerTypeEnum;
 import com.ecofood.app.userACL.entity.Role;
 import com.ecofood.app.userACL.entity.UserRole;
 import com.ecofood.app.userACL.repository.RoleRepository;

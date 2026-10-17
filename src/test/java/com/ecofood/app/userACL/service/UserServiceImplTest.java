@@ -9,19 +9,19 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.ecofood.app.common.client.CoreEnterpriseQueryClient;
-import com.ecofood.app.common.client.CoreTenantQueryClient;
-import com.ecofood.app.common.dto.AssignTenantRolesRequest;
-import com.ecofood.app.common.dto.AssignTenantRolesResponse;
-import com.ecofood.app.common.dto.TenantAssignmentRequest;
-import com.ecofood.app.common.dto.TenantRoleAssignmentRequest;
-import com.ecofood.app.common.dto.UserCreateRequest;
-import com.ecofood.app.common.dto.UserResponse;
-import com.ecofood.app.enterprise.entity.EnterpriseEntity;
-import com.ecofood.app.tenant.entity.TenantEntity;
+import com.ecofood.core.client.CoreEnterpriseQueryClient;
+import com.ecofood.core.client.CoreTenantQueryClient;
+import com.ecofood.core.dto.AssignTenantRolesRequest;
+import com.ecofood.core.dto.AssignTenantRolesResponse;
+import com.ecofood.core.dto.EnterpriseResponse;
+import com.ecofood.core.dto.TenantAssignmentRequest;
+import com.ecofood.core.dto.TenantResponse;
+import com.ecofood.core.dto.TenantRoleAssignmentRequest;
+import com.ecofood.core.dto.UserCreateRequest;
+import com.ecofood.core.dto.UserResponse;
+import com.ecofood.core.enums.RelationshipTypeEnum;
 import com.ecofood.app.tenant.service.TenantKeycloakService;
 import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
-import com.ecofood.app.userACL.entity.RelationshipTypeEnum;
 import com.ecofood.app.userACL.entity.Role;
 import com.ecofood.app.userACL.entity.RoleType;
 import com.ecofood.app.userACL.entity.UserEntity;
@@ -74,16 +74,16 @@ class UserServiceImplTest {
             });
   }
 
-  private TenantEntity tenant(String name, ObjectId enterpriseId) {
-    TenantEntity tenant = TenantEntity.builder().tenantName(name).realm(name.toLowerCase() + "-realm").build();
-    tenant.setId(new ObjectId());
-    if (enterpriseId != null) {
-      tenant.setEnterpriseId(enterpriseId.toHexString());
-    }
-    return tenant;
+  private TenantResponse tenant(String name, ObjectId enterpriseId) {
+    return TenantResponse.builder()
+        .id(new ObjectId().toHexString())
+        .tenantName(name)
+        .realm(name.toLowerCase() + "-realm")
+        .enterpriseId(enterpriseId != null ? enterpriseId.toHexString() : null)
+        .build();
   }
 
-  private void stubPrimaryKeycloakMirroring(TenantEntity tenant, String keycloakUserId) {
+  private void stubPrimaryKeycloakMirroring(TenantResponse tenant, String keycloakUserId) {
     when(tenantKeycloakService.realm(tenant.getRealm())).thenReturn(realmResource);
     when(userKeycloakService.createUser(org.mockito.ArgumentMatchers.eq(realmResource), any())).thenReturn(keycloakUserId);
   }
@@ -93,15 +93,15 @@ class UserServiceImplTest {
   @Test
   void createUserMirrorsIntoKeycloakForTheFirstTenantAndBuildsOneRelation() {
     stubUserSaveAssignsId();
-    TenantEntity acme = tenant("Acme", null);
-    when(tenantQueryClient.getById(acme.getIdAsString())).thenReturn(acme);
+    TenantResponse acme = tenant("Acme", null);
+    when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
     stubPrimaryKeycloakMirroring(acme, "kc-user-1");
 
     UserCreateRequest request = new UserCreateRequest();
     request.setUsername("jane.doe");
     request.setEmail("jane@example.com");
     TenantAssignmentRequest assignment = new TenantAssignmentRequest();
-    assignment.setTenantId(acme.getIdAsString());
+    assignment.setTenantId(acme.getId());
     request.setTenantAssignments(List.of(assignment));
 
     UserResponse response = userService.createUser(request);
@@ -115,19 +115,19 @@ class UserServiceImplTest {
   @Test
   void createUserOnlyMirrorsTheFirstTenantAssignmentIntoKeycloak() {
     stubUserSaveAssignsId();
-    TenantEntity acme = tenant("Acme", null);
-    TenantEntity globex = tenant("Globex", null);
-    when(tenantQueryClient.getById(acme.getIdAsString())).thenReturn(acme);
-    when(tenantQueryClient.getById(globex.getIdAsString())).thenReturn(globex);
+    TenantResponse acme = tenant("Acme", null);
+    TenantResponse globex = tenant("Globex", null);
+    when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
+    when(tenantQueryClient.getById(globex.getId())).thenReturn(globex);
     stubPrimaryKeycloakMirroring(acme, "kc-user-1");
 
     UserCreateRequest request = new UserCreateRequest();
     request.setUsername("jane.doe");
     request.setEmail("jane@example.com");
     TenantAssignmentRequest assignment1 = new TenantAssignmentRequest();
-    assignment1.setTenantId(acme.getIdAsString());
+    assignment1.setTenantId(acme.getId());
     TenantAssignmentRequest assignment2 = new TenantAssignmentRequest();
-    assignment2.setTenantId(globex.getIdAsString());
+    assignment2.setTenantId(globex.getId());
     request.setTenantAssignments(List.of(assignment1, assignment2));
 
     UserResponse response = userService.createUser(request);
@@ -140,17 +140,17 @@ class UserServiceImplTest {
   @Test
   void createUserDedupesARepeatedTenantIdInTheSameRequest() {
     stubUserSaveAssignsId();
-    TenantEntity acme = tenant("Acme", null);
-    when(tenantQueryClient.getById(acme.getIdAsString())).thenReturn(acme);
+    TenantResponse acme = tenant("Acme", null);
+    when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
     stubPrimaryKeycloakMirroring(acme, "kc-user-1");
 
     UserCreateRequest request = new UserCreateRequest();
     request.setUsername("jane.doe");
     request.setEmail("jane@example.com");
     TenantAssignmentRequest assignment1 = new TenantAssignmentRequest();
-    assignment1.setTenantId(acme.getIdAsString());
+    assignment1.setTenantId(acme.getId());
     TenantAssignmentRequest assignment2 = new TenantAssignmentRequest();
-    assignment2.setTenantId(acme.getIdAsString());
+    assignment2.setTenantId(acme.getId());
     request.setTenantAssignments(List.of(assignment1, assignment2));
 
     UserResponse response = userService.createUser(request);
@@ -161,8 +161,8 @@ class UserServiceImplTest {
   @Test
   void createUserResolvesRolesWhenRoleIdsProvided() {
     stubUserSaveAssignsId();
-    TenantEntity acme = tenant("Acme", null);
-    when(tenantQueryClient.getById(acme.getIdAsString())).thenReturn(acme);
+    TenantResponse acme = tenant("Acme", null);
+    when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
     stubPrimaryKeycloakMirroring(acme, "kc-user-1");
 
     Role viewerRole = Role.builder().name("Viewer").code("VIEWER").roleType(RoleType.Functional).build();
@@ -175,7 +175,7 @@ class UserServiceImplTest {
     request.setUsername("jane.doe");
     request.setEmail("jane@example.com");
     TenantAssignmentRequest assignment = new TenantAssignmentRequest();
-    assignment.setTenantId(acme.getIdAsString());
+    assignment.setTenantId(acme.getId());
     assignment.setRoleIds(List.of(viewerRole.getIdAsString()));
     request.setTenantAssignments(List.of(assignment));
 
@@ -188,18 +188,17 @@ class UserServiceImplTest {
   void createUserAddsEnterpriseRelationWhenTenantHasAnEnterpriseId() {
     stubUserSaveAssignsId();
     ObjectId enterpriseId = new ObjectId();
-    TenantEntity acme = tenant("Acme", enterpriseId);
-    when(tenantQueryClient.getById(acme.getIdAsString())).thenReturn(acme);
+    TenantResponse acme = tenant("Acme", enterpriseId);
+    when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
     stubPrimaryKeycloakMirroring(acme, "kc-user-1");
-    EnterpriseEntity enterprise = EnterpriseEntity.builder().partyName("Acme Holdings").build();
-    enterprise.setId(enterpriseId);
-    when(enterpriseQueryClient.getById(enterpriseId.toHexString())).thenReturn(enterprise);
+    when(enterpriseQueryClient.getById(enterpriseId.toHexString()))
+        .thenReturn(EnterpriseResponse.builder().enterpriseId(enterpriseId.toHexString()).enterpriseCompanyName("Acme Holdings").build());
 
     UserCreateRequest request = new UserCreateRequest();
     request.setUsername("jane.doe");
     request.setEmail("jane@example.com");
     TenantAssignmentRequest assignment = new TenantAssignmentRequest();
-    assignment.setTenantId(acme.getIdAsString());
+    assignment.setTenantId(acme.getId());
     request.setTenantAssignments(List.of(assignment));
 
     userService.createUser(request);
@@ -216,15 +215,15 @@ class UserServiceImplTest {
   @Test
   void createUserDoesNotAddEnterpriseRelationWhenTenantHasNoEnterpriseId() {
     stubUserSaveAssignsId();
-    TenantEntity acme = tenant("Acme", null);
-    when(tenantQueryClient.getById(acme.getIdAsString())).thenReturn(acme);
+    TenantResponse acme = tenant("Acme", null);
+    when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
     stubPrimaryKeycloakMirroring(acme, "kc-user-1");
 
     UserCreateRequest request = new UserCreateRequest();
     request.setUsername("jane.doe");
     request.setEmail("jane@example.com");
     TenantAssignmentRequest assignment = new TenantAssignmentRequest();
-    assignment.setTenantId(acme.getIdAsString());
+    assignment.setTenantId(acme.getId());
     request.setTenantAssignments(List.of(assignment));
 
     userService.createUser(request);
@@ -240,17 +239,17 @@ class UserServiceImplTest {
     UserEntity user = UserEntity.builder().username("jane.doe").build();
     user.setId(userId);
     when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-    TenantEntity acme = tenant("Acme", null);
-    when(tenantQueryClient.getById(acme.getIdAsString())).thenReturn(acme);
+    TenantResponse acme = tenant("Acme", null);
+    when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
 
     Role viewerRole = Role.builder().name("Viewer").code("VIEWER").roleType(RoleType.Functional).build();
     viewerRole.setId(new ObjectId());
     when(roleRepository.findById(viewerRole.getId())).thenReturn(Optional.of(viewerRole));
-    when(userRoleRepository.findByUserIdAndTenantId(userId, acme.getId())).thenReturn(Optional.empty());
+    when(userRoleRepository.findByUserIdAndTenantId(userId, new ObjectId(acme.getId()))).thenReturn(Optional.empty());
     when(userRoleRepository.save(any(UserRole.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
     TenantRoleAssignmentRequest assignment = new TenantRoleAssignmentRequest();
-    assignment.setTenantId(acme.getIdAsString());
+    assignment.setTenantId(acme.getId());
     assignment.setRoleIds(List.of(viewerRole.getIdAsString()));
     AssignTenantRolesRequest request = new AssignTenantRolesRequest();
     request.setTenantAssignments(List.of(assignment));
@@ -265,19 +264,23 @@ class UserServiceImplTest {
   @Test
   void assignTenantRolesDoesNotDuplicateAnAlreadyAssignedRelation() {
     ObjectId userId = new ObjectId();
-    TenantEntity acme = tenant("Acme", null);
+    TenantResponse acme = tenant("Acme", null);
     UserEntity user = UserEntity.builder().username("jane.doe").build();
     user.setId(userId);
     user.setPartyRelationships(
         new java.util.ArrayList<>(
-            List.of(PartyToPartyRelationship.builder().toPartyId(acme.getId()).relationshipTypeCode("TENANT").build())));
+            List.of(
+                PartyToPartyRelationship.builder()
+                    .toPartyId(new ObjectId(acme.getId()))
+                    .relationshipTypeCode("TENANT")
+                    .build())));
     when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-    when(tenantQueryClient.getById(acme.getIdAsString())).thenReturn(acme);
-    when(userRoleRepository.findByUserIdAndTenantId(userId, acme.getId())).thenReturn(Optional.empty());
+    when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
+    when(userRoleRepository.findByUserIdAndTenantId(userId, new ObjectId(acme.getId()))).thenReturn(Optional.empty());
     when(userRoleRepository.save(any(UserRole.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
     TenantRoleAssignmentRequest assignment = new TenantRoleAssignmentRequest();
-    assignment.setTenantId(acme.getIdAsString());
+    assignment.setTenantId(acme.getId());
     assignment.setRoleIds(List.of());
     AssignTenantRolesRequest request = new AssignTenantRolesRequest();
     request.setTenantAssignments(List.of(assignment));
@@ -291,19 +294,18 @@ class UserServiceImplTest {
   void assignTenantRolesAddsEnterpriseRelationOnceWhenTenantHasEnterpriseId() {
     ObjectId userId = new ObjectId();
     ObjectId enterpriseId = new ObjectId();
-    TenantEntity acme = tenant("Acme", enterpriseId);
+    TenantResponse acme = tenant("Acme", enterpriseId);
     UserEntity user = UserEntity.builder().username("jane.doe").build();
     user.setId(userId);
     when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-    when(tenantQueryClient.getById(acme.getIdAsString())).thenReturn(acme);
-    EnterpriseEntity enterprise = EnterpriseEntity.builder().partyName("Acme Holdings").build();
-    enterprise.setId(enterpriseId);
-    when(enterpriseQueryClient.getById(enterpriseId.toHexString())).thenReturn(enterprise);
-    when(userRoleRepository.findByUserIdAndTenantId(userId, acme.getId())).thenReturn(Optional.empty());
+    when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
+    when(enterpriseQueryClient.getById(enterpriseId.toHexString()))
+        .thenReturn(EnterpriseResponse.builder().enterpriseId(enterpriseId.toHexString()).enterpriseCompanyName("Acme Holdings").build());
+    when(userRoleRepository.findByUserIdAndTenantId(userId, new ObjectId(acme.getId()))).thenReturn(Optional.empty());
     when(userRoleRepository.save(any(UserRole.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
     TenantRoleAssignmentRequest assignment = new TenantRoleAssignmentRequest();
-    assignment.setTenantId(acme.getIdAsString());
+    assignment.setTenantId(acme.getId());
     assignment.setRoleIds(List.of());
     AssignTenantRolesRequest request = new AssignTenantRolesRequest();
     request.setTenantAssignments(List.of(assignment));
@@ -332,11 +334,11 @@ class UserServiceImplTest {
   @Test
   void resolveRolesReplacesPreviousRolesRatherThanMerging() {
     ObjectId userId = new ObjectId();
-    TenantEntity acme = tenant("Acme", null);
+    TenantResponse acme = tenant("Acme", null);
     UserEntity user = UserEntity.builder().username("jane.doe").build();
     user.setId(userId);
     when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-    when(tenantQueryClient.getById(acme.getIdAsString())).thenReturn(acme);
+    when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
 
     Role oldRole = Role.builder().name("Old").code("OLD_ROLE").roleType(RoleType.Functional).build();
     oldRole.setId(new ObjectId());
@@ -346,17 +348,18 @@ class UserServiceImplTest {
     UserRole existingUserRole =
         UserRole.builder()
             .userId(userId)
-            .tenantId(acme.getId())
+            .tenantId(new ObjectId(acme.getId()))
             .roles(
                 List.of(
                     UserRole.EmbeddedRole.builder().id(oldRole.getId()).code("OLD_ROLE").roleType(RoleType.Functional).build()))
             .build();
-    when(userRoleRepository.findByUserIdAndTenantId(userId, acme.getId())).thenReturn(Optional.of(existingUserRole));
+    when(userRoleRepository.findByUserIdAndTenantId(userId, new ObjectId(acme.getId())))
+        .thenReturn(Optional.of(existingUserRole));
     when(roleRepository.findById(newRole.getId())).thenReturn(Optional.of(newRole));
     when(userRoleRepository.save(any(UserRole.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
     TenantRoleAssignmentRequest assignment = new TenantRoleAssignmentRequest();
-    assignment.setTenantId(acme.getIdAsString());
+    assignment.setTenantId(acme.getId());
     assignment.setRoleIds(List.of(newRole.getIdAsString()));
     AssignTenantRolesRequest request = new AssignTenantRolesRequest();
     request.setTenantAssignments(List.of(assignment));
@@ -371,20 +374,20 @@ class UserServiceImplTest {
   @Test
   void resolveRolesDedupesByCanonicalRoleIdEvenIfRequestedTwice() {
     ObjectId userId = new ObjectId();
-    TenantEntity acme = tenant("Acme", null);
+    TenantResponse acme = tenant("Acme", null);
     UserEntity user = UserEntity.builder().username("jane.doe").build();
     user.setId(userId);
     when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-    when(tenantQueryClient.getById(acme.getIdAsString())).thenReturn(acme);
+    when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
 
     Role role = Role.builder().name("Viewer").code("VIEWER").roleType(RoleType.Functional).build();
     role.setId(new ObjectId());
-    when(userRoleRepository.findByUserIdAndTenantId(userId, acme.getId())).thenReturn(Optional.empty());
+    when(userRoleRepository.findByUserIdAndTenantId(userId, new ObjectId(acme.getId()))).thenReturn(Optional.empty());
     when(roleRepository.findById(role.getId())).thenReturn(Optional.of(role));
     when(userRoleRepository.save(any(UserRole.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
     TenantRoleAssignmentRequest assignment = new TenantRoleAssignmentRequest();
-    assignment.setTenantId(acme.getIdAsString());
+    assignment.setTenantId(acme.getId());
     assignment.setRoleIds(List.of(role.getIdAsString(), role.getIdAsString()));
     AssignTenantRolesRequest request = new AssignTenantRolesRequest();
     request.setTenantAssignments(List.of(assignment));
@@ -397,17 +400,17 @@ class UserServiceImplTest {
   @Test
   void resolveRolesThrowsWhenARoleIdDoesNotExist() {
     ObjectId userId = new ObjectId();
-    TenantEntity acme = tenant("Acme", null);
+    TenantResponse acme = tenant("Acme", null);
     UserEntity user = UserEntity.builder().username("jane.doe").build();
     user.setId(userId);
     when(userRepository.findById(userId)).thenReturn(Optional.of(user));
-    when(tenantQueryClient.getById(acme.getIdAsString())).thenReturn(acme);
-    when(userRoleRepository.findByUserIdAndTenantId(userId, acme.getId())).thenReturn(Optional.empty());
+    when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
+    when(userRoleRepository.findByUserIdAndTenantId(userId, new ObjectId(acme.getId()))).thenReturn(Optional.empty());
     ObjectId missingRoleId = new ObjectId();
     when(roleRepository.findById(missingRoleId)).thenReturn(Optional.empty());
 
     TenantRoleAssignmentRequest assignment = new TenantRoleAssignmentRequest();
-    assignment.setTenantId(acme.getIdAsString());
+    assignment.setTenantId(acme.getId());
     assignment.setRoleIds(List.of(missingRoleId.toHexString()));
     AssignTenantRolesRequest request = new AssignTenantRolesRequest();
     request.setTenantAssignments(List.of(assignment));

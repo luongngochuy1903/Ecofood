@@ -3,7 +3,7 @@ package com.ecofood.app.userACL.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
-import com.ecofood.app.common.service.UserAccessService.UserAccessClaims;
+import com.ecofood.core.service.UserAccessService.UserAccessClaims;
 import com.ecofood.app.userACL.entity.GroupRole;
 import com.ecofood.app.userACL.entity.RolePermission;
 import com.ecofood.app.userACL.entity.RoleType;

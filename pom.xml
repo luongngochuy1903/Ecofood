@@ -33,16 +33,11 @@
 		<nimbus-jose-jwt.version>10.0.1</nimbus-jose-jwt.version>
 	</properties>
 	<dependencies>
-		<!-- Commented out: pulled in only by the now-deleted dead-scaffold
-		     DumpCallCoreServiceImpl, and resolving it requires GitHub Packages
-		     credentials this environment doesn't have — was blocking the
-		     entire build from compiling.
 		<dependency>
 			<groupId>com.ecofood</groupId>
 			<artifactId>core</artifactId>
-			<version>1.0.2</version>
+			<version>1.0.3-SNAPSHOT</version>
 		</dependency>
-		-->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-mongodb</artifactId>
@@ -145,8 +140,6 @@
 
 	</dependencies>
 
-	<!-- Commented out along with the com.ecofood:core dependency above —
-	     see that comment for why.
 	<repositories>
 		<repository>
 			<id>github</id>
@@ -156,7 +149,6 @@
 			</url>
 		</repository>
 	</repositories>
-	-->
 
 	<build>
 		<plugins>

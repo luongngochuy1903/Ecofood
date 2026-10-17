@@ -1,24 +1,24 @@
 package com.ecofood.app.userACL.service;
 
-import com.ecofood.app.common.client.CoreEnterpriseQueryClient;
-import com.ecofood.app.common.client.CoreTenantQueryClient;
-import com.ecofood.app.common.dto.AssignTenantRolesRequest;
-import com.ecofood.app.common.dto.AssignTenantRolesResponse;
-import com.ecofood.app.common.dto.TenantAssignmentRequest;
-import com.ecofood.app.common.dto.TenantAssignmentResponse;
-import com.ecofood.app.common.dto.TenantRoleAssignmentRequest;
-import com.ecofood.app.common.dto.TenantRoleAssignmentResult;
-import com.ecofood.app.common.dto.UserCreateRequest;
-import com.ecofood.app.common.dto.UserResponse;
-import com.ecofood.app.common.service.UserService;
-import com.ecofood.app.enterprise.entity.EnterpriseEntity;
-import com.ecofood.app.tenant.entity.TenantEntity;
+import com.ecofood.core.client.CoreEnterpriseQueryClient;
+import com.ecofood.core.client.CoreTenantQueryClient;
+import com.ecofood.core.dto.AssignTenantRolesRequest;
+import com.ecofood.core.dto.AssignTenantRolesResponse;
+import com.ecofood.core.dto.EnterpriseResponse;
+import com.ecofood.core.dto.TenantAssignmentRequest;
+import com.ecofood.core.dto.TenantAssignmentResponse;
+import com.ecofood.core.dto.TenantResponse;
+import com.ecofood.core.dto.TenantRoleAssignmentRequest;
+import com.ecofood.core.dto.TenantRoleAssignmentResult;
+import com.ecofood.core.dto.UserCreateRequest;
+import com.ecofood.core.dto.UserResponse;
+import com.ecofood.core.service.UserService;
 import com.ecofood.app.tenant.service.TenantKeycloakService;
 import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
-import com.ecofood.app.userACL.entity.RelationshipTypeEnum;
+import com.ecofood.core.enums.RelationshipTypeEnum;
 import com.ecofood.app.userACL.entity.Role;
 import com.ecofood.app.userACL.entity.UserCategory;
-import com.ecofood.app.userACL.entity.UserCategoryEnum;
+import com.ecofood.core.enums.UserCategoryEnum;
 import com.ecofood.app.userACL.entity.UserEntity;
 import com.ecofood.app.userACL.entity.UserRole;
 import com.ecofood.app.userACL.repository.RoleRepository;
@@ -108,7 +108,7 @@ public class UserServiceImpl implements UserService {
         continue;
       }
 
-      TenantEntity tenant = tenantQueryClient.getById(assignment.getTenantId());
+      TenantResponse tenant = tenantQueryClient.getById(assignment.getTenantId());
 
       RelationshipTypeEnum relationshipType =
           assignment.getRelationshipTypeCode() != null ? assignment.getRelationshipTypeCode() : RelationshipTypeEnum.TENANT;
@@ -119,8 +119,7 @@ public class UserServiceImpl implements UserService {
         // only Keycloak identity. Every other assignment below stays a pure
         // authorization record with no Keycloak login of its own.
         RealmResource realmResource = tenantKeycloakService.realm(tenant.getRealm());
-        externalLoginId =
-            userKeycloakService.createUser(realmResource, buildKeycloakUser(user, tenant.getIdAsString()));
+        externalLoginId = userKeycloakService.createUser(realmResource, buildKeycloakUser(user, tenant.getId()));
         userKeycloakService.sendVerifyEmail(realmResource, externalLoginId);
         user.setExternalLoginId(externalLoginId);
       }
@@ -133,18 +132,18 @@ public class UserServiceImpl implements UserService {
       // discriminated by RelationshipTypeEnum.ENTERPRISE. Deduped by
       // enterprise id so multiple tenant assignments under the same
       // enterprise don't produce duplicate relations.
-      if (tenant.getEnterpriseId() != null && seenEnterpriseIds.add(tenant.getEnterpriseIdAsString())) {
-        relations.add(buildEnterpriseRelation(enterpriseQueryClient.getById(tenant.getEnterpriseIdAsString())));
+      if (tenant.getEnterpriseId() != null && seenEnterpriseIds.add(tenant.getEnterpriseId())) {
+        relations.add(buildEnterpriseRelation(enterpriseQueryClient.getById(tenant.getEnterpriseId())));
       }
 
       List<String> roleCodes =
           assignment.getRoleIds() != null && !assignment.getRoleIds().isEmpty()
-              ? resolveRoles(user.getId(), tenant.getId(), assignment.getRoleIds())
+              ? resolveRoles(user.getId(), new ObjectId(tenant.getId()), assignment.getRoleIds())
               : List.of();
 
       assignmentResponses.add(
           TenantAssignmentResponse.builder()
-              .tenantId(tenant.getIdAsString())
+              .tenantId(tenant.getId())
               .relationshipTypeCode(relationshipType.getCode())
               .externalLoginId(externalLoginId)
               .roleCodes(roleCodes)
@@ -188,13 +187,13 @@ public class UserServiceImpl implements UserService {
     List<TenantRoleAssignmentResult> results = new ArrayList<>();
 
     for (TenantRoleAssignmentRequest assignment : request.getTenantAssignments()) {
-      TenantEntity tenant = tenantQueryClient.getById(assignment.getTenantId());
+      TenantResponse tenant = tenantQueryClient.getById(assignment.getTenantId());
 
       RelationshipTypeEnum relationshipType =
           assignment.getRelationshipTypeCode() != null ? assignment.getRelationshipTypeCode() : RelationshipTypeEnum.TENANT;
 
       boolean alreadyAssigned =
-          relations.stream().anyMatch(relation -> tenant.getId().equals(relation.getToPartyId()));
+          relations.stream().anyMatch(relation -> tenant.getId().equals(relation.getToPartyId().toHexString()));
       if (!alreadyAssigned) {
         relations.add(buildRelation(tenant, relationshipType));
       }
@@ -207,16 +206,17 @@ public class UserServiceImpl implements UserService {
       // doesn't get a duplicate.
       if (tenant.getEnterpriseId() != null) {
         boolean alreadyLinkedToEnterprise =
-            relations.stream().anyMatch(relation -> tenant.getEnterpriseId().equals(relation.getToPartyId()));
+            relations.stream()
+                .anyMatch(relation -> tenant.getEnterpriseId().equals(relation.getToPartyId().toHexString()));
         if (!alreadyLinkedToEnterprise) {
-          relations.add(buildEnterpriseRelation(enterpriseQueryClient.getById(tenant.getEnterpriseIdAsString())));
+          relations.add(buildEnterpriseRelation(enterpriseQueryClient.getById(tenant.getEnterpriseId())));
         }
       }
 
-      List<String> roleCodes = resolveRoles(user.getId(), tenant.getId(), assignment.getRoleIds());
+      List<String> roleCodes = resolveRoles(user.getId(), new ObjectId(tenant.getId()), assignment.getRoleIds());
       results.add(
           TenantRoleAssignmentResult.builder()
-              .tenantId(tenant.getIdAsString())
+              .tenantId(tenant.getId())
               .relationshipTypeCode(relationshipType.getCode())
               .roleCodes(roleCodes)
               .build());
@@ -264,20 +264,20 @@ public class UserServiceImpl implements UserService {
     return userRole.getRoles().stream().map(UserRole.EmbeddedRole::getCode).toList();
   }
 
-  private PartyToPartyRelationship buildRelation(TenantEntity tenant, RelationshipTypeEnum relationshipType) {
+  private PartyToPartyRelationship buildRelation(TenantResponse tenant, RelationshipTypeEnum relationshipType) {
     return PartyToPartyRelationship.builder()
-        .toPartyId(tenant.getId())
+        .toPartyId(new ObjectId(tenant.getId()))
         .relationshipTypeCode(relationshipType.getCode())
         .relationshipReferenceName(tenant.getTenantName())
         .build();
   }
 
-  private PartyToPartyRelationship buildEnterpriseRelation(EnterpriseEntity enterprise) {
+  private PartyToPartyRelationship buildEnterpriseRelation(EnterpriseResponse enterprise) {
     return PartyToPartyRelationship.builder()
-        .toPartyId(enterprise.getId())
+        .toPartyId(new ObjectId(enterprise.getEnterpriseId()))
         .relationshipTypeCode(RelationshipTypeEnum.ENTERPRISE.getCode())
         .relationshipTypeDecription(RelationshipTypeEnum.ENTERPRISE.getDescription())
-        .relationshipReferenceName(enterprise.getPartyName())
+        .relationshipReferenceName(enterprise.getEnterpriseCompanyName())
         .build();
   }
 

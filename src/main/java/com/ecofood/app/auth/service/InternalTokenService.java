@@ -1,12 +1,12 @@
 package com.ecofood.app.auth.service;
 
-import com.ecofood.app.common.client.CoreTenantQueryClient;
-import com.ecofood.app.common.client.CoreUserAccessClient;
-import com.ecofood.app.common.client.CoreUserQueryClient;
-import com.ecofood.app.common.service.UserAccessService.UserAccessClaims;
-import com.ecofood.app.tenant.entity.TenantEntity;
-import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
-import com.ecofood.app.userACL.entity.UserEntity;
+import com.ecofood.core.client.CoreTenantQueryClient;
+import com.ecofood.core.client.CoreUserAccessClient;
+import com.ecofood.core.client.CoreUserQueryClient;
+import com.ecofood.core.dto.PartyRelationshipResponse;
+import com.ecofood.core.dto.TenantResponse;
+import com.ecofood.core.dto.UserQueryResponse;
+import com.ecofood.core.service.UserAccessService.UserAccessClaims;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 import javax.crypto.SecretKey;
 import lombok.RequiredArgsConstructor;
+import org.bson.types.ObjectId;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -46,10 +47,11 @@ import org.springframework.stereotype.Service;
  *    user-to-group link (confirmed by reading Service_SecurityManagement's
  *    UserRoleUtils.createTenantRoleResult directly).
  *  - location/userCategories/customerCategories are omitted entirely rather
- *    than fabricated — TenantEntity/UserEntity have no corresponding fields.
- *  - tenantCode is mapped from TenantEntity.realm (our closest stable
- *    tenant-slug concept) and "code" from UserEntity.username — DCMP has
- *    dedicated fields for both that this project doesn't.
+ *    than fabricated — the underlying tenant/user entities have no
+ *    corresponding fields.
+ *  - tenantCode is mapped from TenantResponse.realm (our closest stable
+ *    tenant-slug concept) and "code" from UserQueryResponse.username — DCMP
+ *    has dedicated fields for both that this project doesn't.
  *  - a tokenType claim is kept (DCMP's real tokens have none — DCMP instead
  *    cross-checks a refresh token's jti against its paired access token's
  *    jti in validateRefreshToken) because this app's already-built refresh
@@ -107,9 +109,9 @@ public class InternalTokenService {
    * controller stays a thin HTTP-mapping layer.
    */
   public TokenPair mintTokenPairForKeycloakLogin(String username, String realm) {
-    UserEntity user = userQueryClient.getByUsername(username);
-    TenantEntity tenant = tenantQueryClient.getByRealm(realm);
-    return mintTokenPair(user.getIdAsString(), tenant.getIdAsString());
+    UserQueryResponse user = userQueryClient.getByUsername(username);
+    TenantResponse tenant = tenantQueryClient.getByRealm(realm);
+    return mintTokenPair(user.getId(), tenant.getId());
   }
 
   /**
@@ -121,11 +123,11 @@ public class InternalTokenService {
    * member of the realm they just logged into.
    */
   public TokenPair mintTokenPair(String userId, String tenantId) {
-    UserEntity user = userQueryClient.getById(userId);
-    TenantEntity tenant = tenantQueryClient.getById(tenantId);
-    PartyToPartyRelationship relation =
+    UserQueryResponse user = userQueryClient.getById(userId);
+    TenantResponse tenant = tenantQueryClient.getById(tenantId);
+    PartyRelationshipResponse relation =
         user.getPartyRelationships().stream()
-            .filter(r -> tenantId.equals(r.getToPartyId().toHexString()))
+            .filter(r -> tenantId.equals(r.getToPartyId()))
             .findFirst()
             .orElseThrow(
                 () -> new IllegalArgumentException("User " + userId + " has no assignment to tenant " + tenantId));
@@ -133,7 +135,7 @@ public class InternalTokenService {
     String jti = UUID.randomUUID().toString();
     Map<String, Object> baseClaims = buildBaseClaims(user, tenant);
 
-    UserAccessClaims access = userAccessClient.resolveAccess(user.getId(), tenant.getId());
+    UserAccessClaims access = userAccessClient.resolveAccess(new ObjectId(user.getId()), new ObjectId(tenant.getId()));
 
     Map<String, Object> accessClaims = new HashMap<>(baseClaims);
     accessClaims.put(CLAIM_ROLES, access.roles());
@@ -144,8 +146,8 @@ public class InternalTokenService {
     Map<String, Object> refreshClaims = new HashMap<>(baseClaims);
     refreshClaims.put(CLAIM_TOKEN_TYPE, TOKEN_TYPE_REFRESH);
 
-    String accessToken = sign(jti, user.getIdAsString(), accessClaims, tokenValidityInSeconds);
-    String refreshToken = sign(jti, user.getIdAsString(), refreshClaims, refreshTokenValidityInSeconds);
+    String accessToken = sign(jti, user.getId(), accessClaims, tokenValidityInSeconds);
+    String refreshToken = sign(jti, user.getId(), refreshClaims, refreshTokenValidityInSeconds);
     return new TokenPair(accessToken, refreshToken);
   }
 
@@ -160,10 +162,10 @@ public class InternalTokenService {
     return mintTokenPair(refreshClaims.getSubject(), tenantId);
   }
 
-  private Map<String, Object> buildBaseClaims(UserEntity user, TenantEntity tenant) {
+  private Map<String, Object> buildBaseClaims(UserQueryResponse user, TenantResponse tenant) {
     Map<String, Object> claims = new HashMap<>();
     claims.put(CLAIM_EMAIL, user.getEmail());
-    claims.put(CLAIM_TENANT_ID, tenant.getIdAsString());
+    claims.put(CLAIM_TENANT_ID, tenant.getId());
     claims.put(CLAIM_TENANT_CODE, tenant.getRealm());
     claims.put(CLAIM_ISS, issuer);
     claims.put(CLAIM_AUD, audience);

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
+import com.ecofood.core.dto.EnterpriseResponse;
 import com.ecofood.app.enterprise.entity.EnterpriseEntity;
 import com.ecofood.app.enterprise.repository.EnterpriseRepository;
 import java.util.Optional;
@@ -21,16 +22,17 @@ class EnterpriseQueryServiceImplTest {
   private EnterpriseQueryServiceImpl enterpriseQueryService;
 
   @Test
-  void returnsTheEntityWhenFound() {
+  void returnsTheDtoWhenFound() {
     enterpriseQueryService = new EnterpriseQueryServiceImpl(enterpriseRepository);
     EnterpriseEntity enterprise = EnterpriseEntity.builder().partyName("Acme Co").build();
     ObjectId id = new ObjectId();
     enterprise.setId(id);
     when(enterpriseRepository.findById(id)).thenReturn(Optional.of(enterprise));
 
-    EnterpriseEntity result = enterpriseQueryService.getById(id.toHexString());
+    EnterpriseResponse result = enterpriseQueryService.getById(id.toHexString());
 
-    assertThat(result.getPartyName()).isEqualTo("Acme Co");
+    assertThat(result.getEnterpriseCompanyName()).isEqualTo("Acme Co");
+    assertThat(result.getEnterpriseId()).isEqualTo(id.toHexString());
   }
 
   @Test

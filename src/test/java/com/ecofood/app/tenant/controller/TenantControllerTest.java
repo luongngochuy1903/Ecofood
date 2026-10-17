@@ -7,9 +7,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.ecofood.app.common.dto.TenantOnboardResponse;
-import com.ecofood.app.common.dto.UserResponse;
-import com.ecofood.app.common.service.TenantService;
+import com.ecofood.core.dto.TenantOnboardResponse;
+import com.ecofood.core.dto.UserResponse;
+import com.ecofood.core.service.TenantService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

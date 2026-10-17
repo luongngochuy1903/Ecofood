@@ -1,6 +1,7 @@
 package com.ecofood.app.tenant.service;
 
-import com.ecofood.app.common.service.TenantQueryService;
+import com.ecofood.core.dto.TenantResponse;
+import com.ecofood.core.service.TenantQueryService;
 import com.ecofood.app.tenant.entity.TenantEntity;
 import com.ecofood.app.tenant.repository.TenantRepository;
 import lombok.RequiredArgsConstructor;
@@ -22,16 +23,28 @@ public class TenantQueryServiceImpl implements TenantQueryService {
   private final TenantRepository tenantRepository;
 
   @Override
-  public TenantEntity getById(String tenantId) {
-    return tenantRepository
-        .findById(new ObjectId(tenantId))
-        .orElseThrow(() -> new IllegalArgumentException("Tenant not found: " + tenantId));
+  public TenantResponse getById(String tenantId) {
+    return toResponse(
+        tenantRepository
+            .findById(new ObjectId(tenantId))
+            .orElseThrow(() -> new IllegalArgumentException("Tenant not found: " + tenantId)));
   }
 
   @Override
-  public TenantEntity getByRealm(String realm) {
-    return tenantRepository
-        .findByRealm(realm)
-        .orElseThrow(() -> new IllegalArgumentException("No tenant found for realm=" + realm));
+  public TenantResponse getByRealm(String realm) {
+    return toResponse(
+        tenantRepository
+            .findByRealm(realm)
+            .orElseThrow(() -> new IllegalArgumentException("No tenant found for realm=" + realm)));
+  }
+
+  private TenantResponse toResponse(TenantEntity tenant) {
+    return TenantResponse.builder()
+        .id(tenant.getIdAsString())
+        .tenantName(tenant.getTenantName())
+        .realm(tenant.getRealm())
+        .clientId(tenant.getClientId())
+        .enterpriseId(tenant.getEnterpriseIdAsString())
+        .build();
   }
 }

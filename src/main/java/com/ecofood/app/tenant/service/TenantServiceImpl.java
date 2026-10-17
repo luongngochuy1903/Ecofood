@@ -1,25 +1,26 @@
 package com.ecofood.app.tenant.service;
 
-import com.ecofood.app.common.client.CoreEnterpriseClient;
-import com.ecofood.app.common.client.CoreUserClient;
-import com.ecofood.app.common.client.CoreUserRoleAssignmentClient;
-import com.ecofood.app.common.dto.EnterpriseCreateRequest;
-import com.ecofood.app.common.dto.EnterpriseResponse;
-import com.ecofood.app.common.dto.TenantAssignmentRequest;
-import com.ecofood.app.common.dto.TenantOnboardRequest;
-import com.ecofood.app.common.dto.TenantOnboardResponse;
-import com.ecofood.app.common.dto.TenantPartyRelationshipRequest;
-import com.ecofood.app.common.dto.UserCreateRequest;
-import com.ecofood.app.common.dto.UserResponse;
-import com.ecofood.app.common.service.SequenceGeneratorService;
-import com.ecofood.app.common.service.TenantService;
-import com.ecofood.app.common.util.FormatCode;
+import com.ecofood.core.client.CoreEnterpriseClient;
+import com.ecofood.core.client.CoreUserClient;
+import com.ecofood.core.client.CoreUserRoleAssignmentClient;
+import com.ecofood.core.dto.EnterpriseCreateRequest;
+import com.ecofood.core.dto.EnterpriseResponse;
+import com.ecofood.core.dto.TenantAssignmentRequest;
+import com.ecofood.core.dto.TenantOnboardRequest;
+import com.ecofood.core.dto.TenantOnboardResponse;
+import com.ecofood.core.dto.TenantPartyRelationshipRequest;
+import com.ecofood.core.dto.TenantResponse;
+import com.ecofood.core.dto.UserCreateRequest;
+import com.ecofood.core.dto.UserResponse;
+import com.ecofood.core.service.SequenceGeneratorService;
+import com.ecofood.core.service.TenantService;
+import com.ecofood.core.util.FormatCode;
 import com.ecofood.app.tenant.entity.PartnerType;
 import com.ecofood.app.tenant.entity.TenantEntity;
 import com.ecofood.app.tenant.repository.TenantRepository;
-import com.ecofood.app.userACL.entity.PartnerTypeEnum;
+import com.ecofood.core.enums.PartnerTypeEnum;
 import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
-import com.ecofood.app.userACL.entity.RelationshipTypeEnum;
+import com.ecofood.core.enums.RelationshipTypeEnum;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -186,10 +187,18 @@ public class TenantServiceImpl implements TenantService {
   }
 
   @Override
-  public TenantEntity getById(String tenantId) {
-    return tenantRepository
-        .findById(new ObjectId(tenantId))
-        .orElseThrow(() -> new IllegalArgumentException("Tenant not found: " + tenantId));
+  public TenantResponse getById(String tenantId) {
+    TenantEntity tenant =
+        tenantRepository
+            .findById(new ObjectId(tenantId))
+            .orElseThrow(() -> new IllegalArgumentException("Tenant not found: " + tenantId));
+    return TenantResponse.builder()
+        .id(tenant.getIdAsString())
+        .tenantName(tenant.getTenantName())
+        .realm(tenant.getRealm())
+        .clientId(tenant.getClientId())
+        .enterpriseId(tenant.getEnterpriseIdAsString())
+        .build();
   }
 
   /** Realm's internal id is left unset — Keycloak auto-generates it, fully decoupled from our own Mongo tenant id (see onboardTenant's comment). */

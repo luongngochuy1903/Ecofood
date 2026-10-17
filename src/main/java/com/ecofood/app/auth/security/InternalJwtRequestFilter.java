@@ -1,7 +1,7 @@
 package com.ecofood.app.auth.security;
 
 import com.ecofood.app.auth.service.InternalTokenService;
-import com.ecofood.app.common.security.AuthenticationContext;
+import com.ecofood.core.security.AuthenticationContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;

@@ -9,13 +9,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ecofood.app.auth.service.InternalTokenService.TokenPair;
-import com.ecofood.app.common.client.CoreTenantQueryClient;
-import com.ecofood.app.common.client.CoreUserAccessClient;
-import com.ecofood.app.common.client.CoreUserQueryClient;
-import com.ecofood.app.common.service.UserAccessService.UserAccessClaims;
-import com.ecofood.app.tenant.entity.TenantEntity;
-import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
-import com.ecofood.app.userACL.entity.UserEntity;
+import com.ecofood.core.client.CoreTenantQueryClient;
+import com.ecofood.core.client.CoreUserAccessClient;
+import com.ecofood.core.client.CoreUserQueryClient;
+import com.ecofood.core.dto.PartyRelationshipResponse;
+import com.ecofood.core.dto.TenantResponse;
+import com.ecofood.core.dto.UserQueryResponse;
+import com.ecofood.core.service.UserAccessService.UserAccessClaims;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import java.util.List;
@@ -42,8 +42,8 @@ class InternalTokenServiceTest {
 
   private ObjectId userId;
   private ObjectId tenantId;
-  private UserEntity user;
-  private TenantEntity tenant;
+  private UserQueryResponse user;
+  private TenantResponse tenant;
 
   @BeforeEach
   void setUp() {
@@ -57,12 +57,20 @@ class InternalTokenServiceTest {
 
     userId = new ObjectId();
     tenantId = new ObjectId();
-    user = UserEntity.builder().username("jane.doe").email("jane@example.com").build();
-    user.setId(userId);
-    user.setPartyRelationships(
-        List.of(PartyToPartyRelationship.builder().toPartyId(tenantId).relationshipTypeCode("TENANT").build()));
-    tenant = TenantEntity.builder().realm("acme-realm").clientId("acme-client").build();
-    tenant.setId(tenantId);
+    user =
+        UserQueryResponse.builder()
+            .id(userId.toHexString())
+            .username("jane.doe")
+            .email("jane@example.com")
+            .partyRelationships(
+                List.of(
+                    PartyRelationshipResponse.builder()
+                        .toPartyId(tenantId.toHexString())
+                        .relationshipTypeCode("TENANT")
+                        .build()))
+            .build();
+    tenant =
+        TenantResponse.builder().id(tenantId.toHexString()).realm("acme-realm").clientId("acme-client").build();
   }
 
   private void stubLookups() {
@@ -128,7 +136,7 @@ class InternalTokenServiceTest {
     ObjectId otherTenantId = new ObjectId();
     when(userQueryClient.getById(userId.toHexString())).thenReturn(user);
     when(tenantQueryClient.getById(otherTenantId.toHexString()))
-        .thenReturn(TenantEntity.builder().build());
+        .thenReturn(TenantResponse.builder().id(otherTenantId.toHexString()).build());
 
     assertThatThrownBy(() -> internalTokenService.mintTokenPair(userId.toHexString(), otherTenantId.toHexString()))
         .isInstanceOf(IllegalArgumentException.class)

@@ -152,6 +152,6 @@ class InternalJwtRequestFilterTest {
 
     filter.doFilter(request, response, filterChain);
 
-    assertThat(com.ecofood.app.common.security.AuthenticationContext.getToken()).isNull();
+    assertThat(com.ecofood.core.security.AuthenticationContext.getToken()).isNull();
   }
 }

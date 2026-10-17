@@ -1,12 +1,12 @@
 package com.ecofood.app.enterprise.service;
 
-import com.ecofood.app.common.dto.EnterpriseCommunicationDetailRequest;
-import com.ecofood.app.common.dto.EnterpriseCommunicationRequest;
-import com.ecofood.app.common.dto.EnterpriseContactRequest;
-import com.ecofood.app.common.dto.EnterpriseCreateRequest;
-import com.ecofood.app.common.dto.EnterpriseResponse;
-import com.ecofood.app.common.entity.PartyStatus;
-import com.ecofood.app.common.service.EnterpriseService;
+import com.ecofood.core.dto.EnterpriseCommunicationDetailRequest;
+import com.ecofood.core.dto.EnterpriseCommunicationRequest;
+import com.ecofood.core.dto.EnterpriseContactRequest;
+import com.ecofood.core.dto.EnterpriseCreateRequest;
+import com.ecofood.core.dto.EnterpriseResponse;
+import com.ecofood.core.entity.PartyStatus;
+import com.ecofood.core.service.EnterpriseService;
 import com.ecofood.app.enterprise.entity.Communication;
 import com.ecofood.app.enterprise.entity.CommunicationDetail;
 import com.ecofood.app.enterprise.entity.Contact;
@@ -14,7 +14,7 @@ import com.ecofood.app.enterprise.entity.EnterpriseCategory;
 import com.ecofood.app.enterprise.entity.EnterpriseEntity;
 import com.ecofood.app.enterprise.repository.EnterpriseRepository;
 import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
-import com.ecofood.app.userACL.entity.RelationshipTypeEnum;
+import com.ecofood.core.enums.RelationshipTypeEnum;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;

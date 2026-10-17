@@ -1,6 +1,6 @@
 package com.ecofood.app.userACL.entity;
 
-import com.ecofood.app.common.entity.BaseEntity;
+import com.ecofood.core.entity.BaseEntity;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;

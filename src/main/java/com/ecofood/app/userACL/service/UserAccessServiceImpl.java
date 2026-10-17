@@ -1,6 +1,6 @@
 package com.ecofood.app.userACL.service;
 
-import com.ecofood.app.common.service.UserAccessService;
+import com.ecofood.core.service.UserAccessService;
 import com.ecofood.app.userACL.entity.GroupRole;
 import com.ecofood.app.userACL.entity.RolePermission;
 import com.ecofood.app.userACL.entity.UserRole;

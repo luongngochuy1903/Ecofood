@@ -7,7 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.ecofood.app.userACL.entity.PartnerTypeEnum;
+import com.ecofood.core.enums.PartnerTypeEnum;
 import com.ecofood.app.userACL.entity.Role;
 import com.ecofood.app.userACL.entity.UserRole;
 import com.ecofood.app.userACL.repository.RoleRepository;
