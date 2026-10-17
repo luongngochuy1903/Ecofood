@@ -10,6 +10,7 @@ public class DumpCallCoreServiceImpl {
     private final DumpServiceImpl dumpService;
 
     public String callDump(){
+        System.out.println("hello hii");
         return dumpService.printScreen();
     }
 }
