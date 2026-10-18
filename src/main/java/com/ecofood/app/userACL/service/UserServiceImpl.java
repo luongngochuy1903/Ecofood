@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
 import org.keycloak.admin.client.resource.RealmResource;
 import org.keycloak.representations.idm.UserRepresentation;
@@ -60,6 +61,7 @@ import org.springframework.stereotype.Service;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class UserServiceImpl implements UserService {
 
   private static final String REQUIRED_ACTION_VERIFY_EMAIL = "VERIFY_EMAIL";
@@ -120,7 +122,14 @@ public class UserServiceImpl implements UserService {
         // authorization record with no Keycloak login of its own.
         RealmResource realmResource = tenantKeycloakService.realm(tenant.getRealm());
         externalLoginId = userKeycloakService.createUser(realmResource, buildKeycloakUser(user, tenant.getId()));
-        userKeycloakService.sendVerifyEmail(realmResource, externalLoginId);
+        // Email delivery (e.g. unconfigured/misconfigured SMTP) is a
+        // separate concern from account creation — don't fail the whole
+        // request just because the welcome/verify-email couldn't be sent.
+        try {
+          userKeycloakService.sendVerifyEmail(realmResource, externalLoginId);
+        } catch (RuntimeException ex) {
+          log.warn("Failed to send verify email for Keycloak user {}: {}", externalLoginId, ex.getMessage());
+        }
         user.setExternalLoginId(externalLoginId);
       }
 

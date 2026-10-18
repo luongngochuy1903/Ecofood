@@ -48,7 +48,13 @@ public class SecurityConfig {
                         "/api/v1/groups/**",
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
-                        "/swagger-ui.html")
+                        "/swagger-ui.html",
+                        // Spring Security also guards the internal forward Spring
+                        // Boot makes to /error after an unhandled exception —
+                        // without this, a genuine 500 from a permitAll endpoint
+                        // above gets masked by this filter chain's own 401 on
+                        // that forwarded request instead of the real status.
+                        "/error")
                     .permitAll()
                     .anyRequest()
                     .authenticated())
