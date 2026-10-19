@@ -329,6 +329,45 @@ class UserServiceImplTest {
         .hasMessageContaining(missingUserId.toHexString());
   }
 
+  // --------------------------------------------------------- getEligibleTenants
+
+  @Test
+  void getEligibleTenantsReturnsOnlyTheTenantRelationshipsNeverEnterprise() {
+    ObjectId userId = new ObjectId();
+    TenantResponse acme = tenant("Acme", null);
+    UserEntity user = UserEntity.builder().username("jane.doe").build();
+    user.setId(userId);
+    user.setPartyRelationships(
+        List.of(
+            PartyToPartyRelationship.builder()
+                .toPartyId(new ObjectId(acme.getId()))
+                .relationshipTypeCode("TENANT")
+                .build(),
+            PartyToPartyRelationship.builder()
+                .toPartyId(new ObjectId())
+                .relationshipTypeCode("ENTERPRISE")
+                .build()));
+    when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+    when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
+
+    List<com.ecofood.core.dto.EligibleTenantResponse> result = userService.getEligibleTenants(userId.toHexString());
+
+    assertThat(result).hasSize(1);
+    assertThat(result.get(0).getTenantId()).isEqualTo(acme.getId());
+    assertThat(result.get(0).getTenantName()).isEqualTo(acme.getTenantName());
+    assertThat(result.get(0).getTenantCode()).isEqualTo(acme.getRealm());
+  }
+
+  @Test
+  void getEligibleTenantsThrowsWhenUserDoesNotExist() {
+    ObjectId missingUserId = new ObjectId();
+    when(userRepository.findById(missingUserId)).thenReturn(Optional.empty());
+
+    assertThatThrownBy(() -> userService.getEligibleTenants(missingUserId.toHexString()))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining(missingUserId.toHexString());
+  }
+
   // -------------------------------------------------------------- resolveRoles
 
   @Test

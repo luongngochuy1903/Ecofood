@@ -9,4 +9,7 @@ public interface TenantRepository extends MongoRepository<TenantEntity, ObjectId
 
   /** Resolves a Keycloak token's issuing realm back to the tenant that owns it. */
   Optional<TenantEntity> findByRealm(String realm);
+
+  /** Resolves a frontend-supplied "domain" (hostname, or a dev stand-in) back to its tenant. */
+  Optional<TenantEntity> findByDomainUrl(String domainUrl);
 }

@@ -3,10 +3,12 @@ package com.ecofood.app.tenant.controller;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.ecofood.core.dto.TenantLoginInfoResponse;
 import com.ecofood.core.dto.TenantOnboardResponse;
 import com.ecofood.core.dto.UserResponse;
 import com.ecofood.core.service.TenantService;
@@ -90,5 +92,28 @@ class TenantControllerTest {
     mockMvc
         .perform(post("/api/v1/tenants").contentType(MediaType.APPLICATION_JSON).content(body))
         .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void getLoginInfoReturns200WithTheServiceResponse() throws Exception {
+    when(tenantService.getLoginInfoByDomain("acme.ecofood.local"))
+        .thenReturn(
+            TenantLoginInfoResponse.builder()
+                .domain("acme.ecofood.local")
+                .realm("acme-foods-671f1a2b")
+                .clientId("671f1a2b3c4d5e6f7a8b9c0d-public")
+                .tenantId("671f1a2b3c4d5e6f7a8b9c0d")
+                .build());
+
+    mockMvc
+        .perform(get("/api/v1/tenants/login-info").param("domain", "acme.ecofood.local"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.realm", is("acme-foods-671f1a2b")))
+        .andExpect(jsonPath("$.clientId", is("671f1a2b3c4d5e6f7a8b9c0d-public")));
+  }
+
+  @Test
+  void getLoginInfoReturns400WhenDomainParamIsMissing() throws Exception {
+    mockMvc.perform(get("/api/v1/tenants/login-info")).andExpect(status().isBadRequest());
   }
 }

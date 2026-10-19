@@ -264,4 +264,28 @@ class TenantServiceImplTest {
 
     assertThatThrownBy(() -> tenantService.getById(id.toHexString())).isInstanceOf(IllegalArgumentException.class);
   }
+
+  @Test
+  void getLoginInfoByDomainReturnsRealmAndClientIdWhenFound() {
+    TenantEntity tenant = TenantEntity.builder().tenantName("Acme").realm("acme-realm").clientId("acme-client").build();
+    ObjectId id = new ObjectId();
+    tenant.setId(id);
+    when(tenantRepository.findByDomainUrl("acme.ecofood.local")).thenReturn(Optional.of(tenant));
+
+    var result = tenantService.getLoginInfoByDomain("acme.ecofood.local");
+
+    assertThat(result.getDomain()).isEqualTo("acme.ecofood.local");
+    assertThat(result.getRealm()).isEqualTo("acme-realm");
+    assertThat(result.getClientId()).isEqualTo("acme-client");
+    assertThat(result.getTenantId()).isEqualTo(id.toHexString());
+  }
+
+  @Test
+  void getLoginInfoByDomainThrowsWhenNotFound() {
+    when(tenantRepository.findByDomainUrl("missing.ecofood.local")).thenReturn(Optional.empty());
+
+    assertThatThrownBy(() -> tenantService.getLoginInfoByDomain("missing.ecofood.local"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("missing.ecofood.local");
+  }
 }

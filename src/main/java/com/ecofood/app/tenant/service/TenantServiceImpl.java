@@ -6,6 +6,7 @@ import com.ecofood.core.client.CoreUserRoleAssignmentClient;
 import com.ecofood.core.dto.EnterpriseCreateRequest;
 import com.ecofood.core.dto.EnterpriseResponse;
 import com.ecofood.core.dto.TenantAssignmentRequest;
+import com.ecofood.core.dto.TenantLoginInfoResponse;
 import com.ecofood.core.dto.TenantOnboardRequest;
 import com.ecofood.core.dto.TenantOnboardResponse;
 import com.ecofood.core.dto.TenantPartyRelationshipRequest;
@@ -198,6 +199,20 @@ public class TenantServiceImpl implements TenantService {
         .realm(tenant.getRealm())
         .clientId(tenant.getClientId())
         .enterpriseId(tenant.getEnterpriseIdAsString())
+        .build();
+  }
+
+  @Override
+  public TenantLoginInfoResponse getLoginInfoByDomain(String domain) {
+    TenantEntity tenant =
+        tenantRepository
+            .findByDomainUrl(domain)
+            .orElseThrow(() -> new IllegalArgumentException("No tenant found for domain=" + domain));
+    return TenantLoginInfoResponse.builder()
+        .domain(domain)
+        .realm(tenant.getRealm())
+        .clientId(tenant.getClientId())
+        .tenantId(tenant.getIdAsString())
         .build();
   }
 

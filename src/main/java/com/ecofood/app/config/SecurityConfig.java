@@ -66,7 +66,9 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-    configuration.setAllowedOrigins(List.of("http://localhost:3000"));
+    // 3000: the oke/frontend mockup's assumed port. 5173: Vite's actual
+    // default dev port, which EcoFood-FE runs on unless a port is pinned.
+    configuration.setAllowedOrigins(List.of("http://localhost:3000", "http://localhost:5173"));
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("Content-Type", "Authorization"));
 
