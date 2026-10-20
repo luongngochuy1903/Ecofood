@@ -4,9 +4,11 @@ import com.ecofood.app.auth.dto.ExchangeTokenRequest;
 import com.ecofood.app.auth.dto.ExchangeTokenResponse;
 import com.ecofood.app.auth.dto.LogoutRequest;
 import com.ecofood.app.auth.dto.RefreshTokenRequest;
+import com.ecofood.app.auth.dto.SwitchTenantRequest;
 import com.ecofood.app.auth.service.InternalTokenService;
 import com.ecofood.app.auth.service.InternalTokenService.TokenPair;
 import com.ecofood.app.auth.service.KeycloakTokenVerifier;
+import com.ecofood.core.security.AuthenticationContext;
 import com.nimbusds.jwt.JWTClaimsSet;
 import io.jsonwebtoken.Claims;
 import jakarta.validation.Valid;
@@ -86,6 +88,22 @@ public class AuthController {
     }
 
     TokenPair tokenPair = internalTokenService.mintTokenPair(claims);
+    return ResponseEntity.ok(new ExchangeTokenResponse(tokenPair.accessToken(), tokenPair.refreshToken(), null));
+  }
+
+  /** Re-mints the internal token pair for another tenant the caller belongs to; old pair stays valid. */
+  @PostMapping("/switch-tenant")
+  public ResponseEntity<?> switchTenant(@Valid @RequestBody SwitchTenantRequest request) {
+    String userId = AuthenticationContext.getUserId().toHexString();
+
+    TokenPair tokenPair;
+    try {
+      tokenPair = internalTokenService.mintTokenPair(userId, request.getTenantId());
+    } catch (IllegalArgumentException e) {
+      log.warn("Rejecting switch-tenant with 401: {}", e.getMessage());
+      return unauthorized();
+    }
+
     return ResponseEntity.ok(new ExchangeTokenResponse(tokenPair.accessToken(), tokenPair.refreshToken(), null));
   }
 

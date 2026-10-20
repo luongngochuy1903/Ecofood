@@ -38,12 +38,7 @@ public class UserController {
     return ResponseEntity.ok(userService.assignTenantRoles(userId, request));
   }
 
-  /**
-   * The tenant-switcher's data source — resolves the caller from the
-   * internal access token's subject claim (set by InternalJwtRequestFilter
-   * on every request carrying one), same as AuthenticationContext is used
-   * elsewhere (ACLService).
-   */
+  /** Resolves the caller from the internal access token's subject claim. */
   @GetMapping("/eligible-tenants")
   public ResponseEntity<List<EligibleTenantResponse>> getEligibleTenants() {
     String userId = AuthenticationContext.getUserId().toHexString();

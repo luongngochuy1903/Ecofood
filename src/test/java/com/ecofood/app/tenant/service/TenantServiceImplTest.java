@@ -59,6 +59,7 @@ class TenantServiceImplTest {
     // @Value fields — never populated outside a Spring context, so set
     // directly for this plain Mockito-based unit test.
     ReflectionTestUtils.setField(tenantService, "loginTheme", "app");
+    ReflectionTestUtils.setField(tenantService, "redirectScheme", "https");
     ReflectionTestUtils.setField(tenantService, "redirectUri", "http://localhost:3000/*");
     ReflectionTestUtils.setField(tenantService, "webOrigin", "http://localhost:3000");
     ReflectionTestUtils.setField(tenantService, "smtpHost", "mailpit");
@@ -131,6 +132,36 @@ class TenantServiceImplTest {
     ArgumentCaptor<TenantEntity> captor = ArgumentCaptor.forClass(TenantEntity.class);
     verify(tenantRepository, times(2)).save(captor.capture());
     assertThat(captor.getValue().getTenantCode()).isEqualTo("TE0042");
+  }
+
+  @Test
+  void buildsTheKeycloakClientsRedirectUriFromTheTenantsOwnDomainUrl() {
+    stubTenantSaveAssignsId();
+    stubKeycloakAndDownstreamCalls("tenant-public", new ObjectId().toHexString());
+
+    tenantService.onboardTenant(basicRequest(PartnerTypeEnum.ECOSYSTEM_PARTNER));
+
+    ArgumentCaptor<org.keycloak.representations.idm.ClientRepresentation> captor =
+        ArgumentCaptor.forClass(org.keycloak.representations.idm.ClientRepresentation.class);
+    verify(tenantKeycloakService).createClient(eq(realmResource), captor.capture());
+    assertThat(captor.getValue().getRedirectUris()).containsExactly("https://acmefoods.example.com/*");
+    assertThat(captor.getValue().getWebOrigins()).containsExactly("https://acmefoods.example.com");
+  }
+
+  @Test
+  void fallsBackToTheGlobalRedirectUriWhenTenantHasNoDomainUrl() {
+    stubTenantSaveAssignsId();
+    stubKeycloakAndDownstreamCalls("tenant-public", new ObjectId().toHexString());
+    TenantOnboardRequest request = basicRequest(PartnerTypeEnum.ECOSYSTEM_PARTNER);
+    request.setDomainUrl(null);
+
+    tenantService.onboardTenant(request);
+
+    ArgumentCaptor<org.keycloak.representations.idm.ClientRepresentation> captor =
+        ArgumentCaptor.forClass(org.keycloak.representations.idm.ClientRepresentation.class);
+    verify(tenantKeycloakService).createClient(eq(realmResource), captor.capture());
+    assertThat(captor.getValue().getRedirectUris()).containsExactly("http://localhost:3000/*");
+    assertThat(captor.getValue().getWebOrigins()).containsExactly("http://localhost:3000");
   }
 
   @Test

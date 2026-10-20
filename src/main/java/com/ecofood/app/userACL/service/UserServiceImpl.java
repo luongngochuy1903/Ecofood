@@ -238,11 +238,7 @@ public class UserServiceImpl implements UserService {
     return AssignTenantRolesResponse.builder().userId(userId).assignments(results).build();
   }
 
-  /**
-   * The tenant-switcher's source list — every tenant the user has a direct
-   * TENANT relationship to (never an ENTERPRISE relationship, which links a
-   * user to an enterprise record, not a tenant they can actually log into).
-   */
+  /** Tenants the user has a direct TENANT relationship to (never ENTERPRISE). */
   @Override
   public List<EligibleTenantResponse> getEligibleTenants(String userId) {
     UserEntity user =
@@ -259,6 +255,7 @@ public class UserServiceImpl implements UserService {
                     .tenantId(tenant.getId())
                     .tenantName(tenant.getTenantName())
                     .tenantCode(tenant.getRealm())
+                    .domainUrl(tenant.getDomainUrl())
                     .build())
         .toList();
   }

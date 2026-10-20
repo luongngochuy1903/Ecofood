@@ -61,9 +61,14 @@ public class TenantServiceImpl implements TenantService {
   @Value("${app.tenant.login-theme}")
   private String loginTheme;
 
+  @Value("${app.tenant.redirect-scheme}")
+  private String redirectScheme;
+
+  /** Fallback only — used when a tenant is onboarded with no domainUrl at all. */
   @Value("${app.tenant.redirect-uri}")
   private String redirectUri;
 
+  /** Fallback only — used when a tenant is onboarded with no domainUrl at all. */
   @Value("${app.tenant.web-origin}")
   private String webOrigin;
 
@@ -128,7 +133,7 @@ public class TenantServiceImpl implements TenantService {
     tenantKeycloakService.createRealm(buildRealm(realmName, request.getTenantName()));
 
     RealmResource realmResource = tenantKeycloakService.realm(realmName);
-    String clientId = tenantKeycloakService.createClient(realmResource, buildPublicClient(tenantId));
+    String clientId = tenantKeycloakService.createClient(realmResource, buildPublicClient(tenantId, request.getDomainUrl()));
     tenantKeycloakService.relaxUserProfile(realmResource);
 
     tenant.setRealm(realmName);
@@ -199,6 +204,7 @@ public class TenantServiceImpl implements TenantService {
         .realm(tenant.getRealm())
         .clientId(tenant.getClientId())
         .enterpriseId(tenant.getEnterpriseIdAsString())
+        .domainUrl(tenant.getDomainUrl())
         .build();
   }
 
@@ -258,9 +264,15 @@ public class TenantServiceImpl implements TenantService {
     return realm;
   }
 
-  private ClientRepresentation buildPublicClient(String tenantId) {
+  /** Derives redirectUri/webOrigins from the tenant's own domainUrl; falls back to the global defaults. */
+  private ClientRepresentation buildPublicClient(String tenantId, String domainUrl) {
     ClientRepresentation client = new ClientRepresentation();
     String clientId = tenantId + "-public";
+
+    String tenantRedirectUri =
+        domainUrl != null && !domainUrl.isBlank() ? redirectScheme + "://" + domainUrl + "/*" : redirectUri;
+    String tenantWebOrigin =
+        domainUrl != null && !domainUrl.isBlank() ? redirectScheme + "://" + domainUrl : webOrigin;
 
     client.setClientId(clientId);
     client.setName(clientId);
@@ -270,8 +282,8 @@ public class TenantServiceImpl implements TenantService {
     client.setStandardFlowEnabled(true);
     client.setDirectAccessGrantsEnabled(true);
     client.setAuthorizationServicesEnabled(false);
-    client.setRedirectUris(List.of(redirectUri));
-    client.setWebOrigins(List.of(webOrigin));
+    client.setRedirectUris(List.of(tenantRedirectUri));
+    client.setWebOrigins(List.of(tenantWebOrigin));
 
     Map<String, String> attributes = new LinkedHashMap<>();
     attributes.put("pkce.code.challenge.method", "S256");
