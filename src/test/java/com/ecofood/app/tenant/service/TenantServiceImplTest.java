@@ -59,6 +59,7 @@ class TenantServiceImplTest {
     // @Value fields — never populated outside a Spring context, so set
     // directly for this plain Mockito-based unit test.
     ReflectionTestUtils.setField(tenantService, "loginTheme", "app");
+    ReflectionTestUtils.setField(tenantService, "redirectScheme", "https");
     ReflectionTestUtils.setField(tenantService, "redirectUri", "http://localhost:3000/*");
     ReflectionTestUtils.setField(tenantService, "webOrigin", "http://localhost:3000");
     ReflectionTestUtils.setField(tenantService, "smtpHost", "mailpit");
@@ -131,6 +132,36 @@ class TenantServiceImplTest {
     ArgumentCaptor<TenantEntity> captor = ArgumentCaptor.forClass(TenantEntity.class);
     verify(tenantRepository, times(2)).save(captor.capture());
     assertThat(captor.getValue().getTenantCode()).isEqualTo("TE0042");
+  }
+
+  @Test
+  void buildsTheKeycloakClientsRedirectUriFromTheTenantsOwnDomainUrl() {
+    stubTenantSaveAssignsId();
+    stubKeycloakAndDownstreamCalls("tenant-public", new ObjectId().toHexString());
+
+    tenantService.onboardTenant(basicRequest(PartnerTypeEnum.ECOSYSTEM_PARTNER));
+
+    ArgumentCaptor<org.keycloak.representations.idm.ClientRepresentation> captor =
+        ArgumentCaptor.forClass(org.keycloak.representations.idm.ClientRepresentation.class);
+    verify(tenantKeycloakService).createClient(eq(realmResource), captor.capture());
+    assertThat(captor.getValue().getRedirectUris()).containsExactly("https://acmefoods.example.com/*");
+    assertThat(captor.getValue().getWebOrigins()).containsExactly("https://acmefoods.example.com");
+  }
+
+  @Test
+  void fallsBackToTheGlobalRedirectUriWhenTenantHasNoDomainUrl() {
+    stubTenantSaveAssignsId();
+    stubKeycloakAndDownstreamCalls("tenant-public", new ObjectId().toHexString());
+    TenantOnboardRequest request = basicRequest(PartnerTypeEnum.ECOSYSTEM_PARTNER);
+    request.setDomainUrl(null);
+
+    tenantService.onboardTenant(request);
+
+    ArgumentCaptor<org.keycloak.representations.idm.ClientRepresentation> captor =
+        ArgumentCaptor.forClass(org.keycloak.representations.idm.ClientRepresentation.class);
+    verify(tenantKeycloakService).createClient(eq(realmResource), captor.capture());
+    assertThat(captor.getValue().getRedirectUris()).containsExactly("http://localhost:3000/*");
+    assertThat(captor.getValue().getWebOrigins()).containsExactly("http://localhost:3000");
   }
 
   @Test
@@ -263,5 +294,29 @@ class TenantServiceImplTest {
     when(tenantRepository.findById(id)).thenReturn(Optional.empty());
 
     assertThatThrownBy(() -> tenantService.getById(id.toHexString())).isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void getLoginInfoByDomainReturnsRealmAndClientIdWhenFound() {
+    TenantEntity tenant = TenantEntity.builder().tenantName("Acme").realm("acme-realm").clientId("acme-client").build();
+    ObjectId id = new ObjectId();
+    tenant.setId(id);
+    when(tenantRepository.findByDomainUrl("acme.ecofood.local")).thenReturn(Optional.of(tenant));
+
+    var result = tenantService.getLoginInfoByDomain("acme.ecofood.local");
+
+    assertThat(result.getDomain()).isEqualTo("acme.ecofood.local");
+    assertThat(result.getRealm()).isEqualTo("acme-realm");
+    assertThat(result.getClientId()).isEqualTo("acme-client");
+    assertThat(result.getTenantId()).isEqualTo(id.toHexString());
+  }
+
+  @Test
+  void getLoginInfoByDomainThrowsWhenNotFound() {
+    when(tenantRepository.findByDomainUrl("missing.ecofood.local")).thenReturn(Optional.empty());
+
+    assertThatThrownBy(() -> tenantService.getLoginInfoByDomain("missing.ecofood.local"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("missing.ecofood.local");
   }
 }

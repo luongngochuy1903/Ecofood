@@ -16,15 +16,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-/**
- * Tenant onboarding, user creation, and the auth exchange/refresh/logout
- * endpoints are all either onboarding-time or auth-bootstrapping operations
- * with no internal token to present yet, so they stay open. Everything else
- * requires a valid internal access token, checked by InternalJwtRequestFilter
- * — this is what makes the auth module's token actually mean something for
- * any future protected resource. OpenAPI's own routes are left open too so
- * the API docs are reachable without auth during local development.
- */
+/** Onboarding/auth-bootstrap endpoints stay open; everything else requires an internal access token. */
 @Configuration
 @EnableMethodSecurity
 @RequiredArgsConstructor
@@ -49,11 +41,7 @@ public class SecurityConfig {
                         "/v3/api-docs/**",
                         "/swagger-ui/**",
                         "/swagger-ui.html",
-                        // Spring Security also guards the internal forward Spring
-                        // Boot makes to /error after an unhandled exception —
-                        // without this, a genuine 500 from a permitAll endpoint
-                        // above gets masked by this filter chain's own 401 on
-                        // that forwarded request instead of the real status.
+                        // needed so the /error forward isn't masked by a 401
                         "/error")
                     .permitAll()
                     .anyRequest()
@@ -66,7 +54,9 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-    configuration.setAllowedOrigins(List.of("http://localhost:3000"));
+    // local dev origins + per-tenant *.localhost subdomains; prod needs the real domain (see README.md)
+    configuration.setAllowedOriginPatterns(
+        List.of("http://localhost:3000", "http://localhost:5173", "http://*.localhost:5173"));
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("Content-Type", "Authorization"));
 

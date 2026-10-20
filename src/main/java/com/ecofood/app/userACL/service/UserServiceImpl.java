@@ -4,6 +4,7 @@ import com.ecofood.core.client.CoreEnterpriseQueryClient;
 import com.ecofood.core.client.CoreTenantQueryClient;
 import com.ecofood.core.dto.AssignTenantRolesRequest;
 import com.ecofood.core.dto.AssignTenantRolesResponse;
+import com.ecofood.core.dto.EligibleTenantResponse;
 import com.ecofood.core.dto.EnterpriseResponse;
 import com.ecofood.core.dto.TenantAssignmentRequest;
 import com.ecofood.core.dto.TenantAssignmentResponse;
@@ -235,6 +236,28 @@ public class UserServiceImpl implements UserService {
     userRepository.save(user);
 
     return AssignTenantRolesResponse.builder().userId(userId).assignments(results).build();
+  }
+
+  /** Tenants the user has a direct TENANT relationship to (never ENTERPRISE). */
+  @Override
+  public List<EligibleTenantResponse> getEligibleTenants(String userId) {
+    UserEntity user =
+        userRepository
+            .findById(new ObjectId(userId))
+            .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+
+    return user.getPartyRelationships().stream()
+        .filter(relation -> RelationshipTypeEnum.TENANT.getCode().equals(relation.getRelationshipTypeCode()))
+        .map(relation -> tenantQueryClient.getById(relation.getToPartyId().toHexString()))
+        .map(
+            tenant ->
+                EligibleTenantResponse.builder()
+                    .tenantId(tenant.getId())
+                    .tenantName(tenant.getTenantName())
+                    .tenantCode(tenant.getRealm())
+                    .domainUrl(tenant.getDomainUrl())
+                    .build())
+        .toList();
   }
 
   /**

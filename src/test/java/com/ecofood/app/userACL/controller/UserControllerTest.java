@@ -9,8 +9,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ecofood.core.dto.AssignTenantRolesResponse;
+import com.ecofood.core.dto.EligibleTenantResponse;
 import com.ecofood.core.dto.UserResponse;
+import com.ecofood.core.security.AuthenticationContext;
 import com.ecofood.core.service.UserService;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
+import java.util.Date;
+import javax.crypto.SecretKey;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,9 +27,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
 @ExtendWith(MockitoExtension.class)
 class UserControllerTest {
+
+  // 32+ raw bytes, base64-encoded — matches AuthenticationContext/jwt.secret's
+  // documented >=32-byte requirement for HS256 (see AuthenticationContextTest).
+  private static final String SECRET =
+      java.util.Base64.getEncoder().encodeToString("unit-test-only-hmac-secret-0123456789".getBytes());
 
   @Mock private UserService userService;
 
@@ -30,6 +44,25 @@ class UserControllerTest {
   @BeforeEach
   void setUp() {
     mockMvc = MockMvcBuilders.standaloneSetup(new UserController(userService)).build();
+  }
+
+  @AfterEach
+  void unloadAuthenticationContext() {
+    AuthenticationContext.unload();
+  }
+
+  /** getEligibleTenants() reads the caller's id from AuthenticationContext, same as a real InternalJwtRequestFilter-processed request would. */
+  private void authenticateAs(String userId) {
+    SecretKey key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(SECRET));
+    String token =
+        Jwts.builder()
+            .subject(userId)
+            .issuedAt(new Date())
+            .expiration(new Date(System.currentTimeMillis() + 60_000))
+            .signWith(key)
+            .compact();
+    AuthenticationContext.setToken(token);
+    AuthenticationContext.setSecret(SECRET);
   }
 
   @Test
@@ -121,5 +154,24 @@ class UserControllerTest {
     mockMvc
         .perform(post("/api/v1/users/u1/tenant-assignments").contentType(MediaType.APPLICATION_JSON).content(body))
         .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void getEligibleTenantsReturns200WithTheServiceResponseForTheAuthenticatedCaller() throws Exception {
+    authenticateAs("671f1a2b3c4d5e6f7a8b9c0d");
+    when(userService.getEligibleTenants("671f1a2b3c4d5e6f7a8b9c0d"))
+        .thenReturn(
+            java.util.List.of(
+                EligibleTenantResponse.builder()
+                    .tenantId("671f1a2b3c4d5e6f7a8b9c0d")
+                    .tenantName("Acme Foods")
+                    .tenantCode("acme-foods-671f1a2b")
+                    .build()));
+
+    mockMvc
+        .perform(get("/api/v1/users/eligible-tenants"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[0].tenantName", is("Acme Foods")))
+        .andExpect(jsonPath("$[0].tenantCode", is("acme-foods-671f1a2b")));
   }
 }

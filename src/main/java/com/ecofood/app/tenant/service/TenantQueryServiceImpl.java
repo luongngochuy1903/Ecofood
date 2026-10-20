@@ -45,6 +45,7 @@ public class TenantQueryServiceImpl implements TenantQueryService {
         .realm(tenant.getRealm())
         .clientId(tenant.getClientId())
         .enterpriseId(tenant.getEnterpriseIdAsString())
+        .domainUrl(tenant.getDomainUrl())
         .build();
   }
 }

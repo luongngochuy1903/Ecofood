@@ -12,8 +12,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.ecofood.app.auth.service.InternalTokenService;
 import com.ecofood.app.auth.service.InternalTokenService.TokenPair;
 import com.ecofood.app.auth.service.KeycloakTokenVerifier;
+import com.ecofood.core.security.AuthenticationContext;
 import com.nimbusds.jwt.JWTClaimsSet;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
+import java.util.Date;
+import javax.crypto.SecretKey;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +33,11 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 @ExtendWith(MockitoExtension.class)
 class AuthControllerTest {
 
+  // 32+ raw bytes, base64-encoded — matches AuthenticationContext/jwt.secret's
+  // documented >=32-byte requirement for HS256 (see AuthenticationContextTest).
+  private static final String SECRET =
+      java.util.Base64.getEncoder().encodeToString("unit-test-only-hmac-secret-0123456789".getBytes());
+
   @Mock private KeycloakTokenVerifier keycloakTokenVerifier;
   @Mock private InternalTokenService internalTokenService;
   @Mock private Claims refreshClaims;
@@ -35,6 +47,25 @@ class AuthControllerTest {
   @BeforeEach
   void setUp() {
     mockMvc = MockMvcBuilders.standaloneSetup(new AuthController(keycloakTokenVerifier, internalTokenService)).build();
+  }
+
+  @AfterEach
+  void unloadAuthenticationContext() {
+    AuthenticationContext.unload();
+  }
+
+  /** switchTenant() reads the caller's id from AuthenticationContext, same as a real InternalJwtRequestFilter-processed request would. */
+  private void authenticateAs(String userId) {
+    SecretKey key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(SECRET));
+    String token =
+        Jwts.builder()
+            .subject(userId)
+            .issuedAt(new Date())
+            .expiration(new Date(System.currentTimeMillis() + 60_000))
+            .signWith(key)
+            .compact();
+    AuthenticationContext.setToken(token);
+    AuthenticationContext.setSecret(SECRET);
   }
 
   private JWTClaimsSet keycloakClaims(String username, String issuer) {
@@ -147,5 +178,43 @@ class AuthControllerTest {
 
     verify(internalTokenService).revoke("a");
     verify(internalTokenService).revoke("r");
+  }
+
+  @Test
+  void switchTenantReturns200WithANewPairForTheAuthenticatedCaller() throws Exception {
+    authenticateAs("671f1a2b3c4d5e6f7a8b9c0d");
+    when(internalTokenService.mintTokenPair("671f1a2b3c4d5e6f7a8b9c0d", "671f0a1a2b3c4d5e6f7a8b05"))
+        .thenReturn(new TokenPair("access-3", "refresh-3"));
+
+    mockMvc
+        .perform(
+            post("/api/v1/auth/switch-tenant")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"tenantId\":\"671f0a1a2b3c4d5e6f7a8b05\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.accessToken", is("access-3")))
+        .andExpect(jsonPath("$.refreshToken", is("refresh-3")))
+        .andExpect(jsonPath("$.keycloakClaims", nullValue()));
+  }
+
+  @Test
+  void switchTenantReturns401WhenCallerHasNoAssignmentToTheTargetTenant() throws Exception {
+    authenticateAs("671f1a2b3c4d5e6f7a8b9c0d");
+    when(internalTokenService.mintTokenPair(anyString(), anyString()))
+        .thenThrow(new IllegalArgumentException("no assignment"));
+
+    mockMvc
+        .perform(
+            post("/api/v1/auth/switch-tenant")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"tenantId\":\"671f0a1a2b3c4d5e6f7a8b05\"}"))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void switchTenantReturns400WhenTenantIdIsBlank() throws Exception {
+    mockMvc
+        .perform(post("/api/v1/auth/switch-tenant").contentType(MediaType.APPLICATION_JSON).content("{}"))
+        .andExpect(status().isBadRequest());
   }
 }
