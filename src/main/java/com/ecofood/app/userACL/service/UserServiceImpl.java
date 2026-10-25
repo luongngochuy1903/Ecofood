@@ -6,14 +6,21 @@ import com.ecofood.core.dto.AssignTenantRolesRequest;
 import com.ecofood.core.dto.AssignTenantRolesResponse;
 import com.ecofood.core.dto.EligibleTenantResponse;
 import com.ecofood.core.dto.EnterpriseResponse;
+import com.ecofood.core.dto.PageResponse;
 import com.ecofood.core.dto.TenantAssignmentRequest;
 import com.ecofood.core.dto.TenantAssignmentResponse;
 import com.ecofood.core.dto.TenantResponse;
 import com.ecofood.core.dto.TenantRoleAssignmentRequest;
 import com.ecofood.core.dto.TenantRoleAssignmentResult;
 import com.ecofood.core.dto.UserCreateRequest;
+import com.ecofood.core.dto.UserDirectoryResponse;
 import com.ecofood.core.dto.UserResponse;
+import com.ecofood.core.entity.RoleLevel;
+import com.ecofood.core.security.AuthenticationContext;
+import com.ecofood.core.service.ACLService;
 import com.ecofood.core.service.UserService;
+import com.ecofood.app.config.BadRequestException;
+import com.ecofood.app.config.ForbiddenException;
 import com.ecofood.app.tenant.service.TenantKeycloakService;
 import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
 import com.ecofood.core.enums.RelationshipTypeEnum;
@@ -36,6 +43,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
 import org.keycloak.admin.client.resource.RealmResource;
 import org.keycloak.representations.idm.UserRepresentation;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 /**
@@ -67,6 +78,8 @@ public class UserServiceImpl implements UserService {
 
   private static final String REQUIRED_ACTION_VERIFY_EMAIL = "VERIFY_EMAIL";
   private static final String REQUIRED_ACTION_UPDATE_PASSWORD = "UPDATE_PASSWORD";
+  private static final int MAX_DIRECTORY_PAGE_SIZE = 100;
+  private static final Set<String> DIRECTORY_SORTABLE_FIELDS = Set.of("updatedAt", "firstName", "lastName");
 
   private final CoreTenantQueryClient tenantQueryClient;
   private final CoreEnterpriseQueryClient enterpriseQueryClient;
@@ -75,6 +88,7 @@ public class UserServiceImpl implements UserService {
   private final UserRepository userRepository;
   private final RoleRepository roleRepository;
   private final UserRoleRepository userRoleRepository;
+  private final ACLService aclService;
 
   @Override
   public UserResponse createUser(UserCreateRequest request) {
@@ -258,6 +272,80 @@ public class UserServiceImpl implements UserService {
                     .domainUrl(tenant.getDomainUrl())
                     .build())
         .toList();
+  }
+
+  @Override
+  public PageResponse<UserDirectoryResponse> listUserDirectory(int page, int size, String sort, String search) {
+    RoleLevel level = aclService.getMaxLevel();
+    boolean unrestricted = level == RoleLevel.SYSTEM;
+    if (!unrestricted
+        && level != RoleLevel.ENTERPRISE
+        && level != RoleLevel.MASTER_TENANT
+        && level != RoleLevel.TENANT) {
+      throw new ForbiddenException("Caller's role level does not grant access to the user directory");
+    }
+
+    List<ObjectId> scopedTenantIds = unrestricted ? List.of() : resolveScopedTenantIds(level);
+    Pageable pageable = PageRequest.of(page, Math.min(Math.max(size, 1), MAX_DIRECTORY_PAGE_SIZE), resolveDirectorySort(sort));
+    Page<UserEntity> result = userRepository.findDirectory(scopedTenantIds, unrestricted, search, pageable);
+
+    return PageResponse.<UserDirectoryResponse>builder()
+        .content(result.getContent().stream().map(this::toDirectoryResponse).toList())
+        .page(result.getNumber())
+        .size(result.getSize())
+        .totalElements(result.getTotalElements())
+        .totalPages(result.getTotalPages())
+        .build();
+  }
+
+  /**
+   * TENANT-level never queries the tenant module at all — its scope is
+   * always just its own tenant id, since a sub-tenant can never have
+   * further sub-tenants of its own (same reasoning as TenantServiceImpl.
+   * findMasterTenant). ENTERPRISE/MASTER_TENANT delegate to
+   * CoreTenantQueryClient.getScopedTenantIds for the full self+sub-tenants
+   * set.
+   */
+  private List<ObjectId> resolveScopedTenantIds(RoleLevel level) {
+    ObjectId callerTenantId = AuthenticationContext.getTenantId();
+    if (level == RoleLevel.TENANT) {
+      return List.of(callerTenantId);
+    }
+    return tenantQueryClient.getScopedTenantIds(callerTenantId.toHexString()).stream().map(ObjectId::new).toList();
+  }
+
+  private Sort resolveDirectorySort(String sort) {
+    if (sort == null || sort.isBlank()) {
+      return Sort.by(Sort.Direction.DESC, "updatedAt");
+    }
+
+    String[] parts = sort.split(",", 2);
+    String field = parts[0].trim();
+    if (!DIRECTORY_SORTABLE_FIELDS.contains(field)) {
+      throw new BadRequestException("Unsupported sort field: " + field);
+    }
+
+    Sort.Direction direction =
+        parts.length > 1 && parts[1].trim().equalsIgnoreCase("asc") ? Sort.Direction.ASC : Sort.Direction.DESC;
+    return Sort.by(direction, field);
+  }
+
+  /** relationship: the first TENANT-coded relation found — null if the user has none (e.g. a pure CUSTOMER). */
+  private UserDirectoryResponse toDirectoryResponse(UserEntity user) {
+    String relationship =
+        user.getPartyRelationships().stream()
+            .filter(relation -> RelationshipTypeEnum.TENANT.getCode().equals(relation.getRelationshipTypeCode()))
+            .map(PartyToPartyRelationship::getRelationshipTypeCode)
+            .findFirst()
+            .orElse(null);
+
+    return UserDirectoryResponse.builder()
+        .id(user.getIdAsString())
+        .firstName(user.getFirstName())
+        .lastName(user.getLastName())
+        .email(user.getEmail())
+        .relationship(relationship)
+        .build();
   }
 
   /**

@@ -41,19 +41,19 @@ class UserQueryServiceImplTest {
   }
 
   @Test
-  void getByUsernameReturnsTheEntityWhenFound() {
+  void getByEmailReturnsTheEntityWhenFound() {
     userQueryService = new UserQueryServiceImpl(userRepository);
-    UserEntity user = UserEntity.builder().username("jane.doe").build();
-    when(userRepository.findByUsername("jane.doe")).thenReturn(Optional.of(user));
+    UserEntity user = UserEntity.builder().username("jane.doe").email("jane.doe@example.com").build();
+    when(userRepository.findByEmailIgnoreCase("jane.doe@example.com")).thenReturn(Optional.of(user));
 
-    assertThat(userQueryService.getByUsername("jane.doe").getUsername()).isEqualTo("jane.doe");
+    assertThat(userQueryService.getByEmail("jane.doe@example.com").getEmail()).isEqualTo("jane.doe@example.com");
   }
 
   @Test
-  void getByUsernameThrowsWhenNotFound() {
+  void getByEmailThrowsWhenNotFound() {
     userQueryService = new UserQueryServiceImpl(userRepository);
-    when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
+    when(userRepository.findByEmailIgnoreCase("ghost@example.com")).thenReturn(Optional.empty());
 
-    assertThatThrownBy(() -> userQueryService.getByUsername("ghost")).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> userQueryService.getByEmail("ghost@example.com")).isInstanceOf(IllegalArgumentException.class);
   }
 }

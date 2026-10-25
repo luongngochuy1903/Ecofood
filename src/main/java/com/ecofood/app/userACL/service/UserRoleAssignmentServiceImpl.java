@@ -26,6 +26,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class UserRoleAssignmentServiceImpl implements UserRoleAssignmentService {
 
+  private static final String ROLE_CODE_ECO_ADMIN = "ECO_ADMIN";
   private static final String ROLE_CODE_ENTERPRISE_ADMIN = "ENTERPRISE_ADMIN";
   private static final String ROLE_CODE_TENANT_ADMIN = "TENANT_ADMIN";
 
@@ -60,9 +61,10 @@ public class UserRoleAssignmentServiceImpl implements UserRoleAssignmentService 
     userRoleRepository.save(userRole);
   }
 
-  /** ENTERPRISE/REGIONAL_ENTERPRISE -> ENTERPRISE_ADMIN; ECOSYSTEM_PARTNER/BRAND -> TENANT_ADMIN. */
+  /** ECO -> ECO_ADMIN; ENTERPRISE/REGIONAL_ENTERPRISE -> ENTERPRISE_ADMIN; ECOSYSTEM_PARTNER/BRAND -> TENANT_ADMIN. */
   private String resolveRoleCode(PartnerTypeEnum partnerType) {
     return switch (partnerType) {
+      case ECO -> ROLE_CODE_ECO_ADMIN;
       case ENTERPRISE, REGIONAL_ENTERPRISE -> ROLE_CODE_ENTERPRISE_ADMIN;
       case ECOSYSTEM_PARTNER, BRAND -> ROLE_CODE_TENANT_ADMIN;
     };

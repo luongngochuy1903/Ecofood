@@ -16,7 +16,9 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import javax.crypto.SecretKey;
 import lombok.RequiredArgsConstructor;
 import org.bson.types.ObjectId;
@@ -104,13 +106,37 @@ public class InternalTokenService {
 
   /**
    * Resolves the local user/tenant by the Keycloak login's own identifying
-   * claims (preferred_username, issuing realm) and mints a token pair — the
-   * repository lookups AuthController used to do itself, moved here so the
-   * controller stays a thin HTTP-mapping layer.
+   * claims (email, issuing realm) and mints a token pair — the repository
+   * lookups AuthController used to do itself, moved here so the controller
+   * stays a thin HTTP-mapping layer. Resolved by email, not
+   * preferred_username — username has no real uniqueness/stability
+   * guarantee here, and Keycloak doesn't even guarantee it echoes a
+   * username claim back in its original case; email is already enforced
+   * unique by both Keycloak and this app's own onboarding validation.
+   *
+   * A realm no longer identifies exactly one tenant — a SUB_TENANT shares
+   * its MASTER_TENANT's realm (see TenantServiceImpl.findMasterTenant), so
+   * every tenant hosted in it is a candidate, and the one actually meant
+   * here is whichever the logging-in user has a party relationship to (the
+   * same check mintTokenPair(userId, tenantId) makes below, just needed one
+   * step earlier here to even pick a tenantId to pass it).
    */
-  public TokenPair mintTokenPairForKeycloakLogin(String username, String realm) {
-    UserQueryResponse user = userQueryClient.getByUsername(username);
-    TenantResponse tenant = tenantQueryClient.getByRealm(realm);
+  public TokenPair mintTokenPairForKeycloakLogin(String email, String realm) {
+    UserQueryResponse user = userQueryClient.getByEmail(email);
+    List<TenantResponse> tenantsInRealm = tenantQueryClient.getAllByRealm(realm);
+
+    Set<String> userTenantIds =
+        user.getPartyRelationships().stream().map(PartyRelationshipResponse::getToPartyId).collect(Collectors.toSet());
+
+    TenantResponse tenant =
+        tenantsInRealm.stream()
+            .filter(candidate -> userTenantIds.contains(candidate.getId()))
+            .findFirst()
+            .orElseThrow(
+                () ->
+                    new IllegalArgumentException(
+                        "User " + email + " has no tenant assignment within realm " + realm));
+
     return mintTokenPair(user.getId(), tenant.getId());
   }
 
