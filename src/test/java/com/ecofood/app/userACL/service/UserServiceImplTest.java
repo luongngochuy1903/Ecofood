@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -14,12 +16,19 @@ import com.ecofood.core.client.CoreTenantQueryClient;
 import com.ecofood.core.dto.AssignTenantRolesRequest;
 import com.ecofood.core.dto.AssignTenantRolesResponse;
 import com.ecofood.core.dto.EnterpriseResponse;
+import com.ecofood.core.dto.PageResponse;
 import com.ecofood.core.dto.TenantAssignmentRequest;
 import com.ecofood.core.dto.TenantResponse;
 import com.ecofood.core.dto.TenantRoleAssignmentRequest;
 import com.ecofood.core.dto.UserCreateRequest;
+import com.ecofood.core.dto.UserDirectoryResponse;
 import com.ecofood.core.dto.UserResponse;
+import com.ecofood.core.entity.RoleLevel;
 import com.ecofood.core.enums.RelationshipTypeEnum;
+import com.ecofood.core.security.AuthenticationContext;
+import com.ecofood.core.service.ACLService;
+import com.ecofood.app.config.BadRequestException;
+import com.ecofood.app.config.ForbiddenException;
 import com.ecofood.app.tenant.service.TenantKeycloakService;
 import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
 import com.ecofood.app.userACL.entity.Role;
@@ -29,9 +38,15 @@ import com.ecofood.app.userACL.entity.UserRole;
 import com.ecofood.app.userACL.repository.RoleRepository;
 import com.ecofood.app.userACL.repository.UserRepository;
 import com.ecofood.app.userACL.repository.UserRoleRepository;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.io.Decoders;
+import io.jsonwebtoken.security.Keys;
+import java.util.Date;
 import java.util.List;
 import java.util.Optional;
+import javax.crypto.SecretKey;
 import org.bson.types.ObjectId;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,9 +54,17 @@ import org.keycloak.admin.client.resource.RealmResource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceImplTest {
+
+  // 32+ raw bytes, base64-encoded — matches AuthenticationContext's documented
+  // >=32-byte HS256 requirement (see UserControllerTest/TenantServiceImplTest).
+  private static final String SECRET =
+      java.util.Base64.getEncoder().encodeToString("unit-test-only-hmac-secret-0123456789".getBytes());
 
   @Mock private CoreTenantQueryClient tenantQueryClient;
   @Mock private CoreEnterpriseQueryClient enterpriseQueryClient;
@@ -50,6 +73,7 @@ class UserServiceImplTest {
   @Mock private UserRepository userRepository;
   @Mock private RoleRepository roleRepository;
   @Mock private UserRoleRepository userRoleRepository;
+  @Mock private ACLService aclService;
   @Mock private RealmResource realmResource;
 
   private UserServiceImpl userService;
@@ -59,7 +83,26 @@ class UserServiceImplTest {
     userService =
         new UserServiceImpl(
             tenantQueryClient, enterpriseQueryClient, tenantKeycloakService, userKeycloakService, userRepository,
-            roleRepository, userRoleRepository);
+            roleRepository, userRoleRepository, aclService);
+  }
+
+  @AfterEach
+  void unloadAuthenticationContext() {
+    AuthenticationContext.unload();
+  }
+
+  /** listUserDirectory reads the caller's tenantId off AuthenticationContext, same as a real request would. */
+  private void authenticateWithTenantId(String tenantId) {
+    SecretKey key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(SECRET));
+    String token =
+        Jwts.builder()
+            .claim("tenantId", tenantId)
+            .issuedAt(new Date())
+            .expiration(new Date(System.currentTimeMillis() + 60_000))
+            .signWith(key)
+            .compact();
+    AuthenticationContext.setToken(token);
+    AuthenticationContext.setSecret(SECRET);
   }
 
   private void stubUserSaveAssignsId() {
@@ -457,5 +500,95 @@ class UserServiceImplTest {
     assertThatThrownBy(() -> userService.assignTenantRoles(userId.toHexString(), request))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining(missingRoleId.toHexString());
+  }
+
+  @Test
+  void listUserDirectorySystemLevelIsUnrestricted() {
+    when(aclService.getMaxLevel()).thenReturn(RoleLevel.SYSTEM);
+    UserEntity user = UserEntity.builder().firstName("Jane").lastName("Doe").email("jane@acme.test").build();
+    user.setId(new ObjectId());
+    when(userRepository.findDirectory(List.of(), true, null, PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "updatedAt"))))
+        .thenReturn(new PageImpl<>(List.of(user), PageRequest.of(0, 20), 1));
+
+    PageResponse<UserDirectoryResponse> result = userService.listUserDirectory(0, 20, null, null);
+
+    assertThat(result.getContent()).extracting("firstName").containsExactly("Jane");
+    assertThat(result.getTotalElements()).isEqualTo(1);
+    verify(tenantQueryClient, never()).getScopedTenantIds(anyString());
+  }
+
+  @Test
+  void listUserDirectoryTenantLevelScopesToItsOwnTenantWithoutQueryingTenantModule() {
+    String callerTenantId = new ObjectId().toHexString();
+    authenticateWithTenantId(callerTenantId);
+    when(aclService.getMaxLevel()).thenReturn(RoleLevel.TENANT);
+    when(userRepository.findDirectory(
+            List.of(new ObjectId(callerTenantId)),
+            false,
+            null,
+            PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "updatedAt"))))
+        .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+    userService.listUserDirectory(0, 20, null, null);
+
+    verify(tenantQueryClient, never()).getScopedTenantIds(anyString());
+  }
+
+  @Test
+  void listUserDirectoryEnterpriseLevelScopesToSelfPlusSubTenants() {
+    String callerTenantId = new ObjectId().toHexString();
+    String subTenantId = new ObjectId().toHexString();
+    authenticateWithTenantId(callerTenantId);
+    when(aclService.getMaxLevel()).thenReturn(RoleLevel.ENTERPRISE);
+    when(tenantQueryClient.getScopedTenantIds(callerTenantId)).thenReturn(List.of(callerTenantId, subTenantId));
+    when(userRepository.findDirectory(
+            List.of(new ObjectId(callerTenantId), new ObjectId(subTenantId)),
+            false,
+            null,
+            PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "updatedAt"))))
+        .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
+
+    userService.listUserDirectory(0, 20, null, null);
+
+    verify(tenantQueryClient).getScopedTenantIds(callerTenantId);
+  }
+
+  @Test
+  void listUserDirectoryRejectsCustomerLevelCallers() {
+    when(aclService.getMaxLevel()).thenReturn(RoleLevel.CUSTOMER);
+
+    assertThatThrownBy(() -> userService.listUserDirectory(0, 20, null, null)).isInstanceOf(ForbiddenException.class);
+  }
+
+  @Test
+  void listUserDirectoryMapsFirstTenantRelationAsRelationship() {
+    when(aclService.getMaxLevel()).thenReturn(RoleLevel.SYSTEM);
+    UserEntity user =
+        UserEntity.builder()
+            .firstName("Jane")
+            .lastName("Doe")
+            .email("jane@acme.test")
+            .partyRelationships(
+                List.of(
+                    PartyToPartyRelationship.builder()
+                        .relationshipTypeCode(RelationshipTypeEnum.TENANT.getCode())
+                        .toPartyId(new ObjectId())
+                        .build()))
+            .build();
+    user.setId(new ObjectId());
+    when(userRepository.findDirectory(eq(List.of()), eq(true), isNull(), any()))
+        .thenReturn(new PageImpl<>(List.of(user), PageRequest.of(0, 20), 1));
+
+    PageResponse<UserDirectoryResponse> result = userService.listUserDirectory(0, 20, null, null);
+
+    assertThat(result.getContent().get(0).getRelationship()).isEqualTo(RelationshipTypeEnum.TENANT.getCode());
+  }
+
+  @Test
+  void listUserDirectoryRejectsAnUnsupportedSortField() {
+    when(aclService.getMaxLevel()).thenReturn(RoleLevel.SYSTEM);
+
+    assertThatThrownBy(() -> userService.listUserDirectory(0, 20, "email,asc", null))
+        .isInstanceOf(BadRequestException.class);
   }
 }

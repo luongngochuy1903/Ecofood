@@ -14,9 +14,11 @@ import com.ecofood.app.enterprise.entity.EnterpriseCategory;
 import com.ecofood.app.enterprise.entity.EnterpriseEntity;
 import com.ecofood.app.enterprise.repository.EnterpriseRepository;
 import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
+import com.ecofood.core.enums.PartnerTypeEnum;
 import com.ecofood.core.enums.RelationshipTypeEnum;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
@@ -74,6 +76,22 @@ public class EnterpriseServiceImpl implements EnterpriseService {
         .enterpriseId(enterprise.getIdAsString())
         .enterpriseCompanyName(enterprise.getPartyName())
         .build();
+  }
+
+  @Override
+  public List<EnterpriseResponse> listEnterprises(PartnerTypeEnum enterpriseCategoryCode) {
+    List<EnterpriseEntity> enterprises =
+        enterpriseCategoryCode != null
+            ? enterpriseRepository.findByEnterpriseCategoryEnterpriseCategoryCode(enterpriseCategoryCode.name())
+            : enterpriseRepository.findAll();
+    return enterprises.stream()
+        .map(
+            enterprise ->
+                EnterpriseResponse.builder()
+                    .enterpriseId(enterprise.getIdAsString())
+                    .enterpriseCompanyName(enterprise.getPartyName())
+                    .build())
+        .collect(Collectors.toList());
   }
 
   private PartyToPartyRelationship buildRelation(EnterpriseEntity target, RelationshipTypeEnum relationshipType) {

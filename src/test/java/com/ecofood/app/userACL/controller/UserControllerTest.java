@@ -10,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.ecofood.core.dto.AssignTenantRolesResponse;
 import com.ecofood.core.dto.EligibleTenantResponse;
+import com.ecofood.core.dto.PageResponse;
+import com.ecofood.core.dto.UserDirectoryResponse;
 import com.ecofood.core.dto.UserResponse;
 import com.ecofood.core.security.AuthenticationContext;
 import com.ecofood.core.service.UserService;
@@ -173,5 +175,49 @@ class UserControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[0].tenantName", is("Acme Foods")))
         .andExpect(jsonPath("$[0].tenantCode", is("acme-foods-671f1a2b")));
+  }
+
+  @Test
+  void getUserDirectoryUsesDefaultsAndReturnsTheServiceResponse() throws Exception {
+    when(userService.listUserDirectory(0, 20, "updatedAt,desc", null))
+        .thenReturn(
+            PageResponse.<UserDirectoryResponse>builder()
+                .content(
+                    java.util.List.of(
+                        UserDirectoryResponse.builder().firstName("Jane").lastName("Doe").build()))
+                .page(0)
+                .size(20)
+                .totalElements(1)
+                .totalPages(1)
+                .build());
+
+    mockMvc
+        .perform(get("/api/v1/users/directory"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.content[0].firstName", is("Jane")))
+        .andExpect(jsonPath("$.totalElements", is(1)));
+  }
+
+  @Test
+  void getUserDirectoryForwardsPageSizeSortAndSearchParams() throws Exception {
+    when(userService.listUserDirectory(2, 10, "firstName,asc", "jane"))
+        .thenReturn(
+            PageResponse.<UserDirectoryResponse>builder()
+                .content(java.util.List.of())
+                .page(2)
+                .size(10)
+                .totalElements(0)
+                .totalPages(0)
+                .build());
+
+    mockMvc
+        .perform(
+            get("/api/v1/users/directory")
+                .param("page", "2")
+                .param("size", "10")
+                .param("sort", "firstName,asc")
+                .param("search", "jane"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.page", is(2)));
   }
 }

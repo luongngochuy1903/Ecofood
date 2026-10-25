@@ -2,6 +2,8 @@ package com.ecofood.app.tenant.entity;
 
 import com.ecofood.core.entity.BaseEntity;
 import com.ecofood.core.entity.PartyStatus;
+import com.ecofood.core.enums.TenantTypeEnum;
+import com.ecofood.app.enterprise.entity.Contact;
 import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
 import java.util.ArrayList;
 import java.util.List;
@@ -69,8 +71,30 @@ public class TenantEntity extends BaseEntity {
   @Field("partner_type")
   private PartnerType partnerType;
 
+  /**
+   * This tenant's standing in the tenant hierarchy — STANDALONE by default;
+   * SUB_TENANT is expected to also carry a partyRelationships entry whose
+   * relationshipTypeCode is MASTER_TENANT pointing at the master it belongs
+   * to (see TenantServiceImpl.onboardTenant). Drives the onboarding form's
+   * "pick a master tenant" dropdown, which lists every tenant with
+   * tenantType=MASTER_TENANT.
+   */
+  @Field("tenant_type")
+  @Builder.Default
+  private TenantTypeEnum tenantType = TenantTypeEnum.STANDALONE;
+
   @Field("party_status")
   private PartyStatus status;
+
+  /**
+   * Every tenant's primary point of contact, required regardless of
+   * partnerType (see TenantOnboardRequest.contact). For ENTERPRISE/
+   * REGIONAL_ENTERPRISE tenants, the same contact is ALSO copied onto the
+   * companion EnterpriseEntity (see TenantServiceImpl.onboardTenant) — the
+   * two are independent copies, not a shared reference.
+   */
+  @Field("contact")
+  private Contact contact;
 
   @Field("party_to_party_relation")
   @Builder.Default

@@ -31,11 +31,11 @@ public class UserQueryServiceImpl implements UserQueryService {
   }
 
   @Override
-  public UserQueryResponse getByUsername(String username) {
+  public UserQueryResponse getByEmail(String email) {
     return toResponse(
         userRepository
-            .findByUsername(username)
-            .orElseThrow(() -> new IllegalArgumentException("No local user found for username=" + username)));
+            .findByEmailIgnoreCase(email)
+            .orElseThrow(() -> new IllegalArgumentException("No local user found for email=" + email)));
   }
 
   private UserQueryResponse toResponse(UserEntity user) {

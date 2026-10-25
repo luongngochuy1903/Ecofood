@@ -145,13 +145,40 @@ class InternalTokenServiceTest {
 
   @Test
   void mintTokenPairForKeycloakLoginResolvesUserAndTenantThenMints() {
-    when(userQueryClient.getByUsername("jane.doe")).thenReturn(user);
-    when(tenantQueryClient.getByRealm("acme-realm")).thenReturn(tenant);
+    when(userQueryClient.getByEmail("jane@example.com")).thenReturn(user);
+    when(tenantQueryClient.getAllByRealm("acme-realm")).thenReturn(List.of(tenant));
     stubLookups();
 
-    TokenPair pair = internalTokenService.mintTokenPairForKeycloakLogin("jane.doe", "acme-realm");
+    TokenPair pair = internalTokenService.mintTokenPairForKeycloakLogin("jane@example.com", "acme-realm");
 
     assertThat(decode(pair.accessToken()).getSubject()).isEqualTo(userId.toHexString());
+  }
+
+  @Test
+  void mintTokenPairForKeycloakLoginPicksTheOneTenantTheUserBelongsToAmongSeveralSharingTheRealm() {
+    // A SUB_TENANT shares its MASTER_TENANT's realm — both come back from
+    // getAllByRealm, but the user only has a party relationship to one.
+    TenantResponse siblingTenant =
+        TenantResponse.builder().id(new ObjectId().toHexString()).realm("acme-realm").clientId("sibling-client").build();
+    when(userQueryClient.getByEmail("jane@example.com")).thenReturn(user);
+    when(tenantQueryClient.getAllByRealm("acme-realm")).thenReturn(List.of(siblingTenant, tenant));
+    stubLookups();
+
+    TokenPair pair = internalTokenService.mintTokenPairForKeycloakLogin("jane@example.com", "acme-realm");
+
+    assertThat(decode(pair.accessToken()).get("tenantId", String.class)).isEqualTo(tenantId.toHexString());
+  }
+
+  @Test
+  void mintTokenPairForKeycloakLoginThrowsWhenUserHasNoAssignmentToAnyTenantInTheRealm() {
+    TenantResponse unrelatedTenant =
+        TenantResponse.builder().id(new ObjectId().toHexString()).realm("acme-realm").clientId("unrelated-client").build();
+    when(userQueryClient.getByEmail("jane@example.com")).thenReturn(user);
+    when(tenantQueryClient.getAllByRealm("acme-realm")).thenReturn(List.of(unrelatedTenant));
+
+    assertThatThrownBy(() -> internalTokenService.mintTokenPairForKeycloakLogin("jane@example.com", "acme-realm"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("acme-realm");
   }
 
   @Test
