@@ -32,7 +32,7 @@ public class SecurityConfig {
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(
             auth ->
-                auth.requestMatchers("/api/v1/users/directory")
+                auth.requestMatchers("/api/v1/users/directory", "/api/v1/users/{userId}")
                     .authenticated()
                     .requestMatchers(
                         // Only the exact onboarding/pre-login lookups tenants
@@ -42,7 +42,7 @@ public class SecurityConfig {
                         // below, same as any other tenant-module endpoint.
                         // /api/v1/users/** stays fully permitAll otherwise
                         // (unlike tenants, not yet cleaned up to an exact
-                        // public list) except for this one carve-out.
+                        // public list) except for these two carve-outs.
                         "/api/v1/tenants",
                         "/api/v1/tenants/login-info",
                         "/api/v1/tenants/domain-availability",

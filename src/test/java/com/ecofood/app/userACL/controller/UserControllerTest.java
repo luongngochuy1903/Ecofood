@@ -178,6 +178,26 @@ class UserControllerTest {
   }
 
   @Test
+  void getByIdReturns200WithTheServiceResponse() throws Exception {
+    when(userService.getById("u1"))
+        .thenReturn(
+            com.ecofood.core.dto.UserDetailResponse.builder()
+                .id("u1")
+                .username("jane.doe")
+                .email("jane@example.com")
+                .firstName("Jane")
+                .lastName("Doe")
+                .userCategoryCode("CUSTOMER")
+                .build());
+
+    mockMvc
+        .perform(get("/api/v1/users/u1"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.username", is("jane.doe")))
+        .andExpect(jsonPath("$.firstName", is("Jane")));
+  }
+
+  @Test
   void getUserDirectoryUsesDefaultsAndReturnsTheServiceResponse() throws Exception {
     when(userService.listUserDirectory(0, 20, "updatedAt,desc", null))
         .thenReturn(
