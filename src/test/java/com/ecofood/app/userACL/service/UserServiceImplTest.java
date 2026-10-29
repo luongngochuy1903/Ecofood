@@ -105,6 +105,73 @@ class UserServiceImplTest {
     AuthenticationContext.setSecret(SECRET);
   }
 
+  @Test
+  void getByIdReturnsTheUsersBasicInfo() {
+    UserEntity user =
+        UserEntity.builder()
+            .username("jane.doe")
+            .email("jane@example.com")
+            .firstName("Jane")
+            .lastName("Doe")
+            .userCategory(com.ecofood.app.userACL.entity.UserCategory.builder().userCategoryCode("CUSTOMER").build())
+            .build();
+    ObjectId id = new ObjectId();
+    user.setId(id);
+    when(userRepository.findById(id)).thenReturn(Optional.of(user));
+
+    var result = userService.getById(id.toHexString());
+
+    assertThat(result.getId()).isEqualTo(id.toHexString());
+    assertThat(result.getUsername()).isEqualTo("jane.doe");
+    assertThat(result.getEmail()).isEqualTo("jane@example.com");
+    assertThat(result.getFirstName()).isEqualTo("Jane");
+    assertThat(result.getLastName()).isEqualTo("Doe");
+    assertThat(result.getUserCategoryCode()).isEqualTo("CUSTOMER");
+    assertThat(result.getTenantAssignments()).isEmpty();
+  }
+
+  @Test
+  void getByIdResolvesEachUserRoleIntoATenantAssignmentWithTenantNameAndRoles() {
+    UserEntity user = UserEntity.builder().username("jane.doe").build();
+    ObjectId id = new ObjectId();
+    user.setId(id);
+    when(userRepository.findById(id)).thenReturn(Optional.of(user));
+
+    ObjectId tenantId = new ObjectId();
+    ObjectId roleId = new ObjectId();
+    UserRole userRole =
+        UserRole.builder()
+            .userId(id)
+            .tenantId(tenantId)
+            .roles(
+                List.of(
+                    UserRole.EmbeddedRole.builder().id(roleId).code("TENANT_ADMIN").name("Tenant Admin").build()))
+            .build();
+    when(userRoleRepository.findAllByUserId(id)).thenReturn(List.of(userRole));
+    when(tenantQueryClient.getById(tenantId.toHexString()))
+        .thenReturn(TenantResponse.builder().id(tenantId.toHexString()).tenantName("Globe").build());
+
+    var result = userService.getById(id.toHexString());
+
+    assertThat(result.getTenantAssignments()).hasSize(1);
+    var assignment = result.getTenantAssignments().get(0);
+    assertThat(assignment.getTenantId()).isEqualTo(tenantId.toHexString());
+    assertThat(assignment.getTenantName()).isEqualTo("Globe");
+    assertThat(assignment.getRoles()).hasSize(1);
+    assertThat(assignment.getRoles().get(0).getCode()).isEqualTo("TENANT_ADMIN");
+    assertThat(assignment.getRoles().get(0).getId()).isEqualTo(roleId.toHexString());
+  }
+
+  @Test
+  void getByIdThrowsWhenNotFound() {
+    ObjectId id = new ObjectId();
+    when(userRepository.findById(id)).thenReturn(Optional.empty());
+
+    assertThatThrownBy(() -> userService.getById(id.toHexString()))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining(id.toHexString());
+  }
+
   private void stubUserSaveAssignsId() {
     when(userRepository.save(any(UserEntity.class)))
         .thenAnswer(
@@ -370,6 +437,44 @@ class UserServiceImplTest {
     assertThatThrownBy(() -> userService.assignTenantRoles(missingUserId.toHexString(), request))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining(missingUserId.toHexString());
+  }
+
+  @Test
+  void assignTenantRolesRevokesATenantMissingFromTheRequest() {
+    ObjectId userId = new ObjectId();
+    TenantResponse tenantA = tenant("Acme", null);
+    TenantResponse tenantB = tenant("Globe", null);
+    ObjectId tenantAId = new ObjectId(tenantA.getId());
+
+    UserEntity user = UserEntity.builder().username("jane.doe").build();
+    user.setId(userId);
+    user.setPartyRelationships(
+        new java.util.ArrayList<>(
+            List.of(
+                PartyToPartyRelationship.builder().toPartyId(tenantAId).relationshipTypeCode("TENANT").build())));
+    when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+    when(tenantQueryClient.getById(tenantB.getId())).thenReturn(tenantB);
+    Role viewerRole = Role.builder().name("Viewer").code("VIEWER").roleType(RoleType.Functional).build();
+    viewerRole.setId(new ObjectId());
+    when(roleRepository.findById(viewerRole.getId())).thenReturn(Optional.of(viewerRole));
+    when(userRoleRepository.findByUserIdAndTenantId(userId, new ObjectId(tenantB.getId()))).thenReturn(Optional.empty());
+    when(userRoleRepository.save(any(UserRole.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+    UserRole existingRoleOnTenantA = UserRole.builder().userId(userId).tenantId(tenantAId).build();
+    when(userRoleRepository.findAllByUserId(userId)).thenReturn(List.of(existingRoleOnTenantA));
+
+    TenantRoleAssignmentRequest assignment = new TenantRoleAssignmentRequest();
+    assignment.setTenantId(tenantB.getId());
+    assignment.setRoleIds(List.of(viewerRole.getIdAsString()));
+    AssignTenantRolesRequest request = new AssignTenantRolesRequest();
+    request.setTenantAssignments(List.of(assignment));
+
+    userService.assignTenantRoles(userId.toHexString(), request);
+
+    verify(userRoleRepository).deleteByUserIdAndTenantId(userId, tenantAId);
+    assertThat(user.getPartyRelationships()).hasSize(1);
+    assertThat(user.getPartyRelationships().get(0).getToPartyId()).isEqualTo(new ObjectId(tenantB.getId()));
   }
 
   // --------------------------------------------------------- getEligibleTenants

@@ -5,6 +5,7 @@ import com.ecofood.core.dto.AssignTenantRolesResponse;
 import com.ecofood.core.dto.EligibleTenantResponse;
 import com.ecofood.core.dto.PageResponse;
 import com.ecofood.core.dto.UserCreateRequest;
+import com.ecofood.core.dto.UserDetailResponse;
 import com.ecofood.core.dto.UserDirectoryResponse;
 import com.ecofood.core.dto.UserResponse;
 import com.ecofood.core.security.AuthenticationContext;
@@ -33,6 +34,12 @@ public class UserController {
   @PostMapping
   public ResponseEntity<UserResponse> createUser(@Valid @RequestBody UserCreateRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED).body(userService.createUser(request));
+  }
+
+  /** Basic-info section of the "Edit User" modal — see UserDetailResponse. */
+  @GetMapping("/{userId}")
+  public ResponseEntity<UserDetailResponse> getById(@PathVariable String userId) {
+    return ResponseEntity.ok(userService.getById(userId));
   }
 
   @PostMapping("/{userId}/tenant-assignments")
