@@ -1,9 +1,11 @@
 package com.ecofood.app.tenant.service;
 
 import com.ecofood.core.dto.TenantResponse;
+import com.ecofood.core.enums.PartnerTypeEnum;
 import com.ecofood.core.service.TenantQueryService;
 import com.ecofood.app.tenant.entity.TenantEntity;
 import com.ecofood.app.tenant.repository.TenantRepository;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
@@ -31,11 +33,15 @@ public class TenantQueryServiceImpl implements TenantQueryService {
   }
 
   @Override
-  public TenantResponse getByRealm(String realm) {
-    return toResponse(
-        tenantRepository
-            .findByRealm(realm)
-            .orElseThrow(() -> new IllegalArgumentException("No tenant found for realm=" + realm)));
+  public List<TenantResponse> getAllByRealm(String realm) {
+    return tenantRepository.findAllByRealm(realm).stream().map(this::toResponse).toList();
+  }
+
+  @Override
+  public List<String> getScopedTenantIds(String tenantId) {
+    return tenantRepository.findScopedTenantIds(new ObjectId(tenantId)).stream()
+        .map(ObjectId::toHexString)
+        .toList();
   }
 
   private TenantResponse toResponse(TenantEntity tenant) {
@@ -46,6 +52,9 @@ public class TenantQueryServiceImpl implements TenantQueryService {
         .clientId(tenant.getClientId())
         .enterpriseId(tenant.getEnterpriseIdAsString())
         .domainUrl(tenant.getDomainUrl())
+        .tenantType(tenant.getTenantType())
+        .partnerTypeCode(
+            tenant.getPartnerType() != null ? PartnerTypeEnum.valueOf(tenant.getPartnerType().getPartnerTypeCode()) : null)
         .build();
   }
 }

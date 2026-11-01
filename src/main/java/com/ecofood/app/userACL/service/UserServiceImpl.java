@@ -6,14 +6,24 @@ import com.ecofood.core.dto.AssignTenantRolesRequest;
 import com.ecofood.core.dto.AssignTenantRolesResponse;
 import com.ecofood.core.dto.EligibleTenantResponse;
 import com.ecofood.core.dto.EnterpriseResponse;
+import com.ecofood.core.dto.PageResponse;
 import com.ecofood.core.dto.TenantAssignmentRequest;
 import com.ecofood.core.dto.TenantAssignmentResponse;
 import com.ecofood.core.dto.TenantResponse;
 import com.ecofood.core.dto.TenantRoleAssignmentRequest;
 import com.ecofood.core.dto.TenantRoleAssignmentResult;
+import com.ecofood.core.dto.RoleSummaryResponse;
 import com.ecofood.core.dto.UserCreateRequest;
+import com.ecofood.core.dto.UserDetailResponse;
+import com.ecofood.core.dto.UserDirectoryResponse;
 import com.ecofood.core.dto.UserResponse;
+import com.ecofood.core.dto.UserTenantRoleAssignmentResponse;
+import com.ecofood.core.entity.RoleLevel;
+import com.ecofood.core.security.AuthenticationContext;
+import com.ecofood.core.service.ACLService;
 import com.ecofood.core.service.UserService;
+import com.ecofood.app.config.BadRequestException;
+import com.ecofood.app.config.ForbiddenException;
 import com.ecofood.app.tenant.service.TenantKeycloakService;
 import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
 import com.ecofood.core.enums.RelationshipTypeEnum;
@@ -31,11 +41,16 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
 import org.keycloak.admin.client.resource.RealmResource;
 import org.keycloak.representations.idm.UserRepresentation;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 /**
@@ -67,6 +82,8 @@ public class UserServiceImpl implements UserService {
 
   private static final String REQUIRED_ACTION_VERIFY_EMAIL = "VERIFY_EMAIL";
   private static final String REQUIRED_ACTION_UPDATE_PASSWORD = "UPDATE_PASSWORD";
+  private static final int MAX_DIRECTORY_PAGE_SIZE = 100;
+  private static final Set<String> DIRECTORY_SORTABLE_FIELDS = Set.of("updatedAt", "firstName", "lastName");
 
   private final CoreTenantQueryClient tenantQueryClient;
   private final CoreEnterpriseQueryClient enterpriseQueryClient;
@@ -75,6 +92,28 @@ public class UserServiceImpl implements UserService {
   private final UserRepository userRepository;
   private final RoleRepository roleRepository;
   private final UserRoleRepository userRoleRepository;
+  private final ACLService aclService;
+
+  @Override
+  public UserDetailResponse getById(String userId) {
+    UserEntity user =
+        userRepository
+            .findById(new ObjectId(userId))
+            .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+
+    List<UserTenantRoleAssignmentResponse> tenantAssignments =
+        userRoleRepository.findAllByUserId(user.getId()).stream().map(this::toTenantAssignmentResponse).toList();
+
+    return UserDetailResponse.builder()
+        .id(user.getIdAsString())
+        .username(user.getUsername())
+        .email(user.getEmail())
+        .firstName(user.getFirstName())
+        .lastName(user.getLastName())
+        .userCategoryCode(user.getUserCategory() != null ? user.getUserCategory().getUserCategoryCode() : null)
+        .tenantAssignments(tenantAssignments)
+        .build();
+  }
 
   @Override
   public UserResponse createUser(UserCreateRequest request) {
@@ -185,6 +224,12 @@ public class UserServiceImpl implements UserService {
    * enterpriseId (ENTERPRISE/REGIONAL_ENTERPRISE), the user gets a direct
    * PartyToPartyRelationship to that enterprise too, deduped against their
    * existing relations.
+   *
+   * tenantAssignments is ALSO treated as the user's whole desired set of
+   * tenant MEMBERSHIPS, not just this call's additions — see
+   * revokeAssignmentsNoLongerRequested: any tenant the user previously held
+   * a UserRole on that's missing from this call is revoked entirely (its
+   * UserRole document deleted, its TENANT-coded relation removed).
    */
   @Override
   public AssignTenantRolesResponse assignTenantRoles(String userId, AssignTenantRolesRequest request) {
@@ -195,6 +240,10 @@ public class UserServiceImpl implements UserService {
 
     List<PartyToPartyRelationship> relations = new ArrayList<>(user.getPartyRelationships());
     List<TenantRoleAssignmentResult> results = new ArrayList<>();
+    Set<ObjectId> requestedTenantIds =
+        request.getTenantAssignments().stream()
+            .map(assignment -> new ObjectId(assignment.getTenantId()))
+            .collect(Collectors.toSet());
 
     for (TenantRoleAssignmentRequest assignment : request.getTenantAssignments()) {
       TenantResponse tenant = tenantQueryClient.getById(assignment.getTenantId());
@@ -232,10 +281,40 @@ public class UserServiceImpl implements UserService {
               .build());
     }
 
+    revokeAssignmentsNoLongerRequested(user.getId(), relations, requestedTenantIds);
+
     user.setPartyRelationships(relations);
     userRepository.save(user);
 
     return AssignTenantRolesResponse.builder().userId(userId).assignments(results).build();
+  }
+
+  /**
+   * Any tenant the user previously held a UserRole on that's NOT in
+   * requestedTenantIds is revoked: its UserRole document is deleted and its
+   * TENANT-coded PartyToPartyRelationship is removed from `relations`
+   * in-place. The user's ENTERPRISE relation (if any) is deliberately left
+   * alone even if its last covering tenant is revoked here — several
+   * tenants can share one enterprise, and there's no cheap way to confirm
+   * no other still-held tenant still needs it, so a stray leftover
+   * ENTERPRISE relation is the safer failure mode than wrongly stripping
+   * access.
+   */
+  private void revokeAssignmentsNoLongerRequested(
+      ObjectId userId, List<PartyToPartyRelationship> relations, Set<ObjectId> requestedTenantIds) {
+    List<ObjectId> tenantIdsToRevoke =
+        userRoleRepository.findAllByUserId(userId).stream()
+            .map(UserRole::getTenantId)
+            .filter(tenantId -> !requestedTenantIds.contains(tenantId))
+            .toList();
+
+    for (ObjectId tenantId : tenantIdsToRevoke) {
+      userRoleRepository.deleteByUserIdAndTenantId(userId, tenantId);
+      relations.removeIf(
+          relation ->
+              RelationshipTypeEnum.TENANT.getCode().equals(relation.getRelationshipTypeCode())
+                  && tenantId.equals(relation.getToPartyId()));
+    }
   }
 
   /** Tenants the user has a direct TENANT relationship to (never ENTERPRISE). */
@@ -258,6 +337,100 @@ public class UserServiceImpl implements UserService {
                     .domainUrl(tenant.getDomainUrl())
                     .build())
         .toList();
+  }
+
+  @Override
+  public PageResponse<UserDirectoryResponse> listUserDirectory(int page, int size, String sort, String search) {
+    RoleLevel level = aclService.getMaxLevel();
+    boolean unrestricted = level == RoleLevel.SYSTEM;
+    if (!unrestricted
+        && level != RoleLevel.ENTERPRISE
+        && level != RoleLevel.MASTER_TENANT
+        && level != RoleLevel.TENANT) {
+      throw new ForbiddenException("Caller's role level does not grant access to the user directory");
+    }
+
+    List<ObjectId> scopedTenantIds = unrestricted ? List.of() : resolveScopedTenantIds(level);
+    Pageable pageable = PageRequest.of(page, Math.min(Math.max(size, 1), MAX_DIRECTORY_PAGE_SIZE), resolveDirectorySort(sort));
+    Page<UserEntity> result = userRepository.findDirectory(scopedTenantIds, unrestricted, search, pageable);
+
+    return PageResponse.<UserDirectoryResponse>builder()
+        .content(result.getContent().stream().map(this::toDirectoryResponse).toList())
+        .page(result.getNumber())
+        .size(result.getSize())
+        .totalElements(result.getTotalElements())
+        .totalPages(result.getTotalPages())
+        .build();
+  }
+
+  /**
+   * TENANT-level never queries the tenant module at all — its scope is
+   * always just its own tenant id, since a sub-tenant can never have
+   * further sub-tenants of its own (same reasoning as TenantServiceImpl.
+   * findMasterTenant). ENTERPRISE/MASTER_TENANT delegate to
+   * CoreTenantQueryClient.getScopedTenantIds for the full self+sub-tenants
+   * set.
+   */
+  private List<ObjectId> resolveScopedTenantIds(RoleLevel level) {
+    ObjectId callerTenantId = AuthenticationContext.getTenantId();
+    if (level == RoleLevel.TENANT) {
+      return List.of(callerTenantId);
+    }
+    return tenantQueryClient.getScopedTenantIds(callerTenantId.toHexString()).stream().map(ObjectId::new).toList();
+  }
+
+  private Sort resolveDirectorySort(String sort) {
+    if (sort == null || sort.isBlank()) {
+      return Sort.by(Sort.Direction.DESC, "updatedAt");
+    }
+
+    String[] parts = sort.split(",", 2);
+    String field = parts[0].trim();
+    if (!DIRECTORY_SORTABLE_FIELDS.contains(field)) {
+      throw new BadRequestException("Unsupported sort field: " + field);
+    }
+
+    Sort.Direction direction =
+        parts.length > 1 && parts[1].trim().equalsIgnoreCase("asc") ? Sort.Direction.ASC : Sort.Direction.DESC;
+    return Sort.by(direction, field);
+  }
+
+  /** relationship: the first TENANT-coded relation found — null if the user has none (e.g. a pure CUSTOMER). */
+  private UserDirectoryResponse toDirectoryResponse(UserEntity user) {
+    String relationship =
+        user.getPartyRelationships().stream()
+            .filter(relation -> RelationshipTypeEnum.TENANT.getCode().equals(relation.getRelationshipTypeCode()))
+            .map(PartyToPartyRelationship::getRelationshipTypeCode)
+            .findFirst()
+            .orElse(null);
+
+    return UserDirectoryResponse.builder()
+        .id(user.getIdAsString())
+        .firstName(user.getFirstName())
+        .lastName(user.getLastName())
+        .email(user.getEmail())
+        .relationship(relationship)
+        .build();
+  }
+
+  private UserTenantRoleAssignmentResponse toTenantAssignmentResponse(UserRole userRole) {
+    TenantResponse tenant = tenantQueryClient.getById(userRole.getTenantId().toHexString());
+    List<RoleSummaryResponse> roles =
+        userRole.getRoles().stream()
+            .map(
+                role ->
+                    RoleSummaryResponse.builder()
+                        .id(role.getId().toHexString())
+                        .code(role.getCode())
+                        .name(role.getName())
+                        .build())
+            .toList();
+
+    return UserTenantRoleAssignmentResponse.builder()
+        .tenantId(tenant.getId())
+        .tenantName(tenant.getTenantName())
+        .roles(roles)
+        .build();
   }
 
   /**

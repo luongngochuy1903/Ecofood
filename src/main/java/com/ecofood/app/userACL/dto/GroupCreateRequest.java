@@ -1,5 +1,6 @@
 package com.ecofood.app.userACL.dto;
 
+import com.ecofood.core.enums.GroupType;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -13,7 +14,7 @@ public class GroupCreateRequest {
   @NotBlank
   private String code;
 
-  private String groupType;
+  private GroupType groupType;
 
   private String groupDescription;
 

@@ -68,15 +68,15 @@ class AuthControllerTest {
     AuthenticationContext.setSecret(SECRET);
   }
 
-  private JWTClaimsSet keycloakClaims(String username, String issuer) {
-    return new JWTClaimsSet.Builder().issuer(issuer).claim("preferred_username", username).build();
+  private JWTClaimsSet keycloakClaims(String email, String issuer) {
+    return new JWTClaimsSet.Builder().issuer(issuer).claim("email", email).build();
   }
 
   @Test
   void exchangeReturns200WithBothTokensAndKeycloakClaims() throws Exception {
     when(keycloakTokenVerifier.verify("kc-token"))
-        .thenReturn(keycloakClaims("jane.doe", "http://localhost:8080/realms/acme"));
-    when(internalTokenService.mintTokenPairForKeycloakLogin("jane.doe", "acme"))
+        .thenReturn(keycloakClaims("jane.doe@example.com", "http://localhost:8080/realms/acme"));
+    when(internalTokenService.mintTokenPairForKeycloakLogin("jane.doe@example.com", "acme"))
         .thenReturn(new TokenPair("access-1", "refresh-1"));
 
     mockMvc
@@ -87,7 +87,7 @@ class AuthControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.accessToken", is("access-1")))
         .andExpect(jsonPath("$.refreshToken", is("refresh-1")))
-        .andExpect(jsonPath("$.keycloakClaims.preferred_username", is("jane.doe")));
+        .andExpect(jsonPath("$.keycloakClaims.email", is("jane.doe@example.com")));
   }
 
   @Test
@@ -104,7 +104,7 @@ class AuthControllerTest {
   }
 
   @Test
-  void exchangeReturns401WhenPreferredUsernameClaimIsMissing() throws Exception {
+  void exchangeReturns401WhenEmailClaimIsMissing() throws Exception {
     when(keycloakTokenVerifier.verify("kc-token"))
         .thenReturn(new JWTClaimsSet.Builder().issuer("http://localhost:8080/realms/acme").build());
 
@@ -119,7 +119,7 @@ class AuthControllerTest {
   @Test
   void exchangeReturns401WhenUserHasNoAssignmentToTheIssuingTenant() throws Exception {
     when(keycloakTokenVerifier.verify("kc-token"))
-        .thenReturn(keycloakClaims("jane.doe", "http://localhost:8080/realms/acme"));
+        .thenReturn(keycloakClaims("jane.doe@example.com", "http://localhost:8080/realms/acme"));
     when(internalTokenService.mintTokenPairForKeycloakLogin(anyString(), anyString()))
         .thenThrow(new IllegalArgumentException("no assignment"));
 

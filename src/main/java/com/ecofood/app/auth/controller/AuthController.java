@@ -26,12 +26,15 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Verifies the Keycloak token the frontend already obtained (its own
  * browser <-> Keycloak PKCE flow — this endpoint plays no part in that),
- * resolves it back to our own user by Keycloak's standard preferred_username
- * claim (same resolution-by-username pattern DCMP's real exchangeToken uses
- * — it looks the user up via its SecMgt ACL service, not by trusting any
- * custom id claim embedded in the Keycloak token), then mints this app's
- * own internal access+refresh token pair (see InternalTokenService for the
- * exact DCMP-matched claim shape).
+ * resolves it back to our own user by its email claim — not
+ * preferred_username: username has no real uniqueness/stability guarantee
+ * in this app (an arbitrary string typed at onboarding), and Keycloak
+ * doesn't even guarantee it echoes a username claim back in its original
+ * case, whereas email is enforced unique by both Keycloak and this app's
+ * own onboarding validation — then mints this app's own internal
+ * access+refresh token pair (see InternalTokenService for the exact
+ * DCMP-matched claim shape). Requires the client's "email" scope to be a
+ * DEFAULT (not optional) scope — see TenantServiceImpl.buildPublicClient.
  */
 @Slf4j
 @RestController
@@ -52,10 +55,10 @@ public class AuthController {
       return unauthorized();
     }
 
-    Object usernameClaim = keycloakClaims.getClaims().get("preferred_username");
-    String username = usernameClaim != null ? usernameClaim.toString() : null;
-    if (username == null || username.isBlank()) {
-      log.warn("Rejecting exchange with 401: Keycloak token has no preferred_username claim");
+    Object emailClaim = keycloakClaims.getClaims().get("email");
+    String email = emailClaim != null ? emailClaim.toString() : null;
+    if (email == null || email.isBlank()) {
+      log.warn("Rejecting exchange with 401: Keycloak token has no email claim");
       return unauthorized();
     }
 
@@ -67,7 +70,7 @@ public class AuthController {
 
     TokenPair tokenPair;
     try {
-      tokenPair = internalTokenService.mintTokenPairForKeycloakLogin(username, realm);
+      tokenPair = internalTokenService.mintTokenPairForKeycloakLogin(email, realm);
     } catch (IllegalArgumentException e) {
       log.warn("Rejecting exchange with 401: {}", e.getMessage());
       return unauthorized();

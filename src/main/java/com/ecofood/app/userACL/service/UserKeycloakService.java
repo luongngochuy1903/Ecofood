@@ -20,7 +20,12 @@ public class UserKeycloakService {
   public String createUser(RealmResource realmResource, UserRepresentation user) {
     try (Response response = realmResource.users().create(user)) {
       if (response.getStatus() >= 300) {
-        throw new IllegalStateException("Failed to create user, status=" + response.getStatus());
+        // Keycloak's actual rejection reason (duplicate username/email,
+        // User Profile validation failure, etc.) lives in the response
+        // body — without reading it here, every failure looks identical.
+        String body = response.hasEntity() ? response.readEntity(String.class) : "<no body>";
+        throw new IllegalStateException(
+            "Failed to create user, status=" + response.getStatus() + ", body=" + body);
       }
       return CreatedResponseUtil.getCreatedId(response);
     }
