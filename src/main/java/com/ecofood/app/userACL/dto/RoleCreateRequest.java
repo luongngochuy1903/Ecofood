@@ -21,4 +21,7 @@ public class RoleCreateRequest {
   private String statusCode;
 
   private String statusDescription;
+
+  /** Optional existing Group id — when set, the new role is linked into that Group's GroupRole doc (see GroupService.addRolesToGroup). */
+  private String groupId;
 }

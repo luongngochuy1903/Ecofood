@@ -3,6 +3,8 @@ package com.ecofood.app.userACL.service;
 import com.ecofood.app.userACL.dto.AddPermissionsToRoleRequest;
 import com.ecofood.app.userACL.dto.PermissionCreateRequest;
 import com.ecofood.app.userACL.dto.PermissionResponse;
+import com.ecofood.app.userACL.dto.PermissionSummary;
+import com.ecofood.app.userACL.dto.PermissionUpdateRequest;
 import com.ecofood.app.userACL.dto.PermissionWithRoleRequest;
 import com.ecofood.app.userACL.dto.PermissionWithRoleResponse;
 import com.ecofood.app.userACL.dto.RolePermissionResponse;
@@ -13,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.bson.types.ObjectId;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 /**
@@ -52,6 +55,57 @@ public class PermissionService {
             request.getRoleId(), AddPermissionsToRoleRequest.builder().permissionIds(permissionIds).build());
 
     return PermissionWithRoleResponse.builder().permissions(permissions).rolePermission(rolePermission).build();
+  }
+
+  /** Creates a standalone Permission row, unattached to any Role. */
+  public PermissionResponse createStandalonePermission(PermissionCreateRequest request) {
+    return createPermission(request);
+  }
+
+  /** Full Permission catalog, alphabetical by name — backs the Permissions directory tab under Users. */
+  public List<PermissionSummary> listDirectory() {
+    return permissionRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).stream()
+        .map(
+            permission ->
+                PermissionSummary.builder()
+                    .id(permission.getIdAsString())
+                    .code(permission.getCode())
+                    .name(permission.getName())
+                    .build())
+        .toList();
+  }
+
+  /** Permission detail — backs the Edit Permission modal's prefill. */
+  public PermissionResponse getById(String permissionId) {
+    Permission permission =
+        permissionRepository
+            .findById(new ObjectId(permissionId))
+            .orElseThrow(() -> new IllegalArgumentException("Permission not found: " + permissionId));
+    return toResponse(permission);
+  }
+
+  /** Updates a Permission's basic fields — backs the Edit Permission modal's Save action. */
+  public PermissionResponse updatePermission(String permissionId, PermissionUpdateRequest request) {
+    Permission permission =
+        permissionRepository
+            .findById(new ObjectId(permissionId))
+            .orElseThrow(() -> new IllegalArgumentException("Permission not found: " + permissionId));
+
+    Permission.PermissionStatus status =
+        request.getStatusCode() != null || request.getStatusDescription() != null
+            ? Permission.PermissionStatus.builder()
+                .statusCode(request.getStatusCode())
+                .statusDescription(request.getStatusDescription())
+                .build()
+            : null;
+
+    permission.setName(request.getName());
+    permission.setCode(request.getCode());
+    permission.setDescription(request.getDescription());
+    permission.setPermissionStatus(status);
+    permissionRepository.save(permission);
+
+    return toResponse(permission);
   }
 
   private PermissionResponse createPermission(PermissionCreateRequest request) {
