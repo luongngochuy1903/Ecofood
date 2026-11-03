@@ -30,6 +30,32 @@ public class RolePermissionService {
   private final PermissionRepository permissionRepository;
   private final RolePermissionRepository rolePermissionRepository;
 
+  /** Current permissions assigned to a role — empty list if no RolePermission doc exists yet. Backs the Manage Permissions modal's prefill. */
+  public RolePermissionResponse getPermissionsForRole(String roleId) {
+    ObjectId roleObjectId = new ObjectId(roleId);
+    if (!roleRepository.existsById(roleObjectId)) {
+      throw new IllegalArgumentException("Role not found: " + roleId);
+    }
+
+    List<PermissionSummary> summaries =
+        rolePermissionRepository
+            .findByRoleId(roleObjectId)
+            .map(
+                rolePermission ->
+                    rolePermission.getPermissions().stream()
+                        .map(
+                            p ->
+                                PermissionSummary.builder()
+                                    .id(p.getId().toHexString())
+                                    .code(p.getCode())
+                                    .name(p.getName())
+                                    .build())
+                        .toList())
+            .orElseGet(List::of);
+
+    return RolePermissionResponse.builder().roleId(roleId).permissions(summaries).build();
+  }
+
   public RolePermissionResponse addPermissionsToRole(String roleId, AddPermissionsToRoleRequest request) {
     ObjectId roleObjectId = new ObjectId(roleId);
     Role role =

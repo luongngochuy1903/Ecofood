@@ -4,6 +4,7 @@ import com.ecofood.app.userACL.dto.AddRolesToGroupRequest;
 import com.ecofood.app.userACL.dto.GroupCreateRequest;
 import com.ecofood.app.userACL.dto.GroupResponse;
 import com.ecofood.app.userACL.dto.GroupRoleResponse;
+import com.ecofood.app.userACL.dto.GroupSummary;
 import com.ecofood.app.userACL.dto.GroupWithRolesRequest;
 import com.ecofood.app.userACL.dto.GroupWithRolesResponse;
 import com.ecofood.app.userACL.dto.RoleCreateRequest;
@@ -22,6 +23,7 @@ import java.util.Map;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.bson.types.ObjectId;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 /**
@@ -136,6 +138,19 @@ public class GroupService {
         .code(groupRole.getCode())
         .roles(roleSummaries)
         .build();
+  }
+
+  /** Full Group catalog, alphabetical by name — backs the Group picker on the Create Role form. */
+  public List<GroupSummary> listDirectory() {
+    return groupRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).stream()
+        .map(
+            group ->
+                GroupSummary.builder()
+                    .id(group.getIdAsString())
+                    .code(group.getCode())
+                    .name(group.getName())
+                    .build())
+        .toList();
   }
 
   private GroupResponse toResponse(Group group) {
