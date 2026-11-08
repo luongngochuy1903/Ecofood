@@ -38,3 +38,7 @@ newrelic/*
 
 ### Local secrets ###
 .env
+
+/docs
+uc015-reactor.xml
+UC015_SPEC.md
