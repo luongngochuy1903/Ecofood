@@ -35,7 +35,11 @@ jobs:
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           PACKAGES_READ_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
-        run: ./mvnw clean verify
+        # ./mvnw fails with "Permission denied" — the exec bit was never
+        # set on this file (lost/never set when committed from Windows).
+        # `bash mvnw` interprets the script directly, bypassing the OS
+        # exec-permission check entirely.
+        run: bash mvnw clean verify
 
       - name: Build Docker image (not pushed)
         uses: docker/build-push-action@v6
