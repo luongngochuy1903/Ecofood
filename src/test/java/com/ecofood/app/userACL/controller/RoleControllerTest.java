@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.ecofood.app.userACL.dto.RoleResponse;
 import com.ecofood.app.userACL.entity.RoleType;
+import com.ecofood.app.userACL.service.GroupService;
+import com.ecofood.app.userACL.service.RolePermissionService;
 import com.ecofood.app.userACL.service.RoleService;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,12 +24,17 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class RoleControllerTest {
 
   @Mock private RoleService roleService;
+  @Mock private RolePermissionService rolePermissionService;
+  @Mock private GroupService groupService;
 
   private MockMvc mockMvc;
 
   @BeforeEach
   void setUp() {
-    mockMvc = MockMvcBuilders.standaloneSetup(new RoleController(roleService)).build();
+    mockMvc =
+        MockMvcBuilders.standaloneSetup(
+                new RoleController(roleService, rolePermissionService, groupService))
+            .build();
   }
 
   @Test
