@@ -56,7 +56,11 @@ public class SecurityConfig {
                         "/swagger-ui/**",
                         "/swagger-ui.html",
                         // needed so the /error forward isn't masked by a 401
-                        "/error")
+                        "/error",
+                        // the Docker Compose healthcheck hits this
+                        // unauthenticated — without this it reports the
+                        // container unhealthy even when the app is fine
+                        "/actuator/health/**")
                     .permitAll()
                     .anyRequest()
                     .authenticated())
