@@ -58,6 +58,13 @@ public class InternalJwtRequestFilter extends OncePerRequestFilter {
   private final InternalTokenService internalTokenService;
 
   @Override
+  protected boolean shouldNotFilter(HttpServletRequest request) {
+    // This exact guest endpoint authenticates with its receipt capability, not an internal JWT.
+    return "GET".equals(request.getMethod())
+        && (request.getContextPath() + "/api/v1/public/receipts").equals(request.getRequestURI());
+  }
+
+  @Override
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
       throws ServletException, IOException {
