@@ -108,6 +108,9 @@ jobs:
 
             export IMAGE_TAG="$VERSION"
 
+            sed -i '/^IMAGE_TAG=/d' .env
+            echo "IMAGE_TAG=$VERSION" >> .env
+
             docker compose pull
             docker compose stop -t 30 app
             docker compose up -d --remove-orphans
