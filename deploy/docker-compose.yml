@@ -1,0 +1,26 @@
+services:
+  app:
+    image: ghcr.io/YOUR_ORG/app:${IMAGE_TAG}
+    container_name: app
+    restart: always
+    # Must exceed application.properties' spring.lifecycle.timeout-per-shutdown-phase
+    # (25s) so Docker's SIGKILL fallback never fires before Spring's own
+    # graceful drain finishes.
+    stop_grace_period: 30s
+
+    ports:
+      - "8081:8081"
+
+    env_file:
+      - .env
+
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://localhost:8081/actuator/health
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

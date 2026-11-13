@@ -1,0 +1,53 @@
+name: App CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          # Matches the <repository><id>github</id> in pom.xml, used to
+          # resolve the private com.ecofood:core dependency from
+          # maven.pkg.github.com/luongngochuy1903/Eco_Core.
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: PACKAGES_READ_TOKEN
+
+      - name: Maven build and test
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          PACKAGES_READ_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+        run: ./mvnw clean verify
+
+      - name: Build Docker image (not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: app:pr-${{ github.event.pull_request.number }}
+
+      - name: Trivy security scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: app:pr-${{ github.event.pull_request.number }}
+          severity: CRITICAL
+          exit-code: '1'
