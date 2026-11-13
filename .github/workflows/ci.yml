@@ -46,7 +46,14 @@ jobs:
           tags: app:pr-${{ github.event.pull_request.number }}
 
       - name: Trivy security scan
-        uses: aquasecurity/trivy-action@0.28.0
+        # Pinned to the 0.35.0 release commit, not a tag — nearly every
+        # tag from 0.0.1 to 0.34.2 was compromised in a March 2026
+        # supply-chain attack (force-pushed to steal CI/CD secrets).
+        # 0.35.0 is the first release protected by GitHub's immutable
+        # releases feature. Verify against
+        # https://github.com/aquasecurity/trivy-action/releases before
+        # trusting this blindly.
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           image-ref: app:pr-${{ github.event.pull_request.number }}
           severity: CRITICAL
