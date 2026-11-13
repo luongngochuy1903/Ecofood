@@ -10,6 +10,8 @@ import com.ecofood.app.userACL.dto.RoleCreateRequest;
 import com.ecofood.app.userACL.dto.RoleResponse;
 import com.ecofood.app.userACL.entity.Role;
 import com.ecofood.app.userACL.entity.RoleType;
+import com.ecofood.app.userACL.repository.GroupRepository;
+import com.ecofood.app.userACL.repository.GroupRoleRepository;
 import com.ecofood.app.userACL.repository.RoleRepository;
 import java.util.List;
 import org.bson.types.ObjectId;
@@ -23,12 +25,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class RoleServiceTest {
 
   @Mock private RoleRepository roleRepository;
+  @Mock private GroupRoleRepository groupRoleRepository;
+  @Mock private GroupRepository groupRepository;
 
   private RoleService roleService;
 
   @BeforeEach
   void setUp() {
-    roleService = new RoleService(roleRepository);
+    roleService = new RoleService(roleRepository, groupRoleRepository, groupRepository);
   }
 
   private void stubRoleSaveAssignsId() {

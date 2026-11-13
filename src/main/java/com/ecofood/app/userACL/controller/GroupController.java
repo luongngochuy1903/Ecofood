@@ -1,12 +1,15 @@
 package com.ecofood.app.userACL.controller;
 
+import com.ecofood.app.userACL.dto.GroupSummary;
 import com.ecofood.app.userACL.dto.GroupWithRolesRequest;
 import com.ecofood.app.userACL.dto.GroupWithRolesResponse;
 import com.ecofood.app.userACL.service.GroupService;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,5 +31,11 @@ public class GroupController {
   @PostMapping
   public ResponseEntity<GroupWithRolesResponse> createGroup(@Valid @RequestBody GroupWithRolesRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED).body(groupService.createGroupWithRoles(request));
+  }
+
+  /** Full Group catalog (id/code/name) — backs the Group picker on the Create Role form. */
+  @GetMapping("/directory")
+  public ResponseEntity<List<GroupSummary>> listDirectory() {
+    return ResponseEntity.ok(groupService.listDirectory());
   }
 }

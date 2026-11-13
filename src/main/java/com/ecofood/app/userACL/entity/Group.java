@@ -44,6 +44,9 @@ import org.springframework.data.mongodb.core.mapping.Field;
 @Document(collection = "group")
 public class Group extends BaseEntity {
 
+  /** Name of this entity's atomic Mongo counter — used to auto-generate an Access Control Group's code (see DataAccessRuleService). */
+  public static final String SEQUENCE_NAME = "group_sequence";
+
   @Field("group_name")
   private String name;
 

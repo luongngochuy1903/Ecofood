@@ -1,0 +1,127 @@
+name: App CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: app-dev-deployment
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/app
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Generate version
+        id: version
+        run: |
+          VERSION=$(date +%Y%m).$(date +%j).${GITHUB_RUN_NUMBER}
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          # Matches the <repository><id>github</id> in pom.xml, used to
+          # resolve the private com.ecofood:core dependency from
+          # maven.pkg.github.com/luongngochuy1903/Eco_Core.
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: PACKAGES_READ_TOKEN
+
+      - name: Maven build and test
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          PACKAGES_READ_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+        # ./mvnw fails with "Permission denied" — the exec bit was never
+        # set on this file (lost/never set when committed from Windows).
+        # `bash mvnw` interprets the script directly, bypassing the OS
+        # exec-permission check entirely.
+        run: bash mvnw clean verify
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/app:${{ steps.version.outputs.version }}
+
+      - name: Trivy security scan
+        # Pinned to the 0.35.0 release commit, not a tag — nearly every
+        # tag from 0.0.1 to 0.34.2 was compromised in a March 2026
+        # supply-chain attack (force-pushed to steal CI/CD secrets).
+        # 0.35.0 is the first release protected by GitHub's immutable
+        # releases feature. Verify against
+        # https://github.com/aquasecurity/trivy-action/releases before
+        # trusting this blindly.
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/app:${{ steps.version.outputs.version }}
+          severity: CRITICAL
+          exit-code: '1'
+
+      - name: Push Docker image
+        run: |
+          docker push ghcr.io/${{ github.repository_owner }}/app:${{ steps.version.outputs.version }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Deploy to Azure VM
+        uses: appleboy/ssh-action@v1.2.0
+
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_PRIVATE_KEY }}
+          envs: VERSION
+
+          script: |
+            set -eu
+
+            cd /home/huyluong/app
+
+            export IMAGE_TAG="$VERSION"
+
+            sed -i '/^IMAGE_TAG=/d' .env
+            echo "IMAGE_TAG=$VERSION" >> .env
+
+            docker compose pull
+            docker compose stop -t 30 app
+            docker compose up -d --remove-orphans
