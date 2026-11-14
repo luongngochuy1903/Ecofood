@@ -4,7 +4,7 @@ import com.ecofood.app.services.DumpCallCoreServiceImpl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = {"http://localhost:5173", "https://ecofood.dpdns.org"})
 @RestController
 @RequestMapping("/api/test")
 public class TestController {
