@@ -72,9 +72,14 @@ public class SecurityConfig {
   @Bean
   public CorsConfigurationSource corsConfigurationSource() {
     CorsConfiguration configuration = new CorsConfiguration();
-    // local dev origins + per-tenant *.localhost subdomains; prod needs the real domain (see README.md)
+    // local dev origins + per-tenant *.localhost subdomains, plus the real prod domain and its tenant subdomains
     configuration.setAllowedOriginPatterns(
-        List.of("http://localhost:3000", "http://localhost:5173", "http://*.localhost:5173"));
+        List.of(
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://*.localhost:5173",
+            "https://ecofood.dpdns.org",
+            "https://*.ecofood.dpdns.org"));
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("Content-Type", "Authorization"));
 
