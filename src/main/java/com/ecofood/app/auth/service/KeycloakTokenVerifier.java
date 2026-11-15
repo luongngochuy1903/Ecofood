@@ -5,6 +5,7 @@ import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
+import com.nimbusds.jose.util.DefaultResourceRetriever;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.nimbusds.jwt.proc.DefaultJWTClaimsVerifier;
@@ -81,7 +82,14 @@ public class KeycloakTokenVerifier {
       throw new IllegalStateException("Malformed JWKS URL for issuer " + issuer, e);
     }
 
-    JWKSource<SecurityContext> jwkSource = JWKSourceBuilder.<SecurityContext>create(jwksUrl).cache(true).build();
+    // Nimbus's default resource retriever uses a very short (sub-second)
+    // connect/read timeout — fine for a JWKS endpoint on localhost, but too
+    // aggressive for a real network round-trip (e.g. through Cloudflare's
+    // proxy to the VM's Keycloak), causing spurious JWKSetRetrievalException
+    // "Read timed out" failures under normal latency.
+    DefaultResourceRetriever resourceRetriever = new DefaultResourceRetriever(5000, 5000);
+    JWKSource<SecurityContext> jwkSource =
+        JWKSourceBuilder.<SecurityContext>create(jwksUrl, resourceRetriever).cache(true).build();
 
     DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
     processor.setJWSKeySelector(new JWSVerificationKeySelector<>(JWSAlgorithm.RS256, jwkSource));
