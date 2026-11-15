@@ -8,8 +8,12 @@ services:
     # graceful drain finishes.
     stop_grace_period: 30s
 
-    ports:
-      - "8081:8081"
+    # Not published to the host directly — the shared Caddy stack
+    # (../../caddy/docker-compose.yml) fronts it with TLS over the shared
+    # oke-internal network instead. Only `expose` (internal to the compose
+    # network), no `ports`.
+    expose:
+      - "8081"
 
     env_file:
       - .env
@@ -24,3 +28,13 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+    networks:
+      - oke-internal
+
+networks:
+  # Created once on the host with: docker network create oke-internal
+  # Shared with the Keycloak stack and the Caddy reverse proxy so Caddy can
+  # reach this container by its compose service name ("app").
+  oke-internal:
+    external: true
