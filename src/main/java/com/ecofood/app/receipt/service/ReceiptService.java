@@ -82,17 +82,22 @@ public class ReceiptService {
   }
 
   public PublicReceiptResponse read(String token) {
-    if (token == null || !token.matches("[A-Za-z0-9_-]{43}")) throw unavailable();
-    var access = receipts.findByTokenHashAndRevokedAtIsNullAndExpiresAtGreaterThan(tokens.hash(token), clock.instant())
-        .orElseThrow(this::unavailable);
-    var invoice = invoices.findByIdAndTenantIdAndPosIdAndDistributionPartnerId(
-        access.getInvoiceId(), access.getTenantId(), access.getPosId(), access.getDistributionPartnerId())
-        .filter(value -> value.getStatus() == TransactionStatus.ACCEPTED).orElseThrow(this::unavailable);
+    var invoice = requireValidInvoice(token);
     List<PublicReceiptResponse.Item> items = invoice.getItems().stream()
         .map(item -> new PublicReceiptResponse.Item(item.productCode(), item.productName(),
             item.quantity(), item.unitPrice(), item.amount())).toList();
     return new PublicReceiptResponse(invoice.getInvoiceNumber(), invoice.getTransactionTime(),
         invoice.getDistributionPartnerId(), invoice.getCurrency(), invoice.getTotalAmount(), items);
+  }
+
+  /** Internal reuse only: resolve the Invoice exclusively from a valid receipt capability. */
+  public Invoice requireValidInvoice(String token) {
+    if (token == null || !token.matches("[A-Za-z0-9_-]{43}")) throw unavailable();
+    var access = receipts.findByTokenHashAndRevokedAtIsNullAndExpiresAtGreaterThan(tokens.hash(token), clock.instant())
+        .orElseThrow(this::unavailable);
+    return invoices.findByIdAndTenantIdAndPosIdAndDistributionPartnerId(
+        access.getInvoiceId(), access.getTenantId(), access.getPosId(), access.getDistributionPartnerId())
+        .filter(value -> value.getStatus() == TransactionStatus.ACCEPTED).orElseThrow(this::unavailable);
   }
 
   private Invoice posInvoice(String invoiceId, PosIdentity pos) {

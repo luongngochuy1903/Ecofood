@@ -59,9 +59,13 @@ public class InternalJwtRequestFilter extends OncePerRequestFilter {
 
   @Override
   protected boolean shouldNotFilter(HttpServletRequest request) {
-    // This exact guest endpoint authenticates with its receipt capability, not an internal JWT.
-    return "GET".equals(request.getMethod())
-        && (request.getContextPath() + "/api/v1/public/receipts").equals(request.getRequestURI());
+    // Only these Guest operations authenticate with a receipt capability instead of a JWT.
+    String uri = request.getRequestURI();
+    if (uri == null) return false;
+    String path = uri.substring(request.getContextPath().length());
+    return ("GET".equals(request.getMethod()) && ("/api/v1/public/receipts".equals(path)
+        || path.matches("/api/v1/public/receipts/[^/]+/feedback-status")))
+        || ("POST".equals(request.getMethod()) && path.matches("/api/v1/public/receipts/[^/]+/feedback"));
   }
 
   @Override

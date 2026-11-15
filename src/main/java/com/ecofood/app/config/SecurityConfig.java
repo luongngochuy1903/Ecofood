@@ -35,6 +35,10 @@ public class SecurityConfig {
             auth ->
                 auth.requestMatchers(HttpMethod.GET, "/api/v1/public/receipts")
                     .permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/v1/public/receipts/{token}/feedback")
+                    .permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/v1/public/receipts/{token}/feedback-status")
+                    .permitAll()
                     .requestMatchers("/api/v1/users/directory", "/api/v1/users/{userId}")
                     .authenticated()
                     .requestMatchers(
