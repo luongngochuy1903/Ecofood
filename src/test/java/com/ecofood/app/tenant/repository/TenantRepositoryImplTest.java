@@ -38,13 +38,14 @@ class TenantRepositoryImplTest {
   }
 
   @Test
-  void unrestrictedQueryHasNoScopingCriteria() {
+  void unrestrictedQueryExcludesDeletedTenantsWithoutRestrictingHierarchy() {
     tenantRepositoryImpl.findDirectory(null, true, null, PageRequest.of(0, 20));
 
     ArgumentCaptor<Query> captor = ArgumentCaptor.forClass(Query.class);
     verifyCountAndFindUsedTheSameQuery(captor);
     Document queryObject = captor.getValue().getQueryObject();
-    assertThat(queryObject).isEmpty();
+    assertThat(queryObject).containsOnlyKeys("deleted");
+    assertThat(queryObject.get("deleted")).isEqualTo(new Document("$ne", true));
   }
 
   @Test
@@ -56,6 +57,7 @@ class TenantRepositoryImplTest {
     Document queryObject = captor.getValue().getQueryObject();
 
     assertThat(queryObject).containsKey("$or");
+    assertThat(queryObject.get("deleted")).isEqualTo(new Document("$ne", true));
     @SuppressWarnings("unchecked")
     List<Document> orClauses = (List<Document>) queryObject.get("$or");
     assertThat(orClauses).hasSize(2);

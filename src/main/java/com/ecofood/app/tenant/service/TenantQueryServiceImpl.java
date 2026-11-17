@@ -43,11 +43,25 @@ public class TenantQueryServiceImpl implements TenantQueryService {
         .map(ObjectId::toHexString)
         .toList();
   }
+  @Override public com.ecofood.core.dto.PropositionTenantReference propositionReference(String id) {
+    if(id==null||!ObjectId.isValid(id))throw new IllegalArgumentException("Tenant not found");
+    return commercialReference(tenantRepository.findById(new ObjectId(id)).orElseThrow(()->new IllegalArgumentException("Tenant not found")));
+  }
+  @Override public List<com.ecofood.core.dto.PropositionTenantReference> propositionReferences() {
+    return tenantRepository.findAll().stream().filter(t -> !Boolean.TRUE.equals(t.getDeleted())).map(this::commercialReference).toList();
+  }
+  private com.ecofood.core.dto.PropositionTenantReference commercialReference(TenantEntity tenant) {
+    var relations=(tenant.getPartyRelationships()==null?List.<com.ecofood.app.userACL.entity.PartyToPartyRelationship>of():tenant.getPartyRelationships()).stream()
+        .map(r -> new com.ecofood.core.dto.PartyRelationshipResponse(r.getToPartyId()==null?null:r.getToPartyId().toHexString(),r.getRelationshipTypeCode(),r.getRelationshipReferenceName())).toList();
+    return new com.ecofood.core.dto.PropositionTenantReference(tenant.getIdAsString(),tenant.getTenantName(),tenant.getEnterpriseIdAsString(),
+        tenant.getPartnerType()==null?null:PartnerTypeEnum.valueOf(tenant.getPartnerType().getPartnerTypeCode()),tenant.getTenantType(),getScopedTenantIds(tenant.getIdAsString()),relations,Boolean.TRUE.equals(tenant.getDeleted()),TenantCountry.resolve(tenant));
+  }
 
   private TenantResponse toResponse(TenantEntity tenant) {
     return TenantResponse.builder()
         .id(tenant.getIdAsString())
         .tenantName(tenant.getTenantName())
+          .country(TenantCountry.resolve(tenant))
         .realm(tenant.getRealm())
         .clientId(tenant.getClientId())
         .enterpriseId(tenant.getEnterpriseIdAsString())

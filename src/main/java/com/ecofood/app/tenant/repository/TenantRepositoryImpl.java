@@ -23,7 +23,7 @@ public class TenantRepositoryImpl implements TenantRepositoryCustom {
   @Override
   public Page<TenantEntity> findDirectory(
       ObjectId scopeTenantId, boolean unrestricted, String search, Pageable pageable) {
-    Query query = new Query();
+    Query query = new Query(Criteria.where("deleted").ne(true));
 
     if (!unrestricted) {
       query.addCriteria(scopeCriteria(scopeTenantId));
@@ -43,7 +43,7 @@ public class TenantRepositoryImpl implements TenantRepositoryCustom {
 
   @Override
   public List<ObjectId> findScopedTenantIds(ObjectId scopeTenantId) {
-    Query query = new Query(scopeCriteria(scopeTenantId));
+    Query query = new Query(scopeCriteria(scopeTenantId)).addCriteria(Criteria.where("deleted").ne(true));
     query.fields().include("_id");
     return mongoTemplate.find(query, TenantEntity.class).stream().map(TenantEntity::getId).toList();
   }

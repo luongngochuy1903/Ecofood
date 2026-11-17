@@ -372,6 +372,7 @@ public class TenantServiceImpl implements TenantService {
 
   private TenantResponse toResponse(TenantEntity tenant) {
     return TenantResponse.builder()
+        .country(TenantCountry.resolve(tenant))
         .id(tenant.getIdAsString())
         .tenantName(tenant.getTenantName())
         .realm(tenant.getRealm())
