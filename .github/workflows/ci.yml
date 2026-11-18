@@ -12,9 +12,10 @@ permissions:
 
 jobs:
   build:
+    name: Build, Test and Security Scan
     runs-on: ubuntu-latest
 
-    # MongoDB service for integration tests
+    # MongoDB for integration tests
     services:
       mongodb:
         image: mongo:7.0
@@ -24,12 +25,15 @@ jobs:
           --health-cmd="mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
           --health-interval=10s
           --health-timeout=5s
+          --health-start-period=10s
           --health-retries=5
 
     steps:
+      # Step 1: Checkout source code
       - name: Checkout source
         uses: actions/checkout@v4
 
+      # Step 2: Setup Java and Maven authentication
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -37,23 +41,30 @@ jobs:
           java-version: '17'
           cache: maven
 
-          # GitHub Packages authentication
+          # GitHub Packages - Eco_Core
           server-id: github
           server-username: GITHUB_ACTOR
           server-password: PACKAGES_READ_TOKEN
 
+      # Step 3: Build and run all tests
       - name: Maven build and test
         env:
+          # GitHub Packages authentication
           GITHUB_ACTOR: ${{ github.actor }}
           PACKAGES_READ_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
 
-          # Dedicated MongoDB for CI
+          # MongoDB test configuration
           MONGODB_URI: mongodb://127.0.0.1:27017/appdb
           MONGODB_DATABASE: appdb
 
-        # Run wrapper using bash to avoid permission errors
-        run: bash mvnw clean verify
+          # Disable external business event processing
+          ECOFOOD_NOTIFICATIONS_EVENTS_ENABLED: 'false'
+          ECOFOOD_COMPLAINTS_PROJECTION_ENABLED: 'false'
 
+        # Use bash because mvnw has no executable bit
+        run: bash mvnw -B clean verify
+
+      # Step 4: Build Docker image
       - name: Build Docker image (not pushed)
         uses: docker/build-push-action@v6
         with:
@@ -62,8 +73,8 @@ jobs:
           load: true
           tags: app:pr-${{ github.event.pull_request.number }}
 
+      # Step 5: Scan Docker image for vulnerabilities
       - name: Trivy security scan
-        # Pinned to the existing commit
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
           image-ref: app:pr-${{ github.event.pull_request.number }}
