@@ -42,6 +42,16 @@ public class KeycloakTokenVerifier {
       new ConcurrentHashMap<>();
 
   public JWTClaimsSet verify(String accessToken) {
+    return verifyToken(accessToken, null);
+  }
+
+  /** expectedIssuer comes only from server-side Customer configuration, never request input. */
+  public JWTClaimsSet verifyForIssuer(String accessToken, String expectedIssuer) {
+    if (expectedIssuer == null || expectedIssuer.isBlank()) throw new IllegalArgumentException("Issuer is required");
+    return verifyToken(accessToken, expectedIssuer);
+  }
+
+  private JWTClaimsSet verifyToken(String accessToken, String expectedIssuer) {
     SignedJWT signedJWT;
     String issuer;
     try {
@@ -51,7 +61,7 @@ public class KeycloakTokenVerifier {
       throw new IllegalArgumentException("Unparsable access token", e);
     }
 
-    if (issuer == null || !issuer.startsWith(trustedIssuerPrefix)) {
+    if (issuer == null || (expectedIssuer == null ? !issuer.startsWith(trustedIssuerPrefix) : !issuer.equals(expectedIssuer))) {
       throw new IllegalArgumentException("Untrusted token issuer: " + issuer);
     }
 
@@ -87,7 +97,7 @@ public class KeycloakTokenVerifier {
     // aggressive for a real network round-trip (e.g. through Cloudflare's
     // proxy to the VM's Keycloak), causing spurious JWKSetRetrievalException
     // "Read timed out" failures under normal latency.
-    DefaultResourceRetriever resourceRetriever = new DefaultResourceRetriever(5000, 5000);
+    DefaultResourceRetriever resourceRetriever = new DefaultResourceRetriever(20000, 20000);
     JWKSource<SecurityContext> jwkSource =
         JWKSourceBuilder.<SecurityContext>create(jwksUrl, resourceRetriever).cache(true).build();
 

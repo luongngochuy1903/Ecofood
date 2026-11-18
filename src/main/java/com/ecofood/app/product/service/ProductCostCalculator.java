@@ -10,6 +10,10 @@ import org.springframework.web.server.ResponseStatusException;
 @Component
 public class ProductCostCalculator {
   public ProductCostingAttribute calculate(ProductCostingRequest request,ProductPricingRequest pricing) {
+    String currency = ProductCurrency.normalize(pricing != null ? pricing.currency() : request == null ? null : request.currency());
+    if (request != null && request.currency() != null
+        && !ProductCurrency.normalize(request.currency()).equals(currency))
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Costing and pricing must use the same currency");
     BigDecimal ingredient=amount(request==null ? pricing==null?null:pricing.costPrice() : request.ingredientCost());
     BigDecimal packaging=amount(request==null?null:request.packagingCost());
     BigDecimal labor=amount(request==null?null:request.laborCost());
@@ -24,7 +28,7 @@ public class ProductCostCalculator {
         .multiply(BigDecimal.ONE.add(tax.movePointLeft(2))).setScale(2,RoundingMode.HALF_UP);
     return ProductCostingAttribute.builder().ingredientCost(ingredient).packagingCost(packaging).laborCost(labor)
         .operationCost(operation).marketingFee(marketing).targetMargin(margin).tax(tax).totalCost(total)
-        .basePrice(base).sellingPrice(pricing==null?null:amount(pricing.sellingPrice())).currency("VND")
+        .basePrice(base).sellingPrice(pricing==null?null:amount(pricing.sellingPrice())).currency(currency)
         .note(pricing==null?null:pricing.note()).build();
   }
   private BigDecimal amount(BigDecimal value) {

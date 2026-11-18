@@ -9,6 +9,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 class ProductValidationTest {
   private final ProductValidation validator=new ProductValidation();
+  @Test void acceptsCurrenciesAndRejectsUnknownCodes() {
+    for (String currency : List.of("USD", "EUR", "JPY", " usd "))
+      validator.validateDraft("Product", List.of(), null,
+          new ProductPricingRequest(BigDecimal.TEN, null, currency));
+    assertThatThrownBy(() -> validator.validateDraft("Product", List.of(), null,
+        new ProductPricingRequest(BigDecimal.TEN, null, "INVALID")))
+        .isInstanceOf(ResponseStatusException.class).hasMessageContaining("currency");
+  }
   @Test void validFixedPriceAndRecipe() {
     validator.validateDraft("Product A",List.of(new ProductIngredientRequest("ing-1",BigDecimal.ONE,"GRAM")),
       new ProductRecipeRequest(true,List.of(new ProductRecipeStepRequest(1,"Mix","",1))),
