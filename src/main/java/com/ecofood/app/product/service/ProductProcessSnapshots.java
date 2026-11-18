@@ -31,7 +31,7 @@ public class ProductProcessSnapshots {
     p.setName(d.getProductName());p.setCode(d.getCode());p.setCategory(d.getCategory());
     p.setDescription(d.getDescription());p.setImageUrl(d.getImagesURL());p.setIngredients(d.getIngredients());
     p.setComponentProducts(d.getComponentProducts());p.setRecipe(d.getRecipe());
-    p.setCosting(new ProductCostingRequest(c.getIngredientCost(),c.getPackagingCost(),c.getLaborCost(),c.getOperationCost(),c.getMarketingFee(),c.getTargetMargin(),c.getTax()));
+    p.setCosting(new ProductCostingRequest(c.getIngredientCost(),c.getPackagingCost(),c.getLaborCost(),c.getOperationCost(),c.getMarketingFee(),c.getTargetMargin(),c.getTax(),c.getCurrency()));
     p.setPricing(c.getSellingPrice()==null?null:new ProductPricingRequest(c.getSellingPrice(),c.getTotalCost(),c.getCurrency(),c.getNote()));
   }
 }

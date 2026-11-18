@@ -244,7 +244,7 @@ public class ProductServiceImpl implements ProductService {
     return ingredients==null ? List.of() : List.copyOf(ingredients);
   }
   private static ProductPricingRequest fixedPricing(ProductPricingRequest pricing) {
-    return pricing == null ? null : new ProductPricingRequest(pricing.sellingPrice(), pricing.costPrice(), "VND", pricing.note());
+    return pricing == null ? null : new ProductPricingRequest(pricing.sellingPrice(), pricing.costPrice(), ProductCurrency.normalize(pricing.currency()), pricing.note());
   }
   private void saveVersion(ProductProcessEntity version) {
     try { versionRepository.save(version); }

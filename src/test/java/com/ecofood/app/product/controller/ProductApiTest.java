@@ -245,6 +245,26 @@ class ProductApiTest {
         .andExpect(status().isCreated()).andExpect(jsonPath("$.componentProducts.length()").value(2))
         .andExpect(jsonPath("$.category").value("Combos")).andExpect(jsonPath("$.code").value("COMBO"));
   }
+  @Test void currencySurvivesDraftReadUpdateAndSubmission() throws Exception {
+    mvc.perform(post("/api/v1/products").header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON).content("""
+      {"type":"STANDALONE","name":"Coffee","code":"COFFEE","category":"Drinks",
+       "costing":{"ingredientCost":2.5,"currency":"USD"}}
+      """))
+        .andExpect(status().isCreated()).andExpect(jsonPath("$.costing.currency").value("USD"))
+        .andExpect(jsonPath("$.pricing").doesNotExist());
+    String base="/api/v1/products/"+products.values().iterator().next().getIdAsString();
+    mvc.perform(get(base).header("Authorization","Bearer "+token))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.costing.currency").value("USD"));
+    mvc.perform(put(base).header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON).content("""
+      {"name":"Coffee","code":"COFFEE","category":"Drinks","expectedRevision":0,
+       "costing":{"ingredientCost":2.5,"currency":"USD"},"pricing":{"sellingPrice":5.5,"currency":"USD"}}
+      """))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.pricing.currency").value("USD"))
+        .andExpect(jsonPath("$.costing.currency").value("USD"));
+    mvc.perform(post(base+"/submit").header("Authorization","Bearer "+token))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.pricing.currency").value("USD"))
+        .andExpect(jsonPath("$.productProcess[0].overview.processElementAttribute[0].currency").value("USD"));
+  }
   @Test void processesPersistTypedAttributesAndRetainApprovedVersionAfterNewDraft() throws Exception {
     mvc.perform(post("/api/v1/products").header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON).content("""
       {"type":"STANDALONE","name":"Chicken","code":"CHICKEN","category":"Meals",

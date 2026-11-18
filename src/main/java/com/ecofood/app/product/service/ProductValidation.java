@@ -40,7 +40,7 @@ public class ProductValidation {
     if (pricing != null) {
       if (pricing.sellingPrice() == null || pricing.sellingPrice().signum() < 0
         || pricing.costPrice() != null && pricing.costPrice().signum() < 0) bad("Negative/invalid price");
-      if (pricing.currency() != null && !pricing.currency().equals("VND")) bad("Only VND supported in phase 1");
+      ProductCurrency.normalize(pricing.currency());
     }
   }
   public void validateDefinition(String code, String category, String imageUrl) {
