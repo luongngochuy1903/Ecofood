@@ -58,6 +58,17 @@ public class InternalJwtRequestFilter extends OncePerRequestFilter {
   private final InternalTokenService internalTokenService;
 
   @Override
+  protected boolean shouldNotFilter(HttpServletRequest request) {
+    // Only these Guest operations authenticate with a receipt capability instead of a JWT.
+    String uri = request.getRequestURI();
+    if (uri == null) return false;
+    String path = uri.substring(request.getContextPath().length());
+    return ("GET".equals(request.getMethod()) && "/api/v1/public/receipts".equals(path))
+        || ("POST".equals(request.getMethod()) && (path.matches("/api/v1/public/receipts/[^/]+/complaints")
+            || List.of("/api/v1/public/invoice-complaints", "/api/v1/public/invoice-complaints/options", "/api/v1/public/complaints/track").contains(path)));
+  }
+
+  @Override
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
       throws ServletException, IOException {
@@ -105,6 +116,31 @@ public class InternalJwtRequestFilter extends OncePerRequestFilter {
             log.warn("Rejecting request with 401: audience mismatch, jti={}, audience={}", jti, aud);
             setUnauthorizedStatusToRespond(response);
             return;
+          }
+
+          if ("CUSTOMER".equals(claims.get("identityType"))) {
+            String path = request.getRequestURI().substring(request.getContextPath().length());
+            boolean selfService = "GET".equals(request.getMethod()) && "/api/v1/customer-auth/me".equals(path);
+            boolean profile = List.of("GET", "PATCH").contains(request.getMethod()) && "/api/v1/customers/me".equals(path);
+            boolean logout = "POST".equals(request.getMethod()) && "/api/v1/auth/logout".equals(path);
+            boolean invoiceClaim = "POST".equals(request.getMethod()) && List.of("/api/v1/customer/invoice-claims",
+                "/api/v1/customer/invoice-claims/eligibility", "/api/v1/customer/invoice-claims/status").contains(path);
+            boolean purchases = "GET".equals(request.getMethod()) && ("/api/v1/customers/me/invoices".equals(path)
+                || "/api/v1/customers/me/statistics".equals(path)
+                || path.matches("/api/v1/customers/me/invoices/[a-fA-F0-9]{24}"));
+            boolean notificationRead = "GET".equals(request.getMethod()) && List.of("/api/v1/customers/me/notifications",
+                "/api/v1/customers/me/notifications/unread-count", "/api/v1/customers/me/notification-preferences").contains(path);
+            boolean notificationWrite = "PATCH".equals(request.getMethod()) && (List.of("/api/v1/customers/me/notifications/read-all",
+                "/api/v1/customers/me/notification-preferences").contains(path) || path.matches("/api/v1/customers/me/notifications/[a-fA-F0-9]{24}/read"));
+            boolean complaintRead = "GET".equals(request.getMethod()) && (List.of("/api/v1/customers/me/complaints", "/api/v1/customers/me/complaint-options").contains(path)
+                || path.matches("/api/v1/customers/me/complaints/[a-f0-9]{24}"));
+            boolean complaintCreate = "POST".equals(request.getMethod()) && List.of("/api/v1/customers/me/complaints/invoice", "/api/v1/customers/me/complaints/platform").contains(path);
+            if (!selfService && !profile && !logout && !invoiceClaim && !purchases && !notificationRead && !notificationWrite && !complaintRead && !complaintCreate) {
+              response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+              response.setContentType("application/json;charset=UTF-8");
+              response.getWriter().write(OBJECT_MAPPER.writeValueAsString(Map.of("message", "Customer session cannot access tenant management")));
+              return;
+            }
           }
 
           if (SecurityContextHolder.getContext().getAuthentication() == null) {

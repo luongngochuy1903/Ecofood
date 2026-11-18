@@ -12,6 +12,7 @@ public interface UserRoleRepository extends MongoRepository<UserRole, ObjectId> 
 
   /** Every tenant the user holds a role on — backs the "Edit User" modal's Access & Permissions section. */
   List<UserRole> findAllByUserId(ObjectId userId);
+  List<UserRole> findAllByTenantId(ObjectId tenantId);
 
   /** Revokes a tenant assignment entirely — see UserServiceImpl.assignTenantRoles's removal pass. */
   void deleteByUserIdAndTenantId(ObjectId userId, ObjectId tenantId);
