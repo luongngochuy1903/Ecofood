@@ -38,7 +38,11 @@ newrelic/*
 
 ### Local secrets ###
 .env
+/migration-backups/
 
 /docs
 uc015-reactor.xml
 UC015_SPEC.md
+*.md
+
+/config

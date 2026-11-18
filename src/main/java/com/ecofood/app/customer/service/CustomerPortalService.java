@@ -1,179 +1,103 @@
 package com.ecofood.app.customer.service;
 
 import com.ecofood.app.config.BadRequestException;
-import com.ecofood.app.customer.dto.CustomerInvoiceResponse;
+import com.ecofood.app.customer.auth.CustomerIdentityService;
 import com.ecofood.app.customer.dto.CustomerProfileResponse;
 import com.ecofood.app.customer.dto.CustomerProfileUpdateRequest;
-import com.ecofood.app.customer.dto.CustomerStatisticsResponse;
-import com.ecofood.app.customer.entity.CustomerInvoiceSnapshot;
 import com.ecofood.app.customer.entity.CustomerProfileEntity;
-import com.ecofood.app.customer.repository.CustomerInvoiceSnapshotRepository;
 import com.ecofood.app.customer.repository.CustomerProfileRepository;
-import com.ecofood.app.userACL.service.CustomerAccountLookupService;
-import com.ecofood.app.userACL.service.CustomerAccountLookupService.CustomerAccount;
-import com.ecofood.core.dto.PageResponse;
-import com.ecofood.core.security.AuthenticationContext;
-import java.math.BigDecimal;
+import com.ecofood.app.userACL.entity.UserEntity;
+import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import lombok.Getter;
+import java.util.*;
 import lombok.RequiredArgsConstructor;
-import lombok.Setter;
 import org.bson.types.ObjectId;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
+import org.bson.Document;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.aggregation.Aggregation;
-import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.*;
 import org.springframework.stereotype.Service;
 
-/**
- * Self-service customer APIs: user/tenant IDs ONLY from a verified JWT,
- * and app_user category + tenant membership checked on EVERY operation.
- */
+/** Profile preferences are local; verified email/subject/credentials remain owned by Keycloak. */
 @Service
 @RequiredArgsConstructor
 public class CustomerPortalService {
-  private final CustomerAccountLookupService customerAccountLookupService;
-  private final CustomerProfileRepository profileRepository;
-  private final CustomerInvoiceSnapshotRepository invoiceRepository;
-  private final MongoTemplate mongoTemplate;
-
-  private CustomerAccount currentAccount() {
-    return customerAccountLookupService.resolve(
-        AuthenticationContext.getUserId(), AuthenticationContext.getTenantId());
-  }
+  private final CustomerIdentityService identities;
+  private final CustomerProfileRepository profiles;
+  private final MongoTemplate mongo;
+  private final Clock clock;
 
   public CustomerProfileResponse getMyProfile() {
-    CustomerAccount account = currentAccount();
-    CustomerProfileEntity profile = profileRepository
-        .findByTenantIdAndUserIdAndDeletedNot(account.tenantId(), account.userId(), true)
-        .orElse(null);
-    return toProfileResponse(account, profile);
+    var user = identities.requireSelfServiceAccount("CUSTOMER_SELF_READ");
+    return response(user, find(user).orElse(null));
   }
 
   public CustomerProfileResponse updateMyProfile(CustomerProfileUpdateRequest request) {
-    CustomerAccount account = currentAccount();
-    CustomerProfileEntity profile = profileRepository
-        .findByTenantIdAndUserIdAndDeletedNot(account.tenantId(), account.userId(), true)
-        .orElseGet(() -> CustomerProfileEntity.builder()
-            .tenantId(account.tenantId())
-            .userId(account.userId())
-            .firstName(account.firstName())
-            .lastName(account.lastName())
-            .build());
+    var user = identities.requireSelfServiceAccount("CUSTOMER_PROFILE_UPDATE");
+    if (request == null) throw new BadRequestException("Profile request is required");
+    var current = find(user).orElse(null);
+    var changed = new LinkedHashMap<String, String>();
+    change(changed, "firstName", request.firstName(), firstName(user, current), true);
+    change(changed, "lastName", request.lastName(), lastName(user, current), true);
+    change(changed, "phoneNumber", request.phoneNumber(), current == null ? "" : current.getPhoneNumber(), false);
+    change(changed, "address", request.address(), current == null ? "" : current.getAddress(), false);
+    if (changed.isEmpty()) return response(user, current);
 
-    List<String> changed = new ArrayList<>();
-    if (request.firstName() != null) {
-      String value = request.firstName().trim();
-      if (value.isBlank()) throw new BadRequestException("First name cannot be blank");
-      if (!Objects.equals(value, profile.getFirstName())) changed.add("firstName");
-      profile.setFirstName(value);
+    Instant now = Instant.ofEpochMilli(clock.millis());
+    var query = new Query(Criteria.where("tenantId").is(tenant(user)).and("userId").is(user.getId()).and("deleted").ne(true));
+    // Concurrent retries with the same values must not append another audit/event.
+    query.addCriteria(new Criteria().orOperator(changed.entrySet().stream()
+        .map(entry -> Criteria.where(entry.getKey()).ne(entry.getValue())).toArray(Criteria[]::new)));
+    var update = new Update().set("updatedAt", now).set("updatedBy", user.getIdAsString())
+        .setOnInsert("createdAt", now).setOnInsert("createdBy", user.getIdAsString()).setOnInsert("deleted", false);
+    changed.forEach(update::set);
+    if (!changed.containsKey("firstName")) update.setOnInsert("firstName", firstName(user, current));
+    if (!changed.containsKey("lastName")) update.setOnInsert("lastName", lastName(user, current));
+    var audit = new Document("changedAt", now).append("actorUserId", user.getIdAsString()).append("changedFields", new ArrayList<>(changed.keySet()));
+    update.push("changeHistory", new Document("$each", List.of(audit)));
+    update.push("notificationOutbox", com.ecofood.app.notification.NotificationOutboxEvent.account(
+        com.ecofood.app.notification.NotificationOutboxEvent.Kind.PROFILE_UPDATED, user.getIdAsString(), tenant(user).toHexString(), now));
+    CustomerProfileEntity saved;
+    try {
+      saved = mongo.findAndModify(query, update, FindAndModifyOptions.options().upsert(true).returnNew(true), CustomerProfileEntity.class);
+    } catch (DuplicateKeyException ex) {
+      // Two first PATCH requests may race on the unique tenant/user index. Apply only our fields to the winner.
+      saved = mongo.findAndModify(query, update, FindAndModifyOptions.options().returnNew(true), CustomerProfileEntity.class);
     }
-    if (request.lastName() != null) {
-      String value = request.lastName().trim();
-      if (value.isBlank()) throw new BadRequestException("Last name cannot be blank");
-      if (!Objects.equals(value, profile.getLastName())) changed.add("lastName");
-      profile.setLastName(value);
+    if (saved == null) {
+      var concurrent = find(user).orElse(null);
+      if (concurrent != null && changed.entrySet().stream().allMatch(entry -> entry.getValue().equals(switch (entry.getKey()) {
+        case "firstName" -> firstName(user, concurrent); case "lastName" -> lastName(user, concurrent);
+        case "phoneNumber" -> Objects.toString(concurrent.getPhoneNumber(), ""); default -> Objects.toString(concurrent.getAddress(), "");
+      }))) return response(user, concurrent);
+      throw new IllegalStateException("Customer profile unavailable; retry the request");
     }
-    if (request.phoneNumber() != null) {
-      String value = request.phoneNumber().trim();
-      if (!Objects.equals(value, profile.getPhoneNumber())) changed.add("phoneNumber");
-      profile.setPhoneNumber(value);
-    }
-    if (request.address() != null) {
-      String value = request.address().trim();
-      if (!Objects.equals(value, profile.getAddress())) changed.add("address");
-      profile.setAddress(value);
-    }
-
-    if (!changed.isEmpty()) {
-      if (profile.getChangeHistory() == null) profile.setChangeHistory(new ArrayList<>());
-      profile.getChangeHistory().add(CustomerProfileEntity.ProfileChange.builder()
-          .changedAt(Instant.now()).actorUserId(account.userId().toHexString())
-          .changedFields(changed).build());
-    }
-    // Deliberately do NOT update app_user.email or Keycloak identity here.
-    return toProfileResponse(account, profileRepository.save(profile));
+    return response(user, saved);
   }
 
-  public PageResponse<CustomerInvoiceResponse> getMyInvoices(int page, int size) {
-    CustomerAccount account = currentAccount();
-    PageRequest pagination = PageRequest.of(Math.max(page, 0),
-        Math.max(1, Math.min(size, 50)), Sort.by(Sort.Direction.DESC, "saleDate"));
-    Page<CustomerInvoiceSnapshot> data = invoiceRepository
-        .findByTenantIdAndCustomerUserIdAndDeletedNot(
-            account.tenantId(), account.userId(), true, pagination);
-    return PageResponse.<CustomerInvoiceResponse>builder()
-        .content(data.getContent().stream().map(this::toInvoiceResponse).toList())
-        .page(data.getNumber()).size(data.getSize())
-        .totalElements(data.getTotalElements()).totalPages(data.getTotalPages())
-        .build();
+  private Optional<CustomerProfileEntity> find(UserEntity user) {
+    return profiles.findByTenantIdAndUserIdAndDeletedNot(tenant(user), user.getId(), true);
   }
-
-  public CustomerInvoiceResponse getMyInvoice(String invoiceId) {
-    CustomerAccount account = currentAccount();
-    if (!ObjectId.isValid(invoiceId)) throw new BadRequestException("Invalid invoice identifier");
-    // Tenant and owner predicates are in the DB lookup, never a filter after fetch.
-    return invoiceRepository.findByIdAndTenantIdAndCustomerUserIdAndDeletedNot(
-            new ObjectId(invoiceId), account.tenantId(), account.userId(), true)
-        .map(this::toInvoiceResponse)
-        .orElseThrow(() -> new IllegalArgumentException("Invoice not found"));
+  private ObjectId tenant(UserEntity user) { return user.getPartyRelationships().get(0).getToPartyId(); }
+  private String firstName(UserEntity user, CustomerProfileEntity profile) {
+    return Objects.toString(profile == null || profile.getFirstName() == null ? user.getFirstName() : profile.getFirstName(), "");
   }
-
-  public CustomerStatisticsResponse getMyStatistics() {
-    CustomerAccount account = currentAccount();
-    Aggregation query = Aggregation.newAggregation(
-        Aggregation.match(Criteria.where("tenantId").is(account.tenantId())
-            .and("customerUserId").is(account.userId())
-            .and("deleted").ne(true)),
-        Aggregation.group("currency")
-            .count().as("invoiceCount")
-            .sum("totalAmount").as("totalAmount"),
-        Aggregation.project("invoiceCount", "totalAmount")
-            .and("_id").as("currency"));
-    List<CurrencyAggregate> rows = mongoTemplate
-        .aggregate(query, CustomerInvoiceSnapshot.class, CurrencyAggregate.class)
-        .getMappedResults();
-    long count = rows.stream().mapToLong(CurrencyAggregate::getInvoiceCount).sum();
-    List<CustomerStatisticsResponse.CurrencySpend> spending = rows.stream()
-        .map(row -> new CustomerStatisticsResponse.CurrencySpend(
-            Objects.toString(row.getCurrency(), "N/A"),
-            row.getInvoiceCount(),
-            row.getTotalAmount() == null ? BigDecimal.ZERO : row.getTotalAmount()))
-        .toList();
-    return new CustomerStatisticsResponse(count, spending);
+  private String lastName(UserEntity user, CustomerProfileEntity profile) {
+    return Objects.toString(profile == null || profile.getLastName() == null ? user.getLastName() : profile.getLastName(), "");
   }
-
-  private CustomerProfileResponse toProfileResponse(CustomerAccount account,
-      CustomerProfileEntity profile) {
-    return new CustomerProfileResponse(
-        account.userId().toHexString(), account.tenantId().toHexString(), account.email(),
-        profile == null ? account.firstName() : profile.getFirstName(),
-        profile == null ? account.lastName() : profile.getLastName(),
+  private void change(Map<String, String> changed, String key, String requested, String previous, boolean name) {
+    if (requested == null) return;
+    String value = requested.strip();
+    if (name && value.isBlank()) throw new BadRequestException("Name cannot be blank");
+    if (!value.equals(Objects.toString(previous, ""))) changed.put(key, value);
+  }
+  private CustomerProfileResponse response(UserEntity user, CustomerProfileEntity profile) {
+    String first = firstName(user, profile), last = lastName(user, profile);
+    return new CustomerProfileResponse(user.getIdAsString(), tenant(user).toHexString(), user.getEmail(), first, last,
         profile == null ? "" : Objects.toString(profile.getPhoneNumber(), ""),
         profile == null ? "" : Objects.toString(profile.getAddress(), ""),
-        profile == null ? null : profile.getUpdatedAt());
-  }
-
-  private CustomerInvoiceResponse toInvoiceResponse(CustomerInvoiceSnapshot item) {
-    List<CustomerInvoiceResponse.Item> items = item.getItems() == null ? List.of()
-        : item.getItems().stream().map(line -> new CustomerInvoiceResponse.Item(
-            line.getProductId(), line.getProductName(), line.getQuantity(),
-            line.getUnitPrice(), line.getLineTotal())).toList();
-    return new CustomerInvoiceResponse(item.getIdAsString(), item.getInvoiceCode(),
-        item.getDistributionPartnerName(), item.getSaleDate(), item.getStatus(),
-        item.getCurrency(), item.getTotalAmount(), items.size(), items);
-  }
-
-  @Getter
-  @Setter
-  public static class CurrencyAggregate {
-    private String currency;
-    private long invoiceCount;
-    private BigDecimal totalAmount;
+        profile == null ? user.getUpdatedAt() : profile.getUpdatedAt(), user.getIdAsString(),
+        (first + " " + last).strip(), user.getCreatedAt(), user.getCustomerIdentityIssuer() + "/account/");
   }
 }

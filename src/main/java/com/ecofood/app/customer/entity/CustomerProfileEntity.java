@@ -24,6 +24,8 @@ import org.springframework.data.mongodb.core.mapping.Field;
 @CompoundIndex(name = "ux_customer_profile_tenant_user",
     def = "{'tenant_identifier': 1, 'user_identifier': 1}", unique = true)
 public class CustomerProfileEntity extends BaseEntity {
+  @com.fasterxml.jackson.annotation.JsonIgnore
+  private List<com.ecofood.app.notification.NotificationOutboxEvent> notificationOutbox;
   @Field("tenant_identifier")
   private ObjectId tenantId;
 

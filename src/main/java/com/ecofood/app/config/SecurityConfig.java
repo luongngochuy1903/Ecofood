@@ -33,11 +33,16 @@ public class SecurityConfig {
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(
             auth ->
-                auth.requestMatchers(HttpMethod.GET, "/api/v1/public/receipts")
+                auth.requestMatchers(HttpMethod.GET, "/api/v1/customer-auth/config")
                     .permitAll()
-                    .requestMatchers(HttpMethod.POST, "/api/v1/public/receipts/{token}/feedback")
+                    .requestMatchers(HttpMethod.POST, "/api/v1/customer-auth/exchange", "/api/v1/customer-auth/refresh-token")
                     .permitAll()
-                    .requestMatchers(HttpMethod.GET, "/api/v1/public/receipts/{token}/feedback-status")
+                    .requestMatchers(HttpMethod.GET, "/api/v1/customer-auth/me")
+                    .authenticated()
+                    .requestMatchers(HttpMethod.GET, "/api/v1/public/receipts")
+                    .permitAll()
+                    .requestMatchers(HttpMethod.POST, "/api/v1/public/invoice-complaints", "/api/v1/public/invoice-complaints/options",
+                        "/api/v1/public/complaints/track", "/api/v1/public/receipts/{token}/complaints")
                     .permitAll()
                     .requestMatchers("/api/v1/users/directory", "/api/v1/users/{userId}")
                     .authenticated()
@@ -85,9 +90,10 @@ public class SecurityConfig {
             "http://localhost:3000",
             "http://localhost:5173",
             "http://*.localhost:5173",
+            "https://customerportal.ecofood.localhost:5173",
             "https://ecofood.dpdns.org",
             "https://*.ecofood.dpdns.org"));
-    configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+    configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("Content-Type", "Authorization"));
 
     UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

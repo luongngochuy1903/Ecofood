@@ -82,22 +82,45 @@ public class ReceiptService {
   }
 
   public PublicReceiptResponse read(String token) {
-    var invoice = requireValidInvoice(token);
-    List<PublicReceiptResponse.Item> items = invoice.getItems().stream()
-        .map(item -> new PublicReceiptResponse.Item(item.productCode(), item.productName(),
-            item.quantity(), item.unitPrice(), item.amount())).toList();
-    return new PublicReceiptResponse(invoice.getInvoiceNumber(), invoice.getTransactionTime(),
-        invoice.getDistributionPartnerId(), invoice.getCurrency(), invoice.getTotalAmount(), items);
+    return requireValidReceipt(token).response();
   }
 
   /** Internal reuse only: resolve the Invoice exclusively from a valid receipt capability. */
   public Invoice requireValidInvoice(String token) {
+    return requireValidReceipt(token).invoice();
+  }
+
+  public record ValidatedReceipt(Invoice invoice, ReceiptAccess access) {
+    public PublicReceiptResponse response() {
+      var items = invoice.getItems().stream().map(item -> new PublicReceiptResponse.Item(
+          item.productCode(), item.productName(), item.quantity(), item.unitPrice(), item.amount())).toList();
+      return new PublicReceiptResponse(invoice.getInvoiceNumber(), invoice.getTransactionTime(),
+          invoice.getDistributionPartnerId(), invoice.getCurrency(), invoice.getTotalAmount(), items);
+    }
+  }
+
+  public ValidatedReceipt requireValidReceipt(String token) {
     if (token == null || !token.matches("[A-Za-z0-9_-]{43}")) throw unavailable();
     var access = receipts.findByTokenHashAndRevokedAtIsNullAndExpiresAtGreaterThan(tokens.hash(token), clock.instant())
         .orElseThrow(this::unavailable);
-    return invoices.findByIdAndTenantIdAndPosIdAndDistributionPartnerId(
+    return validateAccess(access);
+  }
+
+  /** Revalidate a Customer-bound claim proof without persisting the raw public Receipt Token. */
+  public ValidatedReceipt requireValidClaimReceipt(String receiptId, String expectedTokenHash) {
+    var access = receipts.findById(receiptId).filter(value -> value.getTokenHash() != null && expectedTokenHash != null
+        && java.security.MessageDigest.isEqual(value.getTokenHash().getBytes(java.nio.charset.StandardCharsets.US_ASCII),
+            expectedTokenHash.getBytes(java.nio.charset.StandardCharsets.US_ASCII))).orElseThrow(this::unavailable);
+    return validateAccess(access);
+  }
+
+  private ValidatedReceipt validateAccess(ReceiptAccess access) {
+    if (access.getRevokedAt() != null || access.getExpiresAt() == null || !access.getExpiresAt().isAfter(clock.instant()))
+      throw unavailable();
+    var invoice = invoices.findByIdAndTenantIdAndPosIdAndDistributionPartnerId(
         access.getInvoiceId(), access.getTenantId(), access.getPosId(), access.getDistributionPartnerId())
         .filter(value -> value.getStatus() == TransactionStatus.ACCEPTED).orElseThrow(this::unavailable);
+    return new ValidatedReceipt(invoice, access);
   }
 
   private Invoice posInvoice(String invoiceId, PosIdentity pos) {
