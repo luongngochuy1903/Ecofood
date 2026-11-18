@@ -1,0 +1,334 @@
+{
+    "version":  1,
+    "approvedBy":  "<PLATFORM_ROUTING_ADMIN_USER_ID>",
+    "categories":  [
+                       {
+                           "code":  "PRODUCT_ISSUE",
+                           "kind":  "INVOICE",
+                           "ownerTenantId":  null,
+                           "name":  "Product Issue",
+                           "active":  true
+                       },
+                       {
+                           "code":  "SERVICE_ISSUE",
+                           "kind":  "INVOICE",
+                           "ownerTenantId":  null,
+                           "name":  "Service Issue",
+                           "active":  true
+                       },
+                       {
+                           "code":  "MISSING_ITEM",
+                           "kind":  "INVOICE",
+                           "ownerTenantId":  null,
+                           "name":  "Missing Item",
+                           "active":  true
+                       },
+                       {
+                           "code":  "WRONG_ITEM",
+                           "kind":  "INVOICE",
+                           "ownerTenantId":  null,
+                           "name":  "Wrong Item",
+                           "active":  true
+                       },
+                       {
+                           "code":  "OTHER",
+                           "kind":  "INVOICE",
+                           "ownerTenantId":  null,
+                           "name":  "Other",
+                           "active":  true
+                       },
+                       {
+                           "code":  "LOGIN_ISSUE",
+                           "kind":  "PLATFORM",
+                           "ownerTenantId":  null,
+                           "name":  "Login Issue",
+                           "active":  true
+                       },
+                       {
+                           "code":  "ACCOUNT_ISSUE",
+                           "kind":  "PLATFORM",
+                           "ownerTenantId":  null,
+                           "name":  "Account Issue",
+                           "active":  true
+                       },
+                       {
+                           "code":  "CUSTOMER_PORTAL_ISSUE",
+                           "kind":  "PLATFORM",
+                           "ownerTenantId":  null,
+                           "name":  "Customer Portal Issue",
+                           "active":  true
+                       },
+                       {
+                           "code":  "TRANSACTION_HISTORY_ISSUE",
+                           "kind":  "PLATFORM",
+                           "ownerTenantId":  null,
+                           "name":  "Transaction History Issue",
+                           "active":  true
+                       },
+                       {
+                           "code":  "NOTIFICATION_ISSUE",
+                           "kind":  "PLATFORM",
+                           "ownerTenantId":  null,
+                           "name":  "Notification Issue",
+                           "active":  true
+                       },
+                       {
+                           "code":  "SYSTEM_ERROR",
+                           "kind":  "PLATFORM",
+                           "ownerTenantId":  null,
+                           "name":  "System Error",
+                           "active":  true
+                       },
+                       {
+                           "code":  "OTHER",
+                           "kind":  "PLATFORM",
+                           "ownerTenantId":  null,
+                           "name":  "Other",
+                           "active":  true
+                       }
+                   ],
+    "queues":  [
+                   {
+                       "id":  "seller-support",
+                       "name":  "Seller Support",
+                       "scope":  {
+                                     "boundary":  "TENANT",
+                                     "tenantId":  "<SELLER_TENANT_ID>"
+                                 },
+                       "purpose":  "PROCESSING",
+                       "active":  true
+                   },
+                   {
+                       "id":  "seller-final",
+                       "name":  "Tenant Final Authority",
+                       "scope":  {
+                                     "boundary":  "TENANT",
+                                     "tenantId":  "<SELLER_TENANT_ID>"
+                                 },
+                       "purpose":  "FINAL_AUTHORITY",
+                       "active":  true
+                   },
+                   {
+                       "id":  "platform-support",
+                       "name":  "Platform Support",
+                       "scope":  {
+                                     "boundary":  "PLATFORM",
+                                     "tenantId":  "<PLATFORM_ECO_TENANT_ID>"
+                                 },
+                       "purpose":  "FINAL_AUTHORITY",
+                       "active":  true
+                   },
+                   {
+                       "id":  "platform-review",
+                       "name":  "Platform Support",
+                       "scope":  {
+                                     "boundary":  "PLATFORM",
+                                     "tenantId":  "<PLATFORM_ECO_TENANT_ID>"
+                                 },
+                       "purpose":  "PROCESSING",
+                       "active":  true
+                   }
+               ],
+    "memberships":  [
+                        {
+                            "id":  "support-membership",
+                            "queueId":  "seller-support",
+                            "userId":  "<SELLER_HANDLER_USER_ID>",
+                            "active":  true,
+                            "capabilities":  [
+                                                 "READ",
+                                                 "PROCESS",
+                                                 "ESCALATE",
+                                                 "ASSIGN"
+                                             ],
+                            "authority":  "NONE"
+                        },
+                        {
+                            "id":  "final-membership",
+                            "queueId":  "seller-final",
+                            "userId":  "<SELLER_FINAL_AUTHORITY_USER_ID>",
+                            "active":  true,
+                            "capabilities":  [
+                                                 "READ",
+                                                 "PROCESS",
+                                                 "ESCALATE",
+                                                 "ASSIGN"
+                                             ],
+                            "authority":  "TENANT_AUTHORITY"
+                        },
+                        {
+                            "id":  "platform-membership",
+                            "queueId":  "platform-support",
+                            "userId":  "<PLATFORM_ROUTING_ADMIN_USER_ID>",
+                            "active":  true,
+                            "capabilities":  [
+                                                 "READ",
+                                                 "PROCESS",
+                                                 "ASSIGN"
+                                             ],
+                            "authority":  "PLATFORM_AUTHORITY"
+                        },
+                        {
+                            "id":  "platform-review-membership",
+                            "queueId":  "platform-review",
+                            "userId":  "<PLATFORM_ROUTING_ADMIN_USER_ID>",
+                            "active":  true,
+                            "capabilities":  [
+                                                 "READ",
+                                                 "PROCESS",
+                                                 "ASSIGN",
+                                                 "ESCALATE"
+                                             ],
+                            "authority":  "NONE"
+                        }
+                    ],
+    "policies":  [
+                     {
+                         "id":  "seller-invoice",
+                         "version":  1,
+                         "ownerTenantId":  "<SELLER_TENANT_ID>",
+                         "kind":  "INVOICE",
+                         "categoryCodes":  [
+                                               "PRODUCT_ISSUE",
+                                               "SERVICE_ISSUE",
+                                               "MISSING_ITEM",
+                                               "WRONG_ITEM",
+                                               "OTHER"
+                                           ],
+                         "queueIds":  [
+                                          "seller-support",
+                                          "seller-final",
+                                          "platform-review",
+                                          "platform-support"
+                                      ],
+                         "edges":  [
+                                       {
+                                           "fromQueueId":  "seller-support",
+                                           "toQueueId":  "seller-final"
+                                       },
+                                       {
+                                           "fromQueueId":  "seller-final",
+                                           "toQueueId":  "platform-review"
+                                       },
+                                       {
+                                           "fromQueueId":  "platform-review",
+                                           "toQueueId":  "platform-support"
+                                       }
+                                   ],
+                         "reporterOriginQueueIds":  [
+
+                                                    ],
+                         "partnerBindings":  [
+                                                 {
+                                                     "distributionPartnerId":  "<ACTUAL_INVOICE_DISTRIBUTION_PARTNER_ID>",
+                                                     "queueId":  "seller-support"
+                                                 }
+                                             ],
+                         "platformInitialQueueId":  null,
+                         "publication":  "PUBLISHED",
+                         "active":  true,
+                         "publishedAt":  "2026-11-16T00:00:00Z",
+                         "publishedBy":  "<SELLER_FINAL_AUTHORITY_USER_ID>"
+                     },
+                     {
+                         "id":  "platform-customer",
+                         "version":  1,
+                         "ownerTenantId":  "<PLATFORM_ECO_TENANT_ID>",
+                         "kind":  "PLATFORM",
+                         "categoryCodes":  [
+                                               "LOGIN_ISSUE",
+                                               "ACCOUNT_ISSUE",
+                                               "CUSTOMER_PORTAL_ISSUE",
+                                               "TRANSACTION_HISTORY_ISSUE",
+                                               "NOTIFICATION_ISSUE",
+                                               "SYSTEM_ERROR",
+                                               "OTHER"
+                                           ],
+                         "queueIds":  [
+                                          "platform-review",
+                                          "platform-support"
+                                      ],
+                         "edges":  [
+                                       {
+                                           "fromQueueId":  "platform-review",
+                                           "toQueueId":  "platform-support"
+                                       }
+                                   ],
+                         "reporterOriginQueueIds":  [
+
+                                                    ],
+                         "partnerBindings":  [
+
+                                             ],
+                         "platformInitialQueueId":  "platform-review",
+                         "publication":  "PUBLISHED",
+                         "active":  true,
+                         "publishedAt":  "2026-11-16T00:00:00Z",
+                         "publishedBy":  "<PLATFORM_ROUTING_ADMIN_USER_ID>"
+                     }
+                 ],
+    "grants":  [
+                   {
+                       "userId":  "<SELLER_HANDLER_USER_ID>",
+                       "queueId":  "seller-support",
+                       "kinds":  [
+                                     "INVOICE"
+                                 ],
+                       "sourceTenantIds":  [
+                                               "<SELLER_TENANT_ID>"
+                                           ],
+                       "platformSource":  false,
+                       "allInvoicesWithinSource":  true,
+                       "invoiceIds":  [
+
+                                      ]
+                   },
+                   {
+                       "userId":  "<SELLER_FINAL_AUTHORITY_USER_ID>",
+                       "queueId":  "seller-final",
+                       "kinds":  [
+                                     "INVOICE"
+                                 ],
+                       "sourceTenantIds":  [
+                                               "<SELLER_TENANT_ID>"
+                                           ],
+                       "platformSource":  false,
+                       "allInvoicesWithinSource":  true,
+                       "invoiceIds":  [
+
+                                      ]
+                   },
+                   {
+                       "userId":  "<PLATFORM_ROUTING_ADMIN_USER_ID>",
+                       "queueId":  "platform-support",
+                       "kinds":  [
+                                     "PLATFORM",
+                                     "INVOICE"
+                                 ],
+                       "sourceTenantIds":  [
+                                               "<SELLER_TENANT_ID>"
+                                           ],
+                       "platformSource":  true,
+                       "allInvoicesWithinSource":  true,
+                       "invoiceIds":  [
+
+                                      ]
+                   },
+                   {
+                       "userId":  "<PLATFORM_ROUTING_ADMIN_USER_ID>",
+                       "queueId":  "platform-review",
+                       "kinds":  [
+                                     "PLATFORM",
+                                     "INVOICE"
+                                 ],
+                       "sourceTenantIds":  [
+                                               "<SELLER_TENANT_ID>"
+                                           ],
+                       "platformSource":  true,
+                       "allInvoicesWithinSource":  true,
+                       "invoiceIds":  [
+
+                                      ]
+                   }
+               ]
+}

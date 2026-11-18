@@ -71,6 +71,7 @@ class InternalJwtRequestFilterTest {
     when(claims.getId()).thenReturn("jti-1");
     when(claims.get("iss")).thenReturn("app");
     when(claims.get("aud")).thenReturn(new LinkedHashSet<>(java.util.List.of("app-api")));
+    when(claims.get("identityType")).thenReturn(null); // legacy employee session
     when(claims.get("permissions", java.util.List.class)).thenReturn(java.util.List.of("tenants.read.any"));
     when(claims.getSubject()).thenReturn("user-1");
     when(internalTokenService.verifyToken("good-token")).thenReturn(claims);
