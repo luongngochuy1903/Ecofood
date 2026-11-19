@@ -1,4 +1,3 @@
-
 name: App CI
 
 on:
@@ -11,20 +10,9 @@ permissions:
   packages: read
 
 jobs:
+
   build:
     runs-on: ubuntu-latest
-
-    # MongoDB service for integration tests
-    services:
-      mongodb:
-        image: mongo:7.0
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd="mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok'"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
 
     steps:
       - name: Checkout source
@@ -36,8 +24,9 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-
-          # GitHub Packages authentication
+          # Matches the <repository><id>github</id> in pom.xml, used to
+          # resolve the private com.ecofood:core dependency from
+          # maven.pkg.github.com/luongngochuy1903/Eco_Core.
           server-id: github
           server-username: GITHUB_ACTOR
           server-password: PACKAGES_READ_TOKEN
@@ -46,12 +35,10 @@ jobs:
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           PACKAGES_READ_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
-
-          # Dedicated MongoDB for CI
-          MONGODB_URI: mongodb://127.0.0.1:27017/appdb
-          MONGODB_DATABASE: appdb
-
-        # Run wrapper using bash to avoid permission errors
+        # ./mvnw fails with "Permission denied" — the exec bit was never
+        # set on this file (lost/never set when committed from Windows).
+        # `bash mvnw` interprets the script directly, bypassing the OS
+        # exec-permission check entirely.
         run: bash mvnw clean verify
 
       - name: Build Docker image (not pushed)
@@ -63,8 +50,14 @@ jobs:
           tags: app:pr-${{ github.event.pull_request.number }}
 
       - name: Trivy security scan
-        # Pinned to the existing commit
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        # Pinned to the 0.35.0 release commit, not a tag — nearly every
+        # tag from 0.0.1 to 0.34.2 was compromised in a March 2026
+        # supply-chain attack (force-pushed to steal CI/CD secrets).
+        # 0.35.0 is the first release protected by GitHub's immutable
+        # releases feature. Verify against
+        # https://github.com/aquasecurity/trivy-action/releases before
+        # trusting this blindly.
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
         with:
           image-ref: app:pr-${{ github.event.pull_request.number }}
           severity: CRITICAL
