@@ -15,6 +15,19 @@ import org.springframework.stereotype.Service;
 public class PropositionCurrencies {
     private final PropositionCurrencySettingsRepository repository;
 
+    public List<String> supportedCurrencies() {
+        return Currency.getAvailableCurrencies().stream()
+                .filter(currency -> currency.getDefaultFractionDigits() >= 0
+                        && currency.getDefaultFractionDigits() <= 4)
+                .map(Currency::getCurrencyCode)
+                .sorted()
+                .toList();
+    }
+
+    public String resolvePlan(ObjectId enterprise, String value) {
+        return normalize(value == null || value.isBlank() ? "USD" : value);
+    }
+
     public PropositionCurrencySettingsResponse settings(ObjectId enterprise) {
         return repository
                 .findByEnterpriseId(enterprise)
@@ -22,19 +35,15 @@ public class PropositionCurrencies {
                         s ->
                                 new PropositionCurrencySettingsResponse(
                                         s.getRevision(),
-                                        s.getAvailableCurrencies(),
+                                        supportedCurrencies(),
                                         s.getDefaultCurrency()))
                 .orElseGet(
-                        () -> new PropositionCurrencySettingsResponse(null, List.of("USD"), "USD"));
+                        () -> new PropositionCurrencySettingsResponse(null, supportedCurrencies(), "USD"));
     }
 
     public String resolve(ObjectId enterprise, String value) {
         var policy = settings(enterprise);
-        var code = value == null || value.isBlank() ? policy.defaultCurrency() : normalize(value);
-        if (!policy.availableCurrencies().contains(code))
-            throw PropositionAccess.error(
-                    HttpStatus.BAD_REQUEST, "Currency is not enabled for this Enterprise: " + code);
-        return code;
+        return normalize(value == null || value.isBlank() ? policy.defaultCurrency() : value);
     }
 
     public PropositionCurrencySettingsResponse update(
@@ -45,11 +54,9 @@ public class PropositionCurrencies {
                 r.expectedRevision()))
             throw PropositionAccess.error(
                     HttpStatus.CONFLICT, "Currency settings changed; reload before saving");
-        var codes = r.availableCurrencies().stream().map(this::normalize).distinct().toList();
+        // Retain the legacy API field, but currency settings now set only a default.
+        var codes = supportedCurrencies();
         var fallback = normalize(r.defaultCurrency());
-        if (!codes.contains(fallback))
-            throw PropositionAccess.error(
-                    HttpStatus.BAD_REQUEST, "Default currency must be enabled");
         var entity =
                 previous.orElseGet(
                         () ->

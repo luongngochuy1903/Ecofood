@@ -391,6 +391,73 @@ class PropositionApiTest {
     }
 
     @Test
+    void planCanUseCurrencyOutsideEnterpriseReportingPolicyThroughApproval() throws Exception {
+        String path = "/api/v1/propositions/" + create();
+        mvc.perform(get(path).header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.availableCurrencies[?(@ == 'THB')]").isNotEmpty());
+        mvc.perform(post(path + "/plans")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(plan(0, "TH", child, "{\"currency\":\"ZZZ\",\"salePrice\":100}")))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post(path + "/plans")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(plan(0, "TH", child, "{\"currency\":\"THB\",\"salePrice\":100,\"taxRate\":8}")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.definition.currency").value("USD"))
+                .andExpect(jsonPath("$.plans[0].marketConfiguration.currency").value("THB"))
+                .andExpect(jsonPath("$.plans[0].marketConfiguration.totalPrice").value("108.00"));
+        String planId = rows().get(0).getPlans().get(0).getIdAsString();
+        mvc.perform(post(path + "/plans/" + planId + "/submit")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"expectedRevision\":1}"))
+                .andExpect(status().isOk());
+        mvc.perform(post(path + "/plans/" + planId + "/approve")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"expectedRevision\":2}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plans[0].status").value("APPROVED"))
+                .andExpect(jsonPath("$.plans[0].marketConfiguration.currency").value("THB"));
+    }
+
+    @Test
+    void currencySettingsOnlyDefaultNewPropositionsAndDoNotRestrictSelections() throws Exception {
+        String path = "/api/v1/propositions/" + create();
+        mvc.perform(post(path + "/plans").header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(plan(0, "TH", child, "{\"currency\":\"THB\",\"salePrice\":100}")))
+                .andExpect(status().isCreated());
+        mvc.perform(put("/api/v1/propositions/settings")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"availableCurrencies\":[\"USD\"],\"defaultCurrency\":\"EUR\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.defaultCurrency").value("EUR"))
+                .andExpect(jsonPath("$.availableCurrencies[?(@ == 'THB')]").isNotEmpty());
+        mvc.perform(get(path).header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.definition.currency").value("USD"))
+                .andExpect(jsonPath("$.plans[0].marketConfiguration.currency").value("THB"));
+        mvc.perform(put(path).header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedRevision\":1,\"definition\":" + definition() + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.definition.currency").value("USD"));
+        mvc.perform(post("/api/v1/propositions").header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(createBody()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.definition.currency").value("EUR"));
+        String explicit = createBody().replace("\"name\":\"Distribution\"",
+                "\"name\":\"Distribution\",\"currency\":\"VND\"");
+        mvc.perform(post("/api/v1/propositions").header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON).content(explicit))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.definition.currency").value("VND"));
+    }
+
+    @Test
     void verifiedRolesAndExistingMtRelationshipsControlAllAccess() throws Exception {
         String id = create(), path = "/api/v1/propositions/" + id;
         mvc.perform(get(path)).andExpect(status().isUnauthorized());

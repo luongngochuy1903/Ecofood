@@ -71,7 +71,7 @@ public class PropositionMapper {
                 plans,
                 p.getActualMetrics(),
                 visible,
-                currencies.settings(p.getEnterpriseId()).availableCurrencies(),
+                currencies.supportedCurrencies(),
                 p.getCreatedAt(),
                 p.getUpdatedAt(),
                 owner && p.getStatus() == PropositionStatusEnum.DRAFT,

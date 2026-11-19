@@ -166,7 +166,7 @@ public class PropositionServiceImpl implements PropositionService {
                     HttpStatus.CONFLICT, "Only Pending Review Plans can be approved");
         parties.validate(p);
         validation.plan(p, plan, parties.eligible(p), true);
-        currencies.resolve(p.getEnterpriseId(), plan.getMarketConfiguration().currency());
+        currencies.resolvePlan(p.getEnterpriseId(), plan.getMarketConfiguration().currency());
         plan.setStatus(PlanStatusEnum.APPROVED);
         plan.setApprovedAt(Instant.now());
         plan.setApprovedBy(AuthenticationContext.getUserId().toHexString());
@@ -229,7 +229,7 @@ public class PropositionServiceImpl implements PropositionService {
         draft(plan);
         parties.validate(p);
         validation.plan(p, plan, parties.eligible(p), true);
-        currencies.resolve(p.getEnterpriseId(), plan.getMarketConfiguration().currency());
+        currencies.resolvePlan(p.getEnterpriseId(), plan.getMarketConfiguration().currency());
         plan.setStatus(PlanStatusEnum.PENDING_REVIEW);
         stamp(plan);
         change(p, plan, "SUBMIT_PLAN", null);
@@ -299,7 +299,9 @@ public class PropositionServiceImpl implements PropositionService {
                                 ? null
                                 : validation.id(d.brandId()).toHexString(),
                         partnerIds,
-                        currencies.resolve(p.getEnterpriseId(), d.currency()),
+                        currencies.resolve(p.getEnterpriseId(),
+                                blank(d.currency()) == null && p.getDefinition() != null
+                                        ? p.getDefinition().currency() : d.currency()),
                         d.startDate(),
                         d.endDate(),
                         validation.revenue(d.expectMetrics(), d.expectRevenue()),
@@ -350,7 +352,7 @@ public class PropositionServiceImpl implements PropositionService {
             plan.setMarketConfiguration(
                     calculator.calculate(
                             r.marketConfiguration(),
-                            currencies.resolve(
+                            currencies.resolvePlan(
                                     p.getEnterpriseId(), r.marketConfiguration().currency())));
         return plan;
     }
