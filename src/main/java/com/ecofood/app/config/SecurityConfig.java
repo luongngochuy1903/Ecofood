@@ -6,7 +6,6 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -33,18 +32,7 @@ public class SecurityConfig {
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(
             auth ->
-                auth.requestMatchers(HttpMethod.GET, "/api/v1/customer-auth/config")
-                    .permitAll()
-                    .requestMatchers(HttpMethod.POST, "/api/v1/customer-auth/exchange", "/api/v1/customer-auth/refresh-token")
-                    .permitAll()
-                    .requestMatchers(HttpMethod.GET, "/api/v1/customer-auth/me")
-                    .authenticated()
-                    .requestMatchers(HttpMethod.GET, "/api/v1/public/receipts")
-                    .permitAll()
-                    .requestMatchers(HttpMethod.POST, "/api/v1/public/invoice-complaints", "/api/v1/public/invoice-complaints/options",
-                        "/api/v1/public/complaints/track", "/api/v1/public/receipts/{token}/complaints")
-                    .permitAll()
-                    .requestMatchers("/api/v1/users/directory", "/api/v1/users/{userId}")
+                auth.requestMatchers("/api/v1/users/directory", "/api/v1/users/{userId}")
                     .authenticated()
                     .requestMatchers(
                         // Only the exact onboarding/pre-login lookups tenants
@@ -90,10 +78,9 @@ public class SecurityConfig {
             "http://localhost:3000",
             "http://localhost:5173",
             "http://*.localhost:5173",
-            "https://customerportal.ecofood.localhost:5173",
             "https://ecofood.dpdns.org",
             "https://*.ecofood.dpdns.org"));
-    configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+    configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("Content-Type", "Authorization"));
 
     UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

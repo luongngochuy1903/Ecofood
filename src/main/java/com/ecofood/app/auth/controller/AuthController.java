@@ -85,7 +85,6 @@ public class AuthController {
     Claims claims;
     try {
       claims = internalTokenService.verifyRefreshToken(request.getRefreshToken());
-      if ("CUSTOMER".equals(claims.get("identityType"))) return unauthorized();
     } catch (Exception e) {
       log.warn("Rejecting refresh with 401: invalid/expired/wrong-type refresh token", e);
       return unauthorized();

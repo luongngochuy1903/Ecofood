@@ -9,7 +9,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ecofood.app.auth.service.InternalTokenService.TokenPair;
-import com.ecofood.app.customer.auth.CustomerIdentityService;
 import com.ecofood.core.client.CoreTenantQueryClient;
 import com.ecofood.core.client.CoreUserAccessClient;
 import com.ecofood.core.client.CoreUserQueryClient;
@@ -38,7 +37,6 @@ class InternalTokenServiceTest {
   @Mock private CoreUserQueryClient userQueryClient;
   @Mock private CoreUserAccessClient userAccessClient;
   @Mock private TokenBlacklistService tokenBlacklistService;
-  @Mock private CustomerIdentityService customerIdentities;
 
   private InternalTokenService internalTokenService;
 
@@ -50,7 +48,7 @@ class InternalTokenServiceTest {
   @BeforeEach
   void setUp() {
     internalTokenService =
-        new InternalTokenService(tenantQueryClient, userQueryClient, userAccessClient, tokenBlacklistService, customerIdentities);
+        new InternalTokenService(tenantQueryClient, userQueryClient, userAccessClient, tokenBlacklistService);
     ReflectionTestUtils.setField(internalTokenService, "secret", SECRET);
     ReflectionTestUtils.setField(internalTokenService, "tokenValidityInSeconds", 1800L);
     ReflectionTestUtils.setField(internalTokenService, "refreshTokenValidityInSeconds", 86400L);

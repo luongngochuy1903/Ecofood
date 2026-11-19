@@ -49,8 +49,6 @@ import org.springframework.data.mongodb.core.mapping.Field;
 @Builder
 @Document(collection = "app_user")
 public class UserEntity extends BaseEntity {
-  @com.fasterxml.jackson.annotation.JsonIgnore
-  private List<com.ecofood.app.notification.NotificationOutboxEvent> notificationOutbox;
 
   @Indexed(unique = true)
   private String username;
@@ -73,11 +71,4 @@ public class UserEntity extends BaseEntity {
   /** Keycloak's own internal user UUID — null until mirrored into Keycloak. */
   @Field("external_login_id")
   private String externalLoginId;
-
-  /** Only self-registered, platform-wide Customers use these fields. Legacy tenant users remain unchanged. */
-  @Field("customer_identity_issuer")
-  private String customerIdentityIssuer;
-
-  @Field("customer_email_normalized")
-  private String customerEmailNormalized;
 }

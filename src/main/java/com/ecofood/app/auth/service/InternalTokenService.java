@@ -7,8 +7,6 @@ import com.ecofood.core.dto.PartyRelationshipResponse;
 import com.ecofood.core.dto.TenantResponse;
 import com.ecofood.core.dto.UserQueryResponse;
 import com.ecofood.core.service.UserAccessService.UserAccessClaims;
-import com.ecofood.app.customer.auth.CustomerIdentityService;
-import com.ecofood.app.customer.auth.CustomerTenantResolver;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
@@ -102,33 +100,9 @@ public class InternalTokenService {
   private final CoreUserQueryClient userQueryClient;
   private final CoreUserAccessClient userAccessClient;
   private final TokenBlacklistService tokenBlacklistService;
-  private final CustomerIdentityService customerIdentities;
 
   /** A matched access+refresh pair sharing one jti — same pairing DCMP's real JwtTokenUtil uses. */
   public record TokenPair(String accessToken, String refreshToken) {}
-
-  /** Portal Tenant membership does not grant Customer any Employee roles or management permissions. */
-  public TokenPair mintCustomerTokenPair(String userId, String email, CustomerTenantResolver.Portal portal) {
-    String jti = UUID.randomUUID().toString();
-    Map<String, Object> base = new HashMap<>();
-    base.put(CLAIM_EMAIL, email);
-    base.put(CLAIM_CLIENT_ID, portal.clientId());
-    base.put(CLAIM_TENANT_ID, portal.tenantId());
-    base.put(CLAIM_TENANT_CODE, portal.realm());
-    base.put(CLAIM_ISS, issuer);
-    base.put(CLAIM_AUD, audience);
-    base.put("identityType", "CUSTOMER");
-    base.put("userCategory", "CUSTOMER");
-    Map<String, Object> access = new HashMap<>(base);
-    access.put(CLAIM_ROLES, List.of("CUSTOMER"));
-    access.put(CLAIM_ROLE_GROUPS, List.of("CUSTOMER"));
-    access.put(CLAIM_PERMISSIONS, List.of("CUSTOMER_SELF_READ", "CUSTOMER_INVOICE_CLAIM", "CUSTOMER_PROFILE_UPDATE", "CUSTOMER_NOTIFICATION_MANAGE", "COMPLAINT_CREATE", "COMPLAINT_READ"));
-    access.put(CLAIM_TOKEN_TYPE, TOKEN_TYPE_ACCESS);
-    Map<String, Object> refresh = new HashMap<>(base);
-    refresh.put(CLAIM_TOKEN_TYPE, TOKEN_TYPE_REFRESH);
-    return new TokenPair(sign(jti, userId, access, tokenValidityInSeconds),
-        sign(jti, userId, refresh, refreshTokenValidityInSeconds));
-  }
 
   /**
    * Resolves the local user/tenant by the Keycloak login's own identifying
@@ -175,8 +149,6 @@ public class InternalTokenService {
    * member of the realm they just logged into.
    */
   public TokenPair mintTokenPair(String userId, String tenantId) {
-    if (customerIdentities.isManagedCustomer(userId))
-      throw new IllegalArgumentException("Customer account must use Customer authentication");
     UserQueryResponse user = userQueryClient.getById(userId);
     TenantResponse tenant = tenantQueryClient.getById(tenantId);
     PartyRelationshipResponse relation =
