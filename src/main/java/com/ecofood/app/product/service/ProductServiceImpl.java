@@ -23,6 +23,7 @@ public class ProductServiceImpl implements ProductService {
   private final ProductAuthorization authorization;
   private final ProductValidation validation;
   private final ProductAuditService audit;
+  private final ProductVersionReviewService reviews;
 
   @Override public ProductResponse create(ProductCreateRequest request) {
     ObjectId enterprise = authorization.requireEnterprise();
@@ -129,6 +130,9 @@ public class ProductServiceImpl implements ProductService {
     ProductEntity product = findOwned(id);
     ProductProcessEntity source = latest(product);
     if (source.getStatus()!=ProductStatusEnum.APPROVED) conflict("Create a new version only from APPROVED version");
+    var pendingReviews = new java.util.ArrayList<>(product.getPendingVersionReviews() == null ? List.<Integer>of() : product.getPendingVersionReviews());
+    if (!pendingReviews.contains(source.getVersion())) pendingReviews.add(source.getVersion());
+    product.setPendingVersionReviews(List.copyOf(pendingReviews));
     product.setLatestVersion(product.getLatestVersion()+1); product.setLatestStatus(ProductStatusEnum.DRAFT);
     ProductProcessEntity next = ProductProcessEntity.builder().productId(product.getId())
       .version(product.getLatestVersion()).status(ProductStatusEnum.DRAFT)
@@ -146,6 +150,7 @@ public class ProductServiceImpl implements ProductService {
       throw ex;
     }
     audit.record(product,next,"NEW_VERSION","New draft version from approved version");
+    reviews.apply(product, source.getVersion());
     return ProductProcessMapper.toResponse(product,next);
   }
 

@@ -25,10 +25,11 @@ class ProductServiceImplTest {
   @Mock ProductProcessStore versions;
   @Mock ProductAuthorization auth;
   @Mock ProductAuditService audit;
+  @Mock ProductVersionReviewService reviews;
   private ProductServiceImpl service;
   private ObjectId enterprise;
   @BeforeEach void init(){
-    service=new ProductServiceImpl(products,versions,auth,new ProductValidation(),audit);
+    service=new ProductServiceImpl(products,versions,auth,new ProductValidation(),audit,reviews);
     enterprise=new ObjectId();
   }
   private void allow(){ when(auth.requireEnterprise()).thenReturn(enterprise); }
@@ -139,6 +140,7 @@ class ProductServiceImplTest {
     assertThat(response.name()).isEqualTo(v.getName());
     assertThat(response.approvedAt()).isNull();
     assertThat(v.getStatus()).isEqualTo(ProductStatusEnum.APPROVED);
+    verify(reviews).apply(any(), eq(1));
     verify(audit).record(any(), any(), eq("NEW_VERSION"), any());
   }
   @Test void pendingVersionCannotBeVersionedAgain() {

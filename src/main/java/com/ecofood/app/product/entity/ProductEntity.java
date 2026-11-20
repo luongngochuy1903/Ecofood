@@ -22,4 +22,6 @@ public class ProductEntity extends BaseEntity {
   private ProductStatusEnum productStatus;
   @Builder.Default private java.util.List<ObjectId> productProcess = java.util.List.of();
   @Version private Long revision;
+  /** Durable cascade work committed with the new latest-version pointer. */
+  @Builder.Default private java.util.List<Integer> pendingVersionReviews = java.util.List.of();
 }

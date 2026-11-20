@@ -92,7 +92,7 @@ class ProductApiTest {
         .sorted(Comparator.comparingInt(ProductProcessEntity::getVersion).reversed()).map(this::storedProcess).toList());
     ProductAuthorization authorization = new ProductAuthorization(new ACLService(), tenants);
     ProductServiceImpl service = new ProductServiceImpl(productRepository, versionRepository, authorization,
-        new ProductValidation(), mock(ProductAuditService.class));
+        new ProductValidation(), mock(ProductAuditService.class), mock(com.ecofood.app.product.service.ProductVersionReviewService.class));
     ProductQueryServiceImpl query = new ProductQueryServiceImpl(productRepository, versionRepository, authorization);
     InternalTokenService tokens = mock(InternalTokenService.class);
     when(tokens.verifyToken(anyString())).thenAnswer(i -> Jwts.parser().verifyWith(KEY).build()
