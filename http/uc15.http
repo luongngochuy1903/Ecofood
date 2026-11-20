@@ -1,0 +1,34 @@
+### Replace these values with your local server, Active Orchestrator and internal Tenant token.
+@baseUrl = http://localhost:8081
+@orchestratorId = replace-with-active-orchestrator-id
+@accessToken = replace-with-internal-access-token
+
+### Requires TRANSACTION_SUBMIT. Match currency and extra required fields to the Active schema.
+### Sending this invoice twice with the same Tenant/caller returns 409 on the second request.
+POST {{baseUrl}}/api/v1/sales/{{orchestratorId}}/transactions
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "invoiceNumber": "INV-UC15-001",
+  "transactionTime": "2026-01-01T00:00:00Z",
+  "currency": "VND",
+  "totalAmount": 20000,
+  "items": [
+    {
+      "productCode": "PRODUCT-001",
+      "productName": "Sample product",
+      "quantity": 2,
+      "unitPrice": 10000,
+      "amount": 20000
+    }
+  ]
+}
+
+### Requires TRANSACTION_READ. Results are restricted to the token's Tenant.
+GET {{baseUrl}}/api/v1/transactions?page=0&size=20
+Authorization: Bearer {{accessToken}}
+
+### Replace the ID with the returned SubmitTransactionResponse.id. Requires TRANSACTION_READ.
+GET {{baseUrl}}/api/v1/transactions/replace-with-invoice-id
+Authorization: Bearer {{accessToken}}
