@@ -15,7 +15,9 @@ import org.springframework.stereotype.Component;
 public class DashboardAggregation {
   private static final String PROFIT = "profit";
   private static final String TOTAL_SALES_VOLUME = "totalSalesVolume";
-  public static final List<String> KPIS = List.of(TOTAL_SALES_VOLUME, PROFIT, "ingredientCost", "platformCost");
+  private static final String INGREDIENT_COST = "ingredientCost";
+  private static final String PLATFORM_COST = "platformCost";
+  public static final List<String> KPIS = List.of(TOTAL_SALES_VOLUME, PROFIT, INGREDIENT_COST, PLATFORM_COST);
   public record Target(String currency, List<EconomicMetricsRequest> rows) {}
   private record Value(BigDecimal amount, String status) {}
   public Summary summarize(Selection selection, Set<String> tenants, List<Target> targets, List<ActualMetrics> input) {
@@ -30,7 +32,8 @@ public class DashboardAggregation {
     }
     Map<String, Metric> metrics = new LinkedHashMap<>();
     for (String name : KPIS) {
-      boolean count = name.equals(TOTAL_SALES_VOLUME), cost = name.endsWith("Cost");
+      boolean count = name.equals(TOTAL_SALES_VOLUME);
+      boolean cost = name.endsWith("Cost");
       BigDecimal actual = count ? BigDecimal.valueOf(volume) : BigDecimal.ZERO;
       long covered = count ? volume : 0; boolean complete = true;
       for (var row : rows) if (!count) {
@@ -96,13 +99,13 @@ public class DashboardAggregation {
     return missing ? new Value(null, "NOT_CONFIGURED") : new Value(sum, "CONFIGURED");
   }
   private BigDecimal expected(EconomicMetricsRequest r, String kpi) {
-    return switch (kpi) { case TOTAL_SALES_VOLUME -> r.totalSalesVolume(); case PROFIT -> r.profit(); case "ingredientCost" -> r.ingredientCost(); case "platformCost" -> r.platformCost(); default -> throw new IllegalArgumentException(kpi); };
+    return switch (kpi) { case TOTAL_SALES_VOLUME -> r.totalSalesVolume(); case PROFIT -> r.profit(); case INGREDIENT_COST -> r.ingredientCost(); case PLATFORM_COST -> r.platformCost(); default -> throw new IllegalArgumentException(kpi); };
   }
   private BigDecimal actual(ActualMetrics r, String kpi) {
-    return switch (kpi) { case PROFIT -> r.profit(); case "ingredientCost" -> r.ingredientCost(); case "platformCost" -> r.platformCost(); default -> throw new IllegalArgumentException(kpi); };
+    return switch (kpi) { case PROFIT -> r.profit(); case INGREDIENT_COST -> r.ingredientCost(); case PLATFORM_COST -> r.platformCost(); default -> throw new IllegalArgumentException(kpi); };
   }
   private long coverage(ActualMetrics r, String kpi) {
     if (r.coverage() == null) return -1;
-    return switch (kpi) { case PROFIT -> r.coverage().profitInvoices(); case "ingredientCost" -> r.coverage().ingredientCostInvoices(); case "platformCost" -> r.coverage().platformCostInvoices(); default -> 0; };
+    return switch (kpi) { case PROFIT -> r.coverage().profitInvoices(); case INGREDIENT_COST -> r.coverage().ingredientCostInvoices(); case PLATFORM_COST -> r.coverage().platformCostInvoices(); default -> 0; };
   }
 }
