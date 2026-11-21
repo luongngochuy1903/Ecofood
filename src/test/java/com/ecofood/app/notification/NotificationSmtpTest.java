@@ -4,6 +4,9 @@ import static com.ecofood.app.notification.NotificationFixtures.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import com.ecofood.app.notification.delivery.SmtpNotificationSender;
+import com.ecofood.app.notification.entity.Notification;
+import com.ecofood.app.notification.exception.DeliveryFailure;
 import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
 import java.net.ConnectException;

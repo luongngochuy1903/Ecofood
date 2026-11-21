@@ -1,6 +1,6 @@
 package com.ecofood.app.userACL.dto;
 
-import com.ecofood.app.userACL.entity.RoleType;
+import com.ecofood.core.enums.RoleType;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;

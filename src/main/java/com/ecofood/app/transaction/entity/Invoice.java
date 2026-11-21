@@ -1,8 +1,9 @@
 package com.ecofood.app.transaction.entity;
 
+import com.ecofood.app.submission.entity.Submission;
+import com.ecofood.core.dto.CustomerInvoiceReference;
 import com.ecofood.core.dto.InvoiceItemDto;
 import com.ecofood.core.enums.TransactionStatus;
-import com.ecofood.app.submission.entity.Submission;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -13,7 +14,7 @@ import org.springframework.data.mongodb.core.mapping.*;
 
 @Data
 @Document("invoice")
-public class Invoice {
+public class Invoice implements CustomerInvoiceReference {
   @Id private String id;
   private String tenantId;
   private String submittedBy;

@@ -3,6 +3,9 @@ package com.ecofood.app.catalog;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+
+import com.ecofood.app.catalog.config.CatalogMongoConfig;
+import com.ecofood.app.catalog.entity.ApiPublication;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.index.*;

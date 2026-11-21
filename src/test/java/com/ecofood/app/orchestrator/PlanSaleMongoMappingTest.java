@@ -3,7 +3,9 @@ package com.ecofood.app.orchestrator;
 import static com.ecofood.app.orchestrator.SaleFixtures.*;
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.ecofood.app.orchestrator.PlanSaleOrchestrator.*;
+import com.ecofood.app.orchestrator.entity.PlanSaleOrchestrator;
+import com.ecofood.core.dto.PlanSaleOrchestratorDtos;
+import com.ecofood.core.enums.PlanSaleOrchestratorStatusEnum;
 import java.time.Instant;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
@@ -32,9 +34,9 @@ class PlanSaleMongoMappingTest {
     row.setActiveVersion(1);
     row.getVersions()
         .add(
-            new ConfigVersion(
+            new PlanSaleOrchestratorDtos.ConfigVersion(
                 1,
-                Status.ACTIVE,
+                PlanSaleOrchestratorStatusEnum.ACTIVE,
                 config(),
                 Instant.now(),
                 "employee",

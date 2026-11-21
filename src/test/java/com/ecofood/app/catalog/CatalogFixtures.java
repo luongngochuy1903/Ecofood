@@ -2,13 +2,34 @@ package com.ecofood.app.catalog;
 
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+
+import com.ecofood.app.catalog.security.CatalogAccess;
+import com.ecofood.app.catalog.security.CatalogExternalAccess;
+import com.ecofood.app.catalog.service.CatalogData;
+import com.ecofood.app.catalog.service.CatalogPublicationServiceImpl;
 import com.ecofood.app.product.entity.*;
+import com.ecofood.app.product.entity.ProductDefinition;
+import com.ecofood.app.product.entity.ProductDefinitionAttribute;
+import com.ecofood.app.product.entity.ProductEntity;
+import com.ecofood.app.product.entity.ProductProcessEntity;
 import com.ecofood.app.proposition.entity.*;
+import com.ecofood.app.proposition.entity.Plan;
+import com.ecofood.app.proposition.entity.PropositionEntity;
 import com.ecofood.app.proposition.repository.PropositionRepository;
 import com.ecofood.app.proposition.service.PropositionParties;
 import com.ecofood.core.client.CoreTenantQueryClient;
 import com.ecofood.core.dto.*;
+import com.ecofood.core.dto.CatalogDtos;
+import com.ecofood.core.dto.MarketConfigurationResponse;
+import com.ecofood.core.dto.PropositionDefinition;
+import com.ecofood.core.dto.PropositionTenantReference;
 import com.ecofood.core.enums.*;
+import com.ecofood.core.enums.CatalogTypeEnum;
+import com.ecofood.core.enums.PartnerTypeEnum;
+import com.ecofood.core.enums.PlanStatusEnum;
+import com.ecofood.core.enums.ProductStatusEnum;
+import com.ecofood.core.enums.PropositionStatusEnum;
+import com.ecofood.core.enums.TenantTypeEnum;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
@@ -27,7 +48,7 @@ final class CatalogFixtures {
   final CatalogAccess.Actor actor=new CatalogAccess.Actor(USER,tenant(A,PartnerTypeEnum.ECOSYSTEM_PARTNER),null,Set.of(CatalogAccess.READ,CatalogAccess.MANAGE,CatalogAccess.PUBLISH,CatalogAccess.GRANT));
   final PropositionEntity proposition;
   final CatalogData data;
-  final CatalogPublications publications;
+  final CatalogPublicationServiceImpl publications;
   final CatalogExternalAccess external;
   CatalogFixtures() throws Exception {
     db=new AtomicCatalogMongo(); when(access.current()).thenReturn(actor); when(access.publisher(USER,A)).thenReturn(actor);
@@ -41,17 +62,17 @@ final class CatalogFixtures {
     var product=new ProductEntity(); product.setId(new ObjectId(PRODUCT)); product.setEnterpriseId(new ObjectId(ENTERPRISE)); product.setLatestVersion(99); product.setLatestStatus(ProductStatusEnum.DRAFT); db.insert(product);
     var process=new ProductProcessEntity(); process.setId(new ObjectId(PROCESS)); process.setProductId(new ObjectId(PRODUCT)); process.setVersion(4); process.setRevision(2L); process.setStatus(ProductStatusEnum.APPROVED); process.setDefinition(new ProductDefinition("definition","Definition",List.of(new ObjectId(DEFINITION)))); db.insert(process);
     var definition=new ProductDefinitionAttribute(); definition.setId(new ObjectId(DEFINITION)); definition.setProductProcessId(process.getId()); definition.setProcessRevision(2L); definition.setProductName("Approved Food"); definition.setDescription("Public description"); definition.setCode("FOOD-4"); definition.setCategory("Food"); db.insert(definition);
-    data=new CatalogData(db.mongo,propositions,parties,tenants); publications=new CatalogPublications(db.mongo,access,data); external=new CatalogExternalAccess(db.mongo,access,data);
+    data=new CatalogData(db.mongo,propositions,parties,tenants); publications=new CatalogPublicationServiceImpl(db.mongo,access,data); external=new CatalogExternalAccess(db.mongo,access,data);
   }
   static Plan plan(String id,List<String> tenants) {
     var plan=new Plan(); plan.setId(new ObjectId(id)); plan.setVersion(1); plan.setName("Plan "+id); plan.setTenantIds(tenants); plan.setStatus(PlanStatusEnum.APPROVED);
     plan.setMarketConfiguration(new MarketConfigurationResponse("USD",new BigDecimal("10.00"),new BigDecimal("10"),new BigDecimal("1.00"),new BigDecimal("1.10"),new BigDecimal("12.10"))); return plan;
   }
-  CatalogDtos.Draft draft(ApiPublication.CatalogType type,int version) {
+  CatalogDtos.Draft draft(CatalogTypeEnum type,int version) {
     return new CatalogDtos.Draft("food-catalog","Catalog",type,version,List.of(new CatalogDtos.Selection(PROP,PLAN1),new CatalogDtos.Selection(PROP,PLAN2)),List.of(B,C),
         new CatalogDtos.Policy(Instant.now().minusSeconds(60),Instant.now().plusSeconds(86400),20),List.of(),null);
   }
-  CatalogDtos.View published(ApiPublication.CatalogType type,int version) {
+  CatalogDtos.View published(CatalogTypeEnum type,int version) {
     var p=publications.save(null,draft(type,version)); p=publications.validate(p.id(),new CatalogDtos.Revision(p.revision())); return publications.publish(p.id(),new CatalogDtos.Revision(p.revision()));
   }
   CatalogDtos.Credential credential(String id,String partner) {

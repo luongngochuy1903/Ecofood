@@ -4,11 +4,23 @@ import static com.ecofood.app.complaint.ComplaintServiceTest.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-import com.ecofood.app.notification.NotificationDirectory;
+
+import com.ecofood.app.complaint.security.ComplaintAccess;
+import com.ecofood.app.notification.integration.NotificationDirectory;
 import com.ecofood.app.userACL.entity.*;
+import com.ecofood.app.userACL.entity.Group;
+import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
+import com.ecofood.app.userACL.entity.UserEntity;
+import com.ecofood.app.userACL.entity.UserGroupEntity;
 import com.ecofood.core.client.CoreTenantQueryClient;
 import com.ecofood.core.dto.PropositionTenantReference;
 import com.ecofood.core.enums.*;
+import com.ecofood.core.enums.AccessEntityTypeEnum;
+import com.ecofood.core.enums.AccessLevelEnum;
+import com.ecofood.core.enums.ComplaintTypeEnum;
+import com.ecofood.core.enums.GroupType;
+import com.ecofood.core.enums.PartnerTypeEnum;
+import com.ecofood.core.enums.TenantTypeEnum;
 import com.ecofood.core.security.AuthenticationContext;
 import com.ecofood.core.service.UserAccessService.UserAccessClaims;
 import java.util.*;
@@ -28,7 +40,7 @@ class ComplaintAccessTest {
     try(var token=mockStatic(AuthenticationContext.class)) {
       token.when(AuthenticationContext::getUserId).thenReturn(new ObjectId(ADMIN)); token.when(AuthenticationContext::getTenantId).thenReturn(new ObjectId(TENANT));
       token.when(AuthenticationContext::getRoles).thenReturn(List.of("TENANT_ADMIN")); token.when(AuthenticationContext::getPermissions).thenReturn(List.of(ComplaintAccess.READ));
-      var actor=access.current(); assertEquals(List.of(Complaint.Type.TENANT),actor.types()); assertFalse(actor.manage()); assertFalse(actor.assign());
+      var actor=access.current(); assertEquals(List.of(ComplaintTypeEnum.TENANT),actor.types()); assertFalse(actor.manage()); assertFalse(actor.assign());
       token.when(AuthenticationContext::getPermissions).thenReturn(List.of()); assertThrows(ResponseStatusException.class,access::current);
       token.when(AuthenticationContext::getPermissions).thenReturn(List.of(ComplaintAccess.READ)); token.when(AuthenticationContext::getRoles).thenReturn(List.of("ECO_ADMIN")); assertThrows(ResponseStatusException.class,access::current);
       token.when(AuthenticationContext::getRoles).thenReturn(List.of("TENANT_ADMIN")); when(directory.user(ADMIN,TENANT)).thenReturn(null); assertThrows(ResponseStatusException.class,access::current);
@@ -42,7 +54,7 @@ class ComplaintAccessTest {
     try(var token=mockStatic(AuthenticationContext.class)) {
       token.when(AuthenticationContext::getUserId).thenReturn(new ObjectId(ADMIN)); token.when(AuthenticationContext::getTenantId).thenReturn(new ObjectId(ECO));
       token.when(AuthenticationContext::getRoles).thenReturn(List.of("ECO_ADMIN")); token.when(AuthenticationContext::getPermissions).thenReturn(List.of(ComplaintAccess.READ,ComplaintAccess.MANAGE));
-      assertEquals(List.of(Complaint.Type.ECOSYSTEM),access.current().types());
+      assertEquals(List.of(ComplaintTypeEnum.ECOSYSTEM),access.current().types());
       when(tenants.propositionReference(ECO)).thenReturn(tenant(ECO,PartnerTypeEnum.ECOSYSTEM_PARTNER)); assertThrows(ResponseStatusException.class,access::current);
     }
   }
@@ -55,8 +67,8 @@ class ComplaintAccessTest {
   @Test void eligibleAssigneeMustHaveLiveRoleManagePermissionAndExactTenant() {
     var directory=mock(NotificationDirectory.class); var access=new ComplaintAccess(directory,mock(CoreTenantQueryClient.class),mock(MongoTemplate.class)); var user=new UserEntity(); user.setId(new ObjectId(ADMIN));
     when(directory.user(ADMIN,TENANT)).thenReturn(user); when(directory.claims(user,TENANT)).thenReturn(new UserAccessClaims(List.of("TENANT_ADMIN"),List.of(ComplaintAccess.READ,ComplaintAccess.MANAGE),List.of()));
-    assertTrue(access.eligible(ADMIN,TENANT,Complaint.Type.TENANT)); assertFalse(access.eligible(ADMIN,OTHER,Complaint.Type.TENANT));
-    when(directory.claims(user,TENANT)).thenReturn(new UserAccessClaims(List.of("TENANT_ADMIN"),List.of(ComplaintAccess.READ),List.of())); assertFalse(access.eligible(ADMIN,TENANT,Complaint.Type.TENANT));
+    assertTrue(access.eligible(ADMIN,TENANT,ComplaintTypeEnum.TENANT)); assertFalse(access.eligible(ADMIN,OTHER,ComplaintTypeEnum.TENANT));
+    when(directory.claims(user,TENANT)).thenReturn(new UserAccessClaims(List.of("TENANT_ADMIN"),List.of(ComplaintAccess.READ),List.of())); assertFalse(access.eligible(ADMIN,TENANT,ComplaintTypeEnum.TENANT));
   }
   @Test void limitedCustomerOrInvoiceDataAccessCannotBeBypassedByAdminRole() {
     var directory=mock(NotificationDirectory.class); var tenants=mock(CoreTenantQueryClient.class); var mongo=mock(MongoTemplate.class);
@@ -70,8 +82,8 @@ class ComplaintAccessTest {
     try(var token=mockStatic(AuthenticationContext.class)) {
       token.when(AuthenticationContext::getUserId).thenReturn(new ObjectId(ADMIN)); token.when(AuthenticationContext::getTenantId).thenReturn(new ObjectId(TENANT));
       token.when(AuthenticationContext::getRoles).thenReturn(List.of("TENANT_ADMIN")); token.when(AuthenticationContext::getPermissions).thenReturn(List.of(ComplaintAccess.READ,ComplaintAccess.MANAGE));
-      assertThrows(ResponseStatusException.class,access::current); assertFalse(access.eligible(ADMIN,TENANT,Complaint.Type.TENANT));
-      group.setAccessLevel(AccessLevelEnum.FULL_ACCESS); assertDoesNotThrow(access::current); assertTrue(access.eligible(ADMIN,TENANT,Complaint.Type.TENANT));
+      assertThrows(ResponseStatusException.class,access::current); assertFalse(access.eligible(ADMIN,TENANT,ComplaintTypeEnum.TENANT));
+      group.setAccessLevel(AccessLevelEnum.FULL_ACCESS); assertDoesNotThrow(access::current); assertTrue(access.eligible(ADMIN,TENANT,ComplaintTypeEnum.TENANT));
     }
   }
 }

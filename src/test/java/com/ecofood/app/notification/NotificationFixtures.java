@@ -1,8 +1,14 @@
 package com.ecofood.app.notification;
 
+import com.ecofood.app.notification.config.NotificationSettings;
+import com.ecofood.app.notification.entity.Notification;
+import com.ecofood.app.notification.entity.NotificationRule;
 import com.ecofood.app.submission.entity.Submission;
 import com.ecofood.app.transaction.entity.Invoice;
 import com.ecofood.app.userACL.entity.*;
+import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
+import com.ecofood.app.userACL.entity.UserEntity;
+import com.ecofood.core.dto.NotificationDtos;
 import com.ecofood.core.enums.TransactionStatus;
 import java.time.Instant;
 import java.util.*;
@@ -21,7 +27,7 @@ final class NotificationFixtures {
   static NotificationRule rule() {
     var r = new NotificationRule(); r.setId("rule"); r.setTenantId(TENANT); r.setEventType("INVOICE_PAID"); r.setEnabled(true); r.setRevision(2);
     r.setSubject("Invoice {invoiceNumber}"); r.setContent("Recorded {invoiceNumber}");
-    r.setRecipients(new NotificationRule.Recipients(List.of(USER), List.of(), List.of(), false, List.of())); return r;
+    r.setRecipients(new NotificationDtos.Recipients(List.of(USER), List.of(), List.of(), false, List.of())); return r;
   }
   static UserEntity user() {
     var u = new UserEntity(); u.setId(new ObjectId(USER)); u.setEmail("customer@example.org");

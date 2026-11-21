@@ -3,6 +3,8 @@ package com.ecofood.app.customer;
 import static com.ecofood.app.customer.CustomerFixtures.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.ecofood.app.customer.config.CustomerSettings;
+import com.ecofood.app.customer.security.CustomerReceiptTokens;
 import com.google.zxing.*;
 import com.google.zxing.common.HybridBinarizer;
 import java.io.ByteArrayInputStream;

@@ -1,7 +1,7 @@
 package com.ecofood.app.transaction.service;
 
 import com.ecofood.app.config.ForbiddenException;
-import com.ecofood.app.orchestrator.PlanSaleAccess;
+import com.ecofood.app.orchestrator.security.PlanSaleAccess;
 import com.ecofood.app.proposition.entity.PropositionEntity;
 import com.ecofood.app.transaction.entity.InvoiceSnapshot;
 import com.ecofood.core.dto.PreparedSaleTransaction;

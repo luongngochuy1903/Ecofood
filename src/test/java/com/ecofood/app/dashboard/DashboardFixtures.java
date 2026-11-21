@@ -1,9 +1,18 @@
 package com.ecofood.app.dashboard;
 
+import com.ecofood.app.dashboard.security.DashboardAccess;
 import com.ecofood.app.metrics.entity.ActualMetrics;
 import com.ecofood.app.proposition.entity.PropositionEntity;
 import com.ecofood.core.dto.*;
+import com.ecofood.core.dto.DashboardDtos;
+import com.ecofood.core.dto.EconomicMetricsRequest;
+import com.ecofood.core.dto.PartnerMetricsRequest;
+import com.ecofood.core.dto.PropositionDefinition;
+import com.ecofood.core.dto.PropositionTenantReference;
 import com.ecofood.core.enums.*;
+import com.ecofood.core.enums.DashboardPeriodEnum;
+import com.ecofood.core.enums.PartnerTypeEnum;
+import com.ecofood.core.enums.TenantTypeEnum;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
@@ -27,5 +36,5 @@ final class DashboardFixtures {
   }
   static PropositionTenantReference tenant(String id, boolean enterprise) { return new PropositionTenantReference(id, "Tenant " + id, enterprise ? ENTERPRISE : null, enterprise ? PartnerTypeEnum.ENTERPRISE : PartnerTypeEnum.BRAND, TenantTypeEnum.STANDALONE, enterprise ? List.of(OWNER, A, B) : List.of(id), List.of(), false); }
   static DashboardAccess.Actor actor(boolean enterprise) { return new DashboardAccess.Actor(USER, tenant(enterprise ? OWNER : A, enterprise), enterprise ? Set.of(OWNER, A, B) : Set.of(A), enterprise, null); }
-  static DashboardDtos.Selection selection(DashboardDtos.Period period) { return new DashboardDtos.Selection(A, PROP, "USD", 2026, period, 1, 1, false); }
+  static DashboardDtos.Selection selection(DashboardPeriodEnum period) { return new DashboardDtos.Selection(A, PROP, "USD", 2026, period, 1, 1, false); }
 }

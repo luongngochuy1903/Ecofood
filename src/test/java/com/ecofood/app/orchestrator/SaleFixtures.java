@@ -1,7 +1,10 @@
 package com.ecofood.app.orchestrator;
 
-import com.ecofood.app.orchestrator.PlanSaleOrchestrator.*;
+import com.ecofood.app.orchestrator.security.PlanSaleAccess;
 import com.ecofood.app.proposition.entity.*;
+import com.ecofood.app.proposition.entity.Plan;
+import com.ecofood.app.proposition.entity.PropositionEntity;
+import com.ecofood.core.dto.PlanSaleOrchestratorDtos;
 import com.ecofood.core.dto.SalePayloadSchema;
 import com.ecofood.core.dto.SalePayloadSchema.*;
 import java.time.Instant;
@@ -56,8 +59,8 @@ final class SaleFixtures {
     return new SalePayloadSchema(fields);
   }
 
-  static Configuration config() {
-    return new Configuration("Plan sales", "", 100, schema(), Set.of());
+  static PlanSaleOrchestratorDtos.Configuration config() {
+    return new PlanSaleOrchestratorDtos.Configuration("Plan sales", "", 100, schema(), Set.of());
   }
 
   static PlanSaleAccess.Scope scope(String planId) {

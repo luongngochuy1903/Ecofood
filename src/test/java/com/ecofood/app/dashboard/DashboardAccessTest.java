@@ -5,9 +5,18 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import com.ecofood.app.dashboard.security.DashboardAccess;
 import com.ecofood.app.userACL.entity.*;
+import com.ecofood.app.userACL.entity.Group;
+import com.ecofood.app.userACL.entity.GroupEntity;
+import com.ecofood.app.userACL.entity.PartyToPartyRelationship;
+import com.ecofood.app.userACL.entity.UserEntity;
+import com.ecofood.app.userACL.entity.UserGroupEntity;
 import com.ecofood.core.client.CoreTenantQueryClient;
 import com.ecofood.core.enums.*;
+import com.ecofood.core.enums.AccessEntityTypeEnum;
+import com.ecofood.core.enums.AccessLevelEnum;
+import com.ecofood.core.enums.GroupType;
 import com.ecofood.core.security.AuthenticationContext;
 import com.ecofood.core.service.UserAccessService;
 import java.util.*;

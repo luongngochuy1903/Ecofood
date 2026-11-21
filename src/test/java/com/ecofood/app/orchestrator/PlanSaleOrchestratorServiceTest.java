@@ -6,8 +6,13 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.ecofood.app.config.BadRequestException;
-import com.ecofood.app.orchestrator.PlanSaleOrchestrator.*;
-import com.ecofood.app.orchestrator.PlanSaleOrchestratorService.*;
+import com.ecofood.app.orchestrator.entity.PlanSaleOrchestrator;
+import com.ecofood.app.orchestrator.repository.PlanSaleOrchestratorRepository;
+import com.ecofood.app.orchestrator.security.PlanSaleAccess;
+import com.ecofood.app.orchestrator.service.PlanSaleOrchestratorServiceImpl;
+import com.ecofood.app.orchestrator.validation.SaleSchemaValidator;
+import com.ecofood.core.dto.PlanSaleOrchestratorDtos;
+import com.ecofood.core.enums.PlanSaleOrchestratorStatusEnum;
 import java.util.*;
 import org.junit.jupiter.api.*;
 import org.springframework.dao.*;
@@ -17,8 +22,8 @@ class PlanSaleOrchestratorServiceTest {
   private final PlanSaleOrchestratorRepository repo = mock(PlanSaleOrchestratorRepository.class);
   private final PlanSaleAccess access = mock(PlanSaleAccess.class);
   private final SaleSchemaValidator schemas = new SaleSchemaValidator();
-  private final PlanSaleOrchestratorService service =
-      new PlanSaleOrchestratorService(repo, access, schemas);
+  private final PlanSaleOrchestratorServiceImpl service =
+      new PlanSaleOrchestratorServiceImpl(repo, access, schemas);
   private final Map<String, PlanSaleOrchestrator> rows = new HashMap<>();
 
   @BeforeEach
@@ -41,11 +46,11 @@ class PlanSaleOrchestratorServiceTest {
   }
 
   private PlanSaleOrchestrator create(String plan) {
-    return service.create(PROP, plan, new Save(null, config()));
+    return service.create(PROP, plan, new PlanSaleOrchestratorDtos.Save(null, config()));
   }
 
-  private Revision revision(PlanSaleOrchestrator row) {
-    return new Revision(row.getRevision());
+  private PlanSaleOrchestratorDtos.Revision revision(PlanSaleOrchestrator row) {
+    return new PlanSaleOrchestratorDtos.Revision(row.getRevision());
   }
 
   @Test
@@ -57,7 +62,7 @@ class PlanSaleOrchestratorServiceTest {
     assertEquals(PLAN, a.getPlanId());
     assertEquals(OTHER_PLAN, b.getPlanId());
     assertNull(a.getActiveVersion());
-    assertEquals(Status.DRAFT, a.getVersions().get(0).status());
+    assertEquals(PlanSaleOrchestratorStatusEnum.DRAFT, a.getVersions().get(0).status());
     assertThrows(ResponseStatusException.class, () -> create(PLAN));
   }
 
@@ -68,12 +73,12 @@ class PlanSaleOrchestratorServiceTest {
     service.activate(PROP, PLAN, revision(a));
     service.version(PROP, PLAN, revision(a));
     assertEquals(1, a.getActiveVersion());
-    assertEquals(Status.ACTIVE, a.getVersions().get(0).status());
-    service.edit(PROP, PLAN, new Save(a.getRevision(), config()));
+    assertEquals(PlanSaleOrchestratorStatusEnum.ACTIVE, a.getVersions().get(0).status());
+    service.edit(PROP, PLAN, new PlanSaleOrchestratorDtos.Save(a.getRevision(), config()));
     service.activate(PROP, PLAN, revision(a));
     assertEquals(2, a.getActiveVersion());
-    assertEquals(Status.ARCHIVED, a.getVersions().get(0).status());
-    assertEquals(1, a.getVersions().stream().filter(v -> v.status() == Status.ACTIVE).count());
+    assertEquals(PlanSaleOrchestratorStatusEnum.ARCHIVED, a.getVersions().get(0).status());
+    assertEquals(1, a.getVersions().stream().filter(v -> v.status() == PlanSaleOrchestratorStatusEnum.ACTIVE).count());
     assertEquals(0L, b.getRevision());
     assertNull(b.getActiveVersion());
     assertEquals(1, b.getVersions().size());
@@ -86,7 +91,7 @@ class PlanSaleOrchestratorServiceTest {
     service.activate(PROP, PLAN, revision(a));
     assertThrows(
         ResponseStatusException.class,
-        () -> service.edit(PROP, PLAN, new Save(a.getRevision(), config())));
+        () -> service.edit(PROP, PLAN, new PlanSaleOrchestratorDtos.Save(a.getRevision(), config())));
   }
 
   @Test
@@ -94,8 +99,8 @@ class PlanSaleOrchestratorServiceTest {
     var a = create(PLAN);
     service.activate(PROP, PLAN, revision(a));
     service.version(PROP, PLAN, revision(a));
-    var invalid = new Configuration("Sale", "", 100, null, Set.of());
-    service.edit(PROP, PLAN, new Save(a.getRevision(), invalid));
+    var invalid = new PlanSaleOrchestratorDtos.Configuration("Sale", "", 100, null, Set.of());
+    service.edit(PROP, PLAN, new PlanSaleOrchestratorDtos.Save(a.getRevision(), invalid));
     clearInvocations(repo);
     assertFalse(service.validate(PROP, PLAN, revision(a)).valid());
     assertThrows(BadRequestException.class, () -> service.activate(PROP, PLAN, revision(a)));
@@ -123,7 +128,7 @@ class PlanSaleOrchestratorServiceTest {
         .active(any());
     assertThrows(BadRequestException.class, () -> service.activate(PROP, PLAN, revision(a)));
     assertThrows(
-        ResponseStatusException.class, () -> service.edit(PROP, PLAN, new Save(-1L, config())));
+        ResponseStatusException.class, () -> service.edit(PROP, PLAN, new PlanSaleOrchestratorDtos.Save(-1L, config())));
   }
 
   @Test

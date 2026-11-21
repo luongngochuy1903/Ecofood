@@ -7,6 +7,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.ecofood.app.config.*;
+import com.ecofood.app.config.ForbiddenException;
+import com.ecofood.app.config.GlobalExceptionHandler;
+import com.ecofood.app.orchestrator.controller.PlanSaleOrchestratorController;
+import com.ecofood.app.orchestrator.entity.PlanSaleOrchestrator;
+import com.ecofood.app.orchestrator.exception.PlanSaleErrorHandler;
+import com.ecofood.app.orchestrator.service.PlanSaleOrchestratorServiceImpl;
+import com.ecofood.core.dto.PlanSaleOrchestratorDtos;
 import java.util.*;
 import org.junit.jupiter.api.*;
 import org.springframework.http.HttpStatus;
@@ -17,12 +24,12 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class PlanSaleOrchestratorControllerTest {
   private final String base =
       "/api/v1/propositions/" + PROP + "/plans/" + PLAN + "/sale-orchestrator";
-  private PlanSaleOrchestratorService service;
+  private PlanSaleOrchestratorServiceImpl service;
   private MockMvc mvc;
 
   @BeforeEach
   void setup() {
-    service = mock(PlanSaleOrchestratorService.class);
+    service = mock(PlanSaleOrchestratorServiceImpl.class);
     mvc =
         MockMvcBuilders.standaloneSetup(new PlanSaleOrchestratorController(service))
             .setControllerAdvice(new PlanSaleErrorHandler(), new GlobalExceptionHandler())
@@ -91,7 +98,7 @@ class PlanSaleOrchestratorControllerTest {
   @Test
   void validatesDraftWithoutActivatingIt() throws Exception {
     when(service.validate(eq(PROP), eq(PLAN), any()))
-        .thenReturn(new PlanSaleOrchestratorService.Validation(false, List.of("Duplicate field")));
+        .thenReturn(new PlanSaleOrchestratorDtos.Validation(false, List.of("Duplicate field")));
     mvc.perform(
             post(base + "/validate")
                 .contentType(MediaType.APPLICATION_JSON)

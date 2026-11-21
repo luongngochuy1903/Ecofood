@@ -7,6 +7,15 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.ecofood.app.config.GlobalExceptionHandler;
+import com.ecofood.app.notification.controller.NotificationController;
+import com.ecofood.app.notification.entity.Notification;
+import com.ecofood.app.notification.entity.NotificationRule;
+import com.ecofood.app.notification.exception.NotificationApiErrors;
+import com.ecofood.app.notification.integration.NotificationDirectory;
+import com.ecofood.app.notification.security.NotificationAccess;
+import com.ecofood.app.notification.service.NotificationManagementImpl;
+import com.ecofood.app.notification.service.NotificationRecipients;
+import com.ecofood.app.notification.service.NotificationTemplate;
 import java.util.*;
 import org.junit.jupiter.api.*;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -23,7 +32,7 @@ class NotificationApiTest {
   @BeforeEach void setup() {
     mongo = mock(MongoTemplate.class); access = mock(NotificationAccess.class);
     when(access.current()).thenReturn(new NotificationAccess.Scope(TENANT, USER, true, true, true));
-    var service = new NotificationManagement(mongo, access, mock(NotificationRecipients.class), mock(NotificationDirectory.class), settings(), new NotificationTemplate());
+    var service = new NotificationManagementImpl(mongo, access, mock(NotificationRecipients.class), mock(NotificationDirectory.class), settings(), new NotificationTemplate());
     mvc = MockMvcBuilders.standaloneSetup(new NotificationController(service)).setControllerAdvice(new NotificationApiErrors(), new GlobalExceptionHandler()).build();
   }
   @Test void historyUsesScopeNotTenantHeaderAndCannotAcceptSentFromFrontend() throws Exception {

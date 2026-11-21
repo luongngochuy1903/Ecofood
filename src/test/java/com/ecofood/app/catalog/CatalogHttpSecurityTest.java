@@ -4,9 +4,21 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
 import com.ecofood.app.auth.security.*;
+import com.ecofood.app.auth.security.InternalJwtAuthenticationEntryPoint;
+import com.ecofood.app.auth.security.InternalJwtRequestFilter;
 import com.ecofood.app.auth.service.InternalTokenService;
+import com.ecofood.app.catalog.controller.CatalogController;
+import com.ecofood.app.catalog.controller.CatalogExternalController;
+import com.ecofood.app.catalog.exception.CatalogApiErrors;
+import com.ecofood.app.catalog.security.CatalogExternalAccess;
+import com.ecofood.app.catalog.security.CatalogSecurityConfig;
+import com.ecofood.app.catalog.service.CatalogPublicationServiceImpl;
 import com.ecofood.app.config.*;
+import com.ecofood.app.config.GlobalExceptionHandler;
+import com.ecofood.app.config.SecurityConfig;
+import com.ecofood.core.dto.CatalogDtos;
 import io.jsonwebtoken.Claims;
 import java.time.Instant;
 import java.util.*;
@@ -31,8 +43,8 @@ class CatalogHttpSecurityTest {
       var principal=new CatalogDtos.ExternalPrincipal("publication","partner","grant"); doReturn(principal).when(service).authenticate("Catalog test-only-credential");
       when(service.session(principal)).thenReturn(new CatalogDtos.Session("publication","partner","food",1,Instant.parse("2030-01-01T00:00:00Z"))); return service;
     }
-    @Bean CatalogPublications publications() {
-      var service=mock(CatalogPublications.class); when(service.capabilities()).thenReturn(new CatalogDtos.Capabilities("tenant",true,true,true,true)); return service;
+    @Bean CatalogPublicationServiceImpl publications() {
+      var service=mock(CatalogPublicationServiceImpl.class); when(service.capabilities()).thenReturn(new CatalogDtos.Capabilities("tenant",true,true,true,true)); return service;
     }
     @Bean InternalJwtRequestFilter internalFilter() {
       var tokens=mock(InternalTokenService.class); var claims=mock(Claims.class);
@@ -42,7 +54,7 @@ class CatalogHttpSecurityTest {
     }
     @Bean InternalJwtAuthenticationEntryPoint entryPoint() { return new InternalJwtAuthenticationEntryPoint(); }
     @Bean CatalogExternalController externalController(CatalogExternalAccess access) { return new CatalogExternalController(access); }
-    @Bean CatalogController controller(CatalogPublications publications) { return new CatalogController(publications); }
+    @Bean CatalogController controller(CatalogPublicationServiceImpl publications) { return new CatalogController(publications); }
     @Bean GlobalExceptionHandler errors() { return new GlobalExceptionHandler(); }
     @Bean CatalogApiErrors catalogErrors() { return new CatalogApiErrors(); }
   }

@@ -3,7 +3,8 @@ package com.ecofood.app.catalog;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-import com.ecofood.app.notification.Notification;
+import com.ecofood.app.catalog.entity.ApiPublication;
+import com.mongodb.client.result.UpdateResult;
 import java.time.*;
 import java.util.*;
 import org.bson.Document;
@@ -12,7 +13,6 @@ import org.springframework.data.mongodb.core.*;
 import org.springframework.data.mongodb.core.convert.*;
 import org.springframework.data.mongodb.core.mapping.*;
 import org.springframework.data.mongodb.core.query.*;
-import com.mongodb.client.result.UpdateResult;
 
 /** Unit simulation of atomic document operations, not a substitute for a real MongoDB integration test. */
 class AtomicCatalogMongo {

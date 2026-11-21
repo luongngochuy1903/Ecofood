@@ -5,10 +5,20 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-import com.ecofood.app.notification.*;
+import com.ecofood.app.customer.entity.CustomerInvoice;
+import com.ecofood.app.customer.security.CustomerAccess;
+import com.ecofood.app.customer.security.CustomerIdentity;
+import com.ecofood.app.customer.security.CustomerReceiptTokens;
+import com.ecofood.app.customer.service.CustomerClaimHandoff;
+import com.ecofood.app.customer.service.CustomerReceiptServiceImpl;
+import com.ecofood.app.customer.service.CustomerServiceImpl;
+import com.ecofood.app.notification.config.NotificationSettings;
+import com.ecofood.app.notification.entity.Notification;
 import com.ecofood.app.submission.entity.Submission;
 import com.ecofood.app.transaction.entity.Invoice;
 import com.ecofood.app.userACL.entity.UserCategory;
+import com.ecofood.core.dto.CustomerIdentityDtos;
+import com.ecofood.core.dto.CustomerReceiptDtos;
 import com.ecofood.core.security.AuthenticationContext;
 import com.ecofood.core.service.UserAccessService;
 import java.time.Instant;
@@ -22,23 +32,23 @@ import org.springframework.data.mongodb.core.query.*;
 import org.springframework.web.server.ResponseStatusException;
 
 class CustomerReceiptTest {
-  AtomicCustomerMongo db; CustomerReceiptService service; CustomerAccess access; CustomerIdentity identity; CustomerClaimHandoff handoff;
+  AtomicCustomerMongo db; CustomerReceiptServiceImpl service; CustomerAccess access; CustomerIdentity identity; CustomerClaimHandoff handoff;
   ThreadLocal<CustomerAccess.Actor> actors = ThreadLocal.withInitial(() -> actor(A));
   MockedStatic<AuthenticationContext> authentication;
   @BeforeEach void setup() throws Exception {
     db = new AtomicCustomerMongo(); access = mock(CustomerAccess.class); identity = mock(CustomerIdentity.class); var users = mock(UserAccessService.class);
     var mail = new NotificationSettings("sender@example.org", true, 3, ""); handoff = new CustomerClaimHandoff(db.mongo, mail);
-    service = new CustomerReceiptService(db.mongo, access, users, settings(), new CustomerReceiptTokens(settings()), identity, mail, handoff);
+    service = new CustomerReceiptServiceImpl(db.mongo, access, users, settings(), new CustomerReceiptTokens(settings()), identity, mail, handoff);
     when(access.current()).thenAnswer(ignored -> actors.get());
-    when(identity.config(TENANT)).thenReturn(new CustomerIdentity.LoginConfig(TENANT, "test", "test-public", true));
-    when(users.resolveAccess(any(), any())).thenReturn(new UserAccessService.UserAccessClaims(List.of(), List.of(CustomerReceiptService.ISSUE, "TRANSACTION_SUBMIT"), List.of()));
+    when(identity.config(TENANT)).thenReturn(new CustomerIdentityDtos.LoginConfig(TENANT, "test", "test-public", true));
+    when(users.resolveAccess(any(), any())).thenReturn(new UserAccessService.UserAccessClaims(List.of(), List.of(CustomerReceiptServiceImpl.ISSUE, "TRANSACTION_SUBMIT"), List.of()));
     var seller = user(SELLER); seller.setUserCategory(UserCategory.builder().userCategoryCode("PARTNER").build()); db.insert(seller); db.insert(invoice());
     authentication = mockStatic(AuthenticationContext.class); authentication.when(AuthenticationContext::getUserId).thenReturn(new ObjectId(SELLER)); authentication.when(AuthenticationContext::getTenantId).thenReturn(new ObjectId(TENANT));
-    authentication.when(AuthenticationContext::getPermissions).thenReturn(List.of(CustomerReceiptService.ISSUE, "TRANSACTION_SUBMIT"));
+    authentication.when(AuthenticationContext::getPermissions).thenReturn(List.of(CustomerReceiptServiceImpl.ISSUE, "TRANSACTION_SUBMIT"));
   }
   @AfterEach void close() { authentication.close(); actors.remove(); }
-  CustomerReceiptService.Issued issue() { return service.issue(INVOICE, new CustomerReceiptService.IssueRequest("f9cb5497-2ba8-4bf2-9457-494ef47e98d4")); }
-  String token(CustomerReceiptService.Issued receipt) { return receipt.receiptUrl().substring(receipt.receiptUrl().indexOf("#token=") + 7); }
+  CustomerReceiptDtos.Issued issue() { return service.issue(INVOICE, new CustomerReceiptDtos.IssueRequest("f9cb5497-2ba8-4bf2-9457-494ef47e98d4")); }
+  String token(CustomerReceiptDtos.Issued receipt) { return receipt.receiptUrl().substring(receipt.receiptUrl().indexOf("#token=") + 7); }
   @Test void guestCanViewMinimalInvoiceButIssueAndViewDoNotCreateEmailOrOwner() {
     var receipt = issue(); var guest = service.view(token(receipt)); assertEquals("INV-001", guest.invoiceNumber()); assertEquals(TENANT, guest.login().tenantId());
     assertTrue(db.rows(Notification.class).isEmpty()); assertTrue(db.rows(Submission.class).isEmpty());
@@ -61,7 +71,7 @@ class CustomerReceiptTest {
   @Test void anotherCustomerCannotClaimOrReadLinkedInvoiceAndPublicLinkStopsWorking() {
     var token = token(issue()); service.claim(token); actors.set(actor(B));
     assertThrows(ResponseStatusException.class, () -> service.claim(token)); assertThrows(ResponseStatusException.class, () -> service.view(token));
-    var history = new CustomerService(access, db.mongo); assertTrue(history.invoices(0, 20).content().isEmpty()); assertThrows(ResponseStatusException.class, () -> history.detail(INVOICE));
+    var history = new CustomerServiceImpl(access, db.mongo); assertTrue(history.invoices(0, 20).content().isEmpty()); assertThrows(ResponseStatusException.class, () -> history.detail(INVOICE));
   }
   @Test void concurrentCustomersOnlyOneWinsAndOneNotificationIsCreated() throws Exception {
     var token = token(issue()); var pool = Executors.newFixedThreadPool(2); var start = new CountDownLatch(1);
@@ -98,7 +108,7 @@ class CustomerReceiptTest {
   }
   @Test void reusingAnOldRequestAfterRotationsCannotReviveItsRevokedLink() throws Exception {
     var first = issue(); service.revoke(INVOICE);
-    service.issue(INVOICE, new CustomerReceiptService.IssueRequest("731b7ba2-9e93-4e68-bb66-f89ec11382a4")); service.revoke(INVOICE);
+    service.issue(INVOICE, new CustomerReceiptDtos.IssueRequest("731b7ba2-9e93-4e68-bb66-f89ec11382a4")); service.revoke(INVOICE);
     var replacement = issue(); assertNotEquals(first.receiptUrl(), replacement.receiptUrl());
     var receiptToken1 = token(first);
     assertThrows(ResponseStatusException.class, () -> service.view(receiptToken1)); assertNotNull(service.view(token(replacement)));

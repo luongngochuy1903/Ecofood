@@ -44,7 +44,7 @@ public class AuthController {
 
   private final KeycloakTokenVerifier keycloakTokenVerifier;
   private final InternalTokenService internalTokenService;
-  private final com.ecofood.app.customer.CustomerIdentity customerIdentity;
+  private final com.ecofood.app.customer.security.CustomerIdentity customerIdentity;
 
   @PostMapping("/exchange")
   public ResponseEntity<?> exchange(@Valid @RequestBody ExchangeTokenRequest request) {
@@ -62,7 +62,7 @@ public class AuthController {
       log.warn("Rejecting exchange with 401: Keycloak token has no email claim");
       return unauthorized();
     }
-    com.ecofood.app.customer.CustomerIdentity.ExchangeIdentity customer;
+    com.ecofood.app.customer.security.CustomerIdentity.ExchangeIdentity customer;
     try { customer = customerIdentity.guardExchange(keycloakClaims); }
     catch (org.springframework.web.server.ResponseStatusException invalidCustomer) { return unauthorized(); }
 

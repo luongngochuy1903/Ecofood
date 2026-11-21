@@ -2,6 +2,7 @@ package com.ecofood.app.customer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.ecofood.app.customer.config.CustomerSettings;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;

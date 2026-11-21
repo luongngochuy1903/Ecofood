@@ -3,14 +3,14 @@ package com.ecofood.app.userACL.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
-import com.ecofood.core.service.UserAccessService.UserAccessClaims;
 import com.ecofood.app.userACL.entity.GroupRole;
 import com.ecofood.app.userACL.entity.RolePermission;
-import com.ecofood.app.userACL.entity.RoleType;
 import com.ecofood.app.userACL.entity.UserRole;
 import com.ecofood.app.userACL.repository.GroupRoleRepository;
 import com.ecofood.app.userACL.repository.RolePermissionRepository;
 import com.ecofood.app.userACL.repository.UserRoleRepository;
+import com.ecofood.core.enums.RoleType;
+import com.ecofood.core.service.UserAccessService.UserAccessClaims;
 import java.util.List;
 import java.util.Optional;
 import org.bson.types.ObjectId;

@@ -3,6 +3,9 @@ package com.ecofood.app.notification;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import com.ecofood.app.notification.config.NotificationMongoConfig;
+import com.ecofood.app.notification.entity.Notification;
+import com.ecofood.app.notification.entity.NotificationRule;
 import com.ecofood.app.submission.entity.Submission;
 import java.util.*;
 import org.junit.jupiter.api.Test;

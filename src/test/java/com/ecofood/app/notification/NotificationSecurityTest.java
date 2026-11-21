@@ -5,7 +5,18 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import com.ecofood.app.notification.config.NotificationSettings;
+import com.ecofood.app.notification.entity.Notification;
+import com.ecofood.app.notification.entity.NotificationRule;
+import com.ecofood.app.notification.integration.NotificationDirectory;
+import com.ecofood.app.notification.security.NotificationAccess;
+import com.ecofood.app.notification.service.NotificationManagementImpl;
+import com.ecofood.app.notification.service.NotificationProcessor;
+import com.ecofood.app.notification.service.NotificationRecipients;
+import com.ecofood.app.notification.service.NotificationTemplate;
 import com.ecofood.app.userACL.entity.*;
+import com.ecofood.app.userACL.entity.UserCategory;
+import com.ecofood.core.dto.NotificationDtos;
 import com.ecofood.core.security.AuthenticationContext;
 import com.ecofood.core.service.UserAccessService.UserAccessClaims;
 import java.util.*;
@@ -83,9 +94,9 @@ class NotificationSecurityTest {
     var directory = mock(NotificationDirectory.class); var resolver = new NotificationRecipients(directory, settings());
     var recipients1 = rule().getRecipients();
     assertThrows(ResponseStatusException.class, () -> resolver.validate(recipients1, OTHER));
-    var recipient = new NotificationRule.Recipients(List.of(), List.of(), List.of(), false, List.of("approved@example.org"));
+    var recipient = new NotificationDtos.Recipients(List.of(), List.of(), List.of(), false, List.of("approved@example.org"));
     resolver.validate(recipient, TENANT); assertThrows(ResponseStatusException.class, () -> resolver.validate(recipient, OTHER));
-    var recipients2 = new NotificationRule.Recipients(List.of(), List.of(), List.of(), false, List.of("attacker@example.org"));
+    var recipients2 = new NotificationDtos.Recipients(List.of(), List.of(), List.of(), false, List.of("attacker@example.org"));
     assertThrows(ResponseStatusException.class, () -> resolver.validate(recipients2, TENANT));
   }
   @Test void missingEmailSkippedAndNeverUsesSubmittedBy() {
@@ -94,7 +105,7 @@ class NotificationSecurityTest {
   }
   @Test void invoiceCustomerOnlyUsesVerifiedTenantCustomerUser() {
     var directory = mock(NotificationDirectory.class); var resolver = new NotificationRecipients(directory, settings());
-    var rule = rule(); rule.setRecipients(new NotificationRule.Recipients(List.of(), List.of(), List.of(), true, List.of()));
+    var rule = rule(); rule.setRecipients(new NotificationDtos.Recipients(List.of(), List.of(), List.of(), true, List.of()));
     var invoice = invoice(); invoice.setInvoiceHolder(new com.ecofood.app.transaction.entity.Invoice.InvoiceHolder("unverified", null));
     assertTrue(resolver.resolve(rule, invoice).isEmpty());
     var user = user(); user.setUserCategory(UserCategory.builder().userCategoryCode("CUSTOMER").build()); when(directory.user(USER, TENANT)).thenReturn(user);
@@ -104,7 +115,7 @@ class NotificationSecurityTest {
   @Test void tenantRoleRecipientsResolveLiveAndDuplicateEmailIsMerged() {
     var directory = mock(NotificationDirectory.class); var user = user(); when(directory.user(USER, TENANT)).thenReturn(user); when(directory.users(TENANT)).thenReturn(List.of(user));
     when(directory.claims(user, TENANT)).thenReturn(new UserAccessClaims(List.of("TENANT_ADMIN"), List.of(), List.of()));
-    var rule = rule(); rule.setRecipients(new NotificationRule.Recipients(List.of(USER), List.of("TENANT_ADMIN"), List.of(), false, List.of()));
+    var rule = rule(); rule.setRecipients(new NotificationDtos.Recipients(List.of(USER), List.of("TENANT_ADMIN"), List.of(), false, List.of()));
     assertEquals(1, new NotificationRecipients(directory, settings()).resolve(rule, invoice()).size());
   }
   @Test void templateOnlyAcceptsSupportedPlaceholdersAndRemovesHeaderNewlines() {
@@ -128,13 +139,13 @@ class NotificationSecurityTest {
   @Test void apiQueriesAreTenantScopedAndManualRetryCannotRetrySent() {
     var mongo = mock(MongoTemplate.class); var access = mock(NotificationAccess.class);
     when(access.current()).thenReturn(new NotificationAccess.Scope(TENANT, USER, true, true, true));
-    var service = new NotificationManagement(mongo, access, mock(NotificationRecipients.class), mock(NotificationDirectory.class), settings(), new NotificationTemplate());
+    var service = new NotificationManagementImpl(mongo, access, mock(NotificationRecipients.class), mock(NotificationDirectory.class), settings(), new NotificationTemplate());
     var sent = delivery(); sent.setStatus("SENT"); when(mongo.findOne(any(Query.class), eq(Notification.class))).thenReturn(sent);
-    var retryRequest1 = new NotificationManagement.RetryRequest(false);
+    var retryRequest1 = new NotificationDtos.RetryRequest(false);
     assertThrows(ResponseStatusException.class, () -> service.retry("delivery", retryRequest1));
     var query = org.mockito.ArgumentCaptor.forClass(Query.class); verify(mongo).findOne(query.capture(), eq(Notification.class)); assertEquals(TENANT, query.getValue().getQueryObject().getString("tenantId"));
     when(mongo.findOne(any(Query.class), eq(NotificationRule.class))).thenReturn(null);
-    var enabledRequest1 = new NotificationManagement.EnabledRequest(true, 1);
+    var enabledRequest1 = new NotificationDtos.EnabledRequest(true, 1);
     assertThrows(ResponseStatusException.class, () -> service.enable("other-tenant-rule", enabledRequest1));
     verify(mongo, never()).findAndModify(any(), any(), any(), eq(NotificationRule.class));
   }
@@ -143,8 +154,8 @@ class NotificationSecurityTest {
     when(access.current()).thenReturn(new NotificationAccess.Scope(TENANT, USER, true, true, true));
     var failed = delivery(); failed.setStatus("FAILED"); failed.setDeliveryUncertain(true);
     when(mongo.findOne(any(Query.class), eq(Notification.class))).thenReturn(failed);
-    var service = new NotificationManagement(mongo, access, mock(NotificationRecipients.class), mock(NotificationDirectory.class), settings(), new NotificationTemplate());
-    var retryRequest2 = new NotificationManagement.RetryRequest(false);
+    var service = new NotificationManagementImpl(mongo, access, mock(NotificationRecipients.class), mock(NotificationDirectory.class), settings(), new NotificationTemplate());
+    var retryRequest2 = new NotificationDtos.RetryRequest(false);
     assertThrows(ResponseStatusException.class, () -> service.retry("delivery", retryRequest2));
     verify(mongo, never()).findAndModify(any(), any(), any(), eq(Notification.class));
   }

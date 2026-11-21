@@ -3,8 +3,8 @@ package com.ecofood.app.auth.controller;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -42,7 +42,7 @@ class AuthControllerTest {
   @Mock private KeycloakTokenVerifier keycloakTokenVerifier;
   @Mock private InternalTokenService internalTokenService;
   @Mock private Claims refreshClaims;
-  @Mock private com.ecofood.app.customer.CustomerIdentity customerIdentity;
+  @Mock private com.ecofood.app.customer.security.CustomerIdentity customerIdentity;
 
   private MockMvc mockMvc;
 
@@ -95,7 +95,7 @@ class AuthControllerTest {
   void customerExchangeMintsForTheVerifiedIdentityWithoutAnotherEmailLookup() throws Exception {
     var claims = keycloakClaims("customer@example.org", "http://localhost:8080/realms/acme");
     when(keycloakTokenVerifier.verify("kc-customer")).thenReturn(claims);
-    when(customerIdentity.guardExchange(claims)).thenReturn(new com.ecofood.app.customer.CustomerIdentity.ExchangeIdentity("user-id", "tenant-id"));
+    when(customerIdentity.guardExchange(claims)).thenReturn(new com.ecofood.app.customer.security.CustomerIdentity.ExchangeIdentity("user-id", "tenant-id"));
     when(internalTokenService.mintTokenPair("user-id", "tenant-id")).thenReturn(new TokenPair("customer-access", "customer-refresh"));
     mockMvc.perform(post("/api/v1/auth/exchange").contentType(MediaType.APPLICATION_JSON).content("{\"accessToken\":\"kc-customer\"}"))
         .andExpect(status().isOk()).andExpect(jsonPath("$.accessToken", is("customer-access")));

@@ -8,6 +8,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.ecofood.app.config.GlobalExceptionHandler;
+import com.ecofood.app.dashboard.controller.DashboardController;
+import com.ecofood.app.dashboard.exception.DashboardApiErrors;
+import com.ecofood.app.dashboard.repository.DashboardData;
+import com.ecofood.app.dashboard.security.DashboardAccess;
+import com.ecofood.app.dashboard.service.DashboardServiceImpl;
 import com.ecofood.app.metrics.entity.ActualMetrics;
 import com.ecofood.app.proposition.entity.PropositionEntity;
 import com.ecofood.app.proposition.service.PropositionAccess;
@@ -19,13 +24,13 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 class DashboardApiTest {
   @Test void invalidFiltersAreRejectedAndUnsupportedPlanIsNotSilentlyIgnored() throws Exception {
-    var service = mock(DashboardService.class); var mvc = MockMvcBuilders.standaloneSetup(new DashboardController(service)).setControllerAdvice(new DashboardApiErrors(), new GlobalExceptionHandler()).build();
+    var service = mock(DashboardServiceImpl.class); var mvc = MockMvcBuilders.standaloneSetup(new DashboardController(service)).setControllerAdvice(new DashboardApiErrors(), new GlobalExceptionHandler()).build();
     mvc.perform(get("/api/v1/dashboard/summary")).andExpect(status().isBadRequest());
     mvc.perform(get("/api/v1/dashboard/summary").param("currency", "USD").param("period", "NOT_A_PERIOD")).andExpect(status().isBadRequest());
     mvc.perform(get("/api/v1/dashboard/summary").param("currency", "USD").param("planId", "some-plan")).andExpect(status().isBadRequest()); verifyNoInteractions(service);
   }
   @Test void tenantHeaderDoesNotChooseDataScopeAndAuthorizationErrorsRemainForbidden() throws Exception {
-    var service = mock(DashboardService.class); when(service.summary(any())).thenThrow(DashboardAccess.denied());
+    var service = mock(DashboardServiceImpl.class); when(service.summary(any())).thenThrow(DashboardAccess.denied());
     var mvc = MockMvcBuilders.standaloneSetup(new DashboardController(service)).setControllerAdvice(new DashboardApiErrors(), new GlobalExceptionHandler()).build();
     mvc.perform(get("/api/v1/dashboard/summary").param("currency", "USD").header("X-Tenant-Id", B)).andExpect(status().isForbidden());
     verify(service).summary(argThat(s -> s.tenantId() == null));

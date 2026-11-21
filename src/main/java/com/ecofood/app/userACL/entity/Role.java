@@ -1,6 +1,7 @@
 package com.ecofood.app.userACL.entity;
 
 import com.ecofood.core.entity.BaseEntity;
+import com.ecofood.core.enums.RoleType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;

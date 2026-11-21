@@ -8,7 +8,15 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.ecofood.app.config.GlobalExceptionHandler;
+import com.ecofood.app.customer.controller.CustomerController;
+import com.ecofood.app.customer.controller.CustomerReceiptController;
+import com.ecofood.app.customer.exception.CustomerApiErrors;
+import com.ecofood.app.customer.security.CustomerAccess;
+import com.ecofood.app.customer.service.CustomerReceiptServiceImpl;
+import com.ecofood.app.customer.service.CustomerServiceImpl;
 import com.ecofood.app.transaction.entity.Invoice;
+import com.ecofood.core.dto.CustomerIdentityDtos;
+import com.ecofood.core.dto.CustomerReceiptDtos;
 import java.math.BigDecimal;
 import java.util.*;
 import org.junit.jupiter.api.Test;
@@ -19,7 +27,8 @@ class CustomerApiTest {
   @Test void invoiceResponseOnlyContainsCustomerSafeFields() throws Exception {
     var access = mock(CustomerAccess.class); when(access.current()).thenReturn(actor(A)); var db = new AtomicCustomerMongo();
     var invoice = invoice(); invoice.setInvoiceHolder(new Invoice.InvoiceHolder(A, A)); invoice.setOrchestratorPayload(Map.of("secret", "POS-only")); invoice.setPostWorkflowResults(Map.of("SEND_EMAIL_NOTIFICATION", "PENDING")); db.insert(invoice);
-    var mvc = MockMvcBuilders.standaloneSetup(new CustomerController(new CustomerService(access, db.mongo))).setControllerAdvice(new CustomerApiErrors(), new GlobalExceptionHandler()).build();
+    var service = new CustomerServiceImpl(access, db.mongo);
+    var mvc = MockMvcBuilders.standaloneSetup(new CustomerController(service, service)).setControllerAdvice(new CustomerApiErrors(), new GlobalExceptionHandler()).build();
     mvc.perform(get("/api/v1/customers/me/invoices/" + INVOICE).header("X-Tenant-Id", OTHER_TENANT))
         .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
         .andExpect(jsonPath("$.invoiceNumber").value("INV-001")).andExpect(jsonPath("$.totalAmount").value("20"))
@@ -27,19 +36,19 @@ class CustomerApiTest {
     when(access.current()).thenReturn(actor(B)); mvc.perform(get("/api/v1/customers/me/invoices/" + INVOICE)).andExpect(status().isNotFound());
   }
   @Test void profileValidationCannotChangeEmailCategoryOrCustomerId() throws Exception {
-    var service = mock(CustomerService.class); var mvc = MockMvcBuilders.standaloneSetup(new CustomerController(service)).setControllerAdvice(new CustomerApiErrors(), new GlobalExceptionHandler()).build();
+    var service = mock(CustomerServiceImpl.class); var mvc = MockMvcBuilders.standaloneSetup(new CustomerController(service, service)).setControllerAdvice(new CustomerApiErrors(), new GlobalExceptionHandler()).build();
     mvc.perform(put("/api/v1/customers/me").contentType(MediaType.APPLICATION_JSON).content("{\"firstName\":\"\",\"lastName\":\"Last\",\"revision\":0}")).andExpect(status().isBadRequest());
     verifyNoInteractions(service);
   }
   @Test void invoiceIdAloneDoesNotSatisfyClaimContractAndCallerIdentityIsServerResolved() throws Exception {
-    var service = mock(CustomerReceiptService.class); when(service.claim(null)).thenThrow(CustomerService.unavailable());
+    var service = mock(CustomerReceiptServiceImpl.class); when(service.claim(null)).thenThrow(CustomerServiceImpl.unavailable());
     var mvc = MockMvcBuilders.standaloneSetup(new CustomerReceiptController(service)).setControllerAdvice(new CustomerApiErrors(), new GlobalExceptionHandler()).build();
     mvc.perform(post("/api/v1/customers/me/invoices/claim").contentType(MediaType.APPLICATION_JSON).content("{\"invoiceId\":\"" + INVOICE + "\",\"customerId\":\"" + B + "\"}")).andExpect(status().isNotFound());
     verify(service).claim(null);
   }
   @Test void publicReceiptResponseDoesNotExposeInternalIdentityOrOwner() throws Exception {
-    var service = mock(CustomerReceiptService.class);
-    when(service.view("t".repeat(43))).thenReturn(new CustomerReceiptService.GuestInvoice("INV-001", null, "USD", BigDecimal.TEN, List.of(), new CustomerIdentity.LoginConfig(TENANT, "realm", "client", false)));
+    var service = mock(CustomerReceiptServiceImpl.class);
+    when(service.view("t".repeat(43))).thenReturn(new CustomerReceiptDtos.GuestInvoice("INV-001", null, "USD", BigDecimal.TEN, List.of(), new CustomerIdentityDtos.LoginConfig(TENANT, "realm", "client", false)));
     var mvc = MockMvcBuilders.standaloneSetup(new CustomerReceiptController(service)).setControllerAdvice(new CustomerApiErrors(), new GlobalExceptionHandler()).build();
     mvc.perform(post("/api/v1/auth/customer-receipts/view").contentType(MediaType.APPLICATION_JSON).content("{\"token\":\"" + "t".repeat(43) + "\"}"))
         .andExpect(status().isOk()).andExpect(header().string("Referrer-Policy", "no-referrer")).andExpect(header().string("Cache-Control", "no-store"))

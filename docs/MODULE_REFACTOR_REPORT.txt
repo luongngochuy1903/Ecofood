@@ -1,0 +1,233 @@
+EcoFood — Báo cáo refactor backend main / corebe
+Ngày: 2026-11-21
+
+PHẠM VI
+Chỉ thay đổi backend và corebe. Không thay đổi frontend hoặc corefe.
+Các file migration-backups đang bị xóa từ trước lượt làm việc; không thuộc thay đổi refactor này.
+Không commit, push hoặc publish package.
+
+PATTERN SAU REFACTOR
+corebe: DTO, enum, service interface và client delegate dùng chung.
+backend: controller, implementation, persistence, adapter, scheduler, cấu hình và kiểm tra quyền.
+catalog/customer/complaint/dashboard/notification/orchestrator được chia subpackage theo trách nhiệm.
+Không tạo repository chỉ để bọc lại MongoTemplate; các thao tác dữ liệu hiện có được giữ nguyên.
+DTO public chuyển sang core; record xử lý nội bộ như handoff và actor vẫn thuộc main.
+Read-only response interfaces trong core tránh phụ thuộc ngược vào entity main và giữ nguyên JSON của endpoint cũ.
+CoreCustomerInvoiceClient là điểm gọi chéo module complaint → customer; không gọi thẳng CustomerServiceImpl.
+metrics/submission giữ processor và bookkeeping hiện tại; không thêm contract chưa có bên gọi.
+Luồng kiểm tra core /api/test/core chuyển vào module diagnostics và giữ endpoint.
+
+TƯƠNG THÍCH
+8 enum nghiệp vụ chuyển vào core/enums; tên constant, case và giá trị JSON/MongoDB giữ nguyên.
+Không đổi trạng thái đang dùng String thành enum.
+Giữ tên collection, field, index và điều kiện truy vấn.
+Entity và record được di chuyển giữ legacy TypeAlias để không thay đổi metadata _class đã lưu.
+Không di chuyển implementation sang core và không tạo phụ thuộc corebe → backend.
+Không sửa Keycloak/JWT/security rules; các guard hiện có vẫn được gọi theo cùng luồng.
+Một số helper/worker method và bean factory dùng qua subpackage được đổi phạm vi truy cập thành public; không tạo REST endpoint hoặc core client cho chúng.
+
+PHIÊN BẢN VÀ CI
+corebe/pom.xml: 1.1.2 → 1.1.3-SNAPSHOT.
+backend/pom.xml tham chiếu cùng 1.1.3-SNAPSHOT.
+Artifact mới chỉ được install vào Maven cache cục bộ để kiểm tra, chưa publish GitHub Packages.
+CI/main ở máy khác cần có artifact mới: publish core trước khi merge main, hoặc dùng bước build/install đúng source core trong pipeline tích hợp.
+Không sử dụng cache 1.1.2 để thay thế nội dung phiên bản đã phát hành.
+
+KIỂM TRA
+corebe: .\mvnw.cmd -o clean install — 39 tests, 0 failure, 0 error, 0 skipped; BUILD SUCCESS.
+backend: .\mvnw.cmd -o clean verify — 585 tests, 0 failure, 0 error, 0 skipped; BUILD SUCCESS.
+Lần verify cuối hoàn tất 2026-11-21T17:59:09+07:00, thời gian 53.654 giây; tổng test đã đối chiếu từ Surefire XML.
+Compiler vẫn có các cảnh báo deprecated ensureIndex và unchecked hiện có; không sửa chúng trong đợt tổ chức module.
+14 test tương thích bổ sung đã qua: legacy Mongo class identifiers, đọc subtype từ converter mới, JSON qua interface và giá trị enum.
+Toàn bộ 571 test backend cũ đã qua ở lượt kiểm tra trước khi bổ sung test tương thích.
+Đã đối chiếu số @Test của tất cả file test backend gốc: không giảm.
+git diff --check: không phát hiện lỗi whitespace.
+Không chạy SonarCloud analysis.
+
+FILE DI CHUYỂN (76)
+backend/src/main/java/com/ecofood/app/catalog/CatalogController.java → backend/src/main/java/com/ecofood/app/catalog/controller/CatalogController.java
+backend/src/main/java/com/ecofood/app/catalog/CatalogExternalController.java → backend/src/main/java/com/ecofood/app/catalog/controller/CatalogExternalController.java
+backend/src/main/java/com/ecofood/app/catalog/CatalogPublications.java → backend/src/main/java/com/ecofood/app/catalog/service/CatalogPublicationServiceImpl.java
+backend/src/main/java/com/ecofood/app/catalog/CatalogData.java → backend/src/main/java/com/ecofood/app/catalog/service/CatalogData.java
+backend/src/main/java/com/ecofood/app/catalog/ApiPublication.java → backend/src/main/java/com/ecofood/app/catalog/entity/ApiPublication.java
+backend/src/main/java/com/ecofood/app/catalog/CatalogAccess.java → backend/src/main/java/com/ecofood/app/catalog/security/CatalogAccess.java
+backend/src/main/java/com/ecofood/app/catalog/CatalogExternalAccess.java → backend/src/main/java/com/ecofood/app/catalog/security/CatalogExternalAccess.java
+backend/src/main/java/com/ecofood/app/catalog/CatalogExternalFilter.java → backend/src/main/java/com/ecofood/app/catalog/security/CatalogExternalFilter.java
+backend/src/main/java/com/ecofood/app/catalog/CatalogSecurityConfig.java → backend/src/main/java/com/ecofood/app/catalog/security/CatalogSecurityConfig.java
+backend/src/main/java/com/ecofood/app/catalog/CatalogMongoConfig.java → backend/src/main/java/com/ecofood/app/catalog/config/CatalogMongoConfig.java
+backend/src/main/java/com/ecofood/app/catalog/CatalogApiErrors.java → backend/src/main/java/com/ecofood/app/catalog/exception/CatalogApiErrors.java
+backend/src/main/java/com/ecofood/app/complaint/ComplaintController.java → backend/src/main/java/com/ecofood/app/complaint/controller/ComplaintController.java
+backend/src/main/java/com/ecofood/app/complaint/ComplaintService.java → backend/src/main/java/com/ecofood/app/complaint/service/ComplaintServiceImpl.java
+backend/src/main/java/com/ecofood/app/complaint/ComplaintHandoff.java → backend/src/main/java/com/ecofood/app/complaint/service/ComplaintHandoff.java
+backend/src/main/java/com/ecofood/app/complaint/Complaint.java → backend/src/main/java/com/ecofood/app/complaint/entity/Complaint.java
+backend/src/main/java/com/ecofood/app/complaint/ComplaintAccess.java → backend/src/main/java/com/ecofood/app/complaint/security/ComplaintAccess.java
+backend/src/main/java/com/ecofood/app/complaint/ComplaintMongoConfig.java → backend/src/main/java/com/ecofood/app/complaint/config/ComplaintMongoConfig.java
+backend/src/main/java/com/ecofood/app/complaint/ComplaintApiErrors.java → backend/src/main/java/com/ecofood/app/complaint/exception/ComplaintApiErrors.java
+backend/src/main/java/com/ecofood/app/complaint/ComplaintNotification.java → backend/src/main/java/com/ecofood/app/complaint/integration/ComplaintNotification.java
+backend/src/main/java/com/ecofood/app/customer/CustomerController.java → backend/src/main/java/com/ecofood/app/customer/controller/CustomerController.java
+backend/src/main/java/com/ecofood/app/customer/CustomerAuthController.java → backend/src/main/java/com/ecofood/app/customer/controller/CustomerAuthController.java
+backend/src/main/java/com/ecofood/app/customer/CustomerReceiptController.java → backend/src/main/java/com/ecofood/app/customer/controller/CustomerReceiptController.java
+backend/src/main/java/com/ecofood/app/customer/CustomerService.java → backend/src/main/java/com/ecofood/app/customer/service/CustomerServiceImpl.java
+backend/src/main/java/com/ecofood/app/customer/CustomerReceiptService.java → backend/src/main/java/com/ecofood/app/customer/service/CustomerReceiptServiceImpl.java
+backend/src/main/java/com/ecofood/app/customer/CustomerClaimHandoff.java → backend/src/main/java/com/ecofood/app/customer/service/CustomerClaimHandoff.java
+backend/src/main/java/com/ecofood/app/customer/CustomerInvoice.java → backend/src/main/java/com/ecofood/app/customer/entity/CustomerInvoice.java
+backend/src/main/java/com/ecofood/app/customer/CustomerUser.java → backend/src/main/java/com/ecofood/app/customer/entity/CustomerUser.java
+backend/src/main/java/com/ecofood/app/customer/CustomerAccess.java → backend/src/main/java/com/ecofood/app/customer/security/CustomerAccess.java
+backend/src/main/java/com/ecofood/app/customer/CustomerIdentity.java → backend/src/main/java/com/ecofood/app/customer/security/CustomerIdentity.java
+backend/src/main/java/com/ecofood/app/customer/CustomerReceiptTokens.java → backend/src/main/java/com/ecofood/app/customer/security/CustomerReceiptTokens.java
+backend/src/main/java/com/ecofood/app/customer/CustomerMongoConfig.java → backend/src/main/java/com/ecofood/app/customer/config/CustomerMongoConfig.java
+backend/src/main/java/com/ecofood/app/customer/CustomerSettings.java → backend/src/main/java/com/ecofood/app/customer/config/CustomerSettings.java
+backend/src/main/java/com/ecofood/app/customer/CustomerApiErrors.java → backend/src/main/java/com/ecofood/app/customer/exception/CustomerApiErrors.java
+backend/src/main/java/com/ecofood/app/dashboard/DashboardController.java → backend/src/main/java/com/ecofood/app/dashboard/controller/DashboardController.java
+backend/src/main/java/com/ecofood/app/dashboard/DashboardService.java → backend/src/main/java/com/ecofood/app/dashboard/service/DashboardServiceImpl.java
+backend/src/main/java/com/ecofood/app/dashboard/DashboardAggregation.java → backend/src/main/java/com/ecofood/app/dashboard/service/DashboardAggregation.java
+backend/src/main/java/com/ecofood/app/dashboard/DashboardData.java → backend/src/main/java/com/ecofood/app/dashboard/repository/DashboardData.java
+backend/src/main/java/com/ecofood/app/dashboard/DashboardAccess.java → backend/src/main/java/com/ecofood/app/dashboard/security/DashboardAccess.java
+backend/src/main/java/com/ecofood/app/dashboard/DashboardApiErrors.java → backend/src/main/java/com/ecofood/app/dashboard/exception/DashboardApiErrors.java
+backend/src/main/java/com/ecofood/app/notification/NotificationController.java → backend/src/main/java/com/ecofood/app/notification/controller/NotificationController.java
+backend/src/main/java/com/ecofood/app/notification/NotificationManagement.java → backend/src/main/java/com/ecofood/app/notification/service/NotificationManagementImpl.java
+backend/src/main/java/com/ecofood/app/notification/NotificationProcessor.java → backend/src/main/java/com/ecofood/app/notification/service/NotificationProcessor.java
+backend/src/main/java/com/ecofood/app/notification/NotificationRecipients.java → backend/src/main/java/com/ecofood/app/notification/service/NotificationRecipients.java
+backend/src/main/java/com/ecofood/app/notification/Notification.java → backend/src/main/java/com/ecofood/app/notification/entity/Notification.java
+backend/src/main/java/com/ecofood/app/notification/NotificationRule.java → backend/src/main/java/com/ecofood/app/notification/entity/NotificationRule.java
+backend/src/main/java/com/ecofood/app/notification/SubmissionNotificationState.java → backend/src/main/java/com/ecofood/app/notification/entity/SubmissionNotificationState.java
+backend/src/main/java/com/ecofood/app/notification/NotificationAccess.java → backend/src/main/java/com/ecofood/app/notification/security/NotificationAccess.java
+backend/src/main/java/com/ecofood/app/notification/NotificationMongoConfig.java → backend/src/main/java/com/ecofood/app/notification/config/NotificationMongoConfig.java
+backend/src/main/java/com/ecofood/app/notification/NotificationSettings.java → backend/src/main/java/com/ecofood/app/notification/config/NotificationSettings.java
+backend/src/main/java/com/ecofood/app/notification/NotificationApiErrors.java → backend/src/main/java/com/ecofood/app/notification/exception/NotificationApiErrors.java
+backend/src/main/java/com/ecofood/app/notification/DeliveryFailure.java → backend/src/main/java/com/ecofood/app/notification/exception/DeliveryFailure.java
+backend/src/main/java/com/ecofood/app/notification/NotificationDelivery.java → backend/src/main/java/com/ecofood/app/notification/delivery/NotificationDelivery.java
+backend/src/main/java/com/ecofood/app/notification/NotificationEmailSender.java → backend/src/main/java/com/ecofood/app/notification/delivery/NotificationEmailSender.java
+backend/src/main/java/com/ecofood/app/notification/SmtpNotificationSender.java → backend/src/main/java/com/ecofood/app/notification/delivery/SmtpNotificationSender.java
+backend/src/main/java/com/ecofood/app/notification/NotificationAudience.java → backend/src/main/java/com/ecofood/app/notification/integration/NotificationAudience.java
+backend/src/main/java/com/ecofood/app/notification/NotificationDirectory.java → backend/src/main/java/com/ecofood/app/notification/integration/NotificationDirectory.java
+backend/src/main/java/com/ecofood/app/notification/NotificationEventSource.java → backend/src/main/java/com/ecofood/app/notification/integration/NotificationEventSource.java
+backend/src/main/java/com/ecofood/app/notification/InvoiceNotificationSource.java → backend/src/main/java/com/ecofood/app/notification/integration/InvoiceNotificationSource.java
+backend/src/main/java/com/ecofood/app/orchestrator/PlanSaleOrchestratorController.java → backend/src/main/java/com/ecofood/app/orchestrator/controller/PlanSaleOrchestratorController.java
+backend/src/main/java/com/ecofood/app/orchestrator/PlanSaleOrchestratorService.java → backend/src/main/java/com/ecofood/app/orchestrator/service/PlanSaleOrchestratorServiceImpl.java
+backend/src/main/java/com/ecofood/app/orchestrator/PersistentPlanSaleRuntime.java → backend/src/main/java/com/ecofood/app/orchestrator/service/PersistentPlanSaleRuntime.java
+backend/src/main/java/com/ecofood/app/orchestrator/PlanSaleOrchestrator.java → backend/src/main/java/com/ecofood/app/orchestrator/entity/PlanSaleOrchestrator.java
+backend/src/main/java/com/ecofood/app/orchestrator/PlanSaleOrchestratorRepository.java → backend/src/main/java/com/ecofood/app/orchestrator/repository/PlanSaleOrchestratorRepository.java
+backend/src/main/java/com/ecofood/app/orchestrator/PlanSaleAccess.java → backend/src/main/java/com/ecofood/app/orchestrator/security/PlanSaleAccess.java
+backend/src/main/java/com/ecofood/app/orchestrator/PlanSaleMongoConfig.java → backend/src/main/java/com/ecofood/app/orchestrator/config/PlanSaleMongoConfig.java
+backend/src/main/java/com/ecofood/app/orchestrator/SaleSchemaValidator.java → backend/src/main/java/com/ecofood/app/orchestrator/validation/SaleSchemaValidator.java
+backend/src/main/java/com/ecofood/app/orchestrator/PlanSaleErrorHandler.java → backend/src/main/java/com/ecofood/app/orchestrator/exception/PlanSaleErrorHandler.java
+backend/src/main/java/com/ecofood/app/userACL/entity/RoleType.java → corebe/src/main/java/com/ecofood/core/enums/RoleType.java
+backend/src/main/java/com/ecofood/app/catalog/CatalogDtos.java → corebe/src/main/java/com/ecofood/core/dto/CatalogDtos.java
+backend/src/main/java/com/ecofood/app/complaint/ComplaintDtos.java → corebe/src/main/java/com/ecofood/core/dto/ComplaintDtos.java
+backend/src/main/java/com/ecofood/app/customer/CustomerDtos.java → corebe/src/main/java/com/ecofood/core/dto/CustomerDtos.java
+backend/src/main/java/com/ecofood/app/dashboard/DashboardDtos.java → corebe/src/main/java/com/ecofood/core/dto/DashboardDtos.java
+backend/src/main/java/com/ecofood/app/catalog/CatalogOrchestrator.java → corebe/src/main/java/com/ecofood/core/dto/CatalogOrchestrator.java
+backend/src/main/java/com/ecofood/app/controller/TestController.java → backend/src/main/java/com/ecofood/app/diagnostics/controller/TestController.java
+backend/src/main/java/com/ecofood/app/services/DumpCallCoreServiceImpl.java → backend/src/main/java/com/ecofood/app/diagnostics/service/DumpCallCoreServiceImpl.java
+backend/src/main/java/com/ecofood/app/notification/NotificationTemplate.java → backend/src/main/java/com/ecofood/app/notification/service/NotificationTemplate.java
+
+FILE TẠO MỚI NGOÀI CÁC FILE DI CHUYỂN (32)
+backend/docs/MODULE_REFACTOR_REPORT.txt
+backend/src/test/java/com/ecofood/app/architecture/ModuleRefactorCompatibilityTest.java
+corebe/src/main/java/com/ecofood/core/client/CoreCustomerInvoiceClient.java
+corebe/src/main/java/com/ecofood/core/dto/ComplaintView.java
+corebe/src/main/java/com/ecofood/core/dto/CustomerIdentityDtos.java
+corebe/src/main/java/com/ecofood/core/dto/CustomerIdentityScope.java
+corebe/src/main/java/com/ecofood/core/dto/CustomerInvoiceReference.java
+corebe/src/main/java/com/ecofood/core/dto/CustomerReceiptDtos.java
+corebe/src/main/java/com/ecofood/core/dto/NotificationDtos.java
+corebe/src/main/java/com/ecofood/core/dto/NotificationRuleView.java
+corebe/src/main/java/com/ecofood/core/dto/NotificationView.java
+corebe/src/main/java/com/ecofood/core/dto/PlanSaleOrchestratorDtos.java
+corebe/src/main/java/com/ecofood/core/dto/PlanSaleOrchestratorView.java
+corebe/src/main/java/com/ecofood/core/enums/CatalogPublicationStatusEnum.java
+corebe/src/main/java/com/ecofood/core/enums/CatalogTypeEnum.java
+corebe/src/main/java/com/ecofood/core/enums/ComplaintStatusEnum.java
+corebe/src/main/java/com/ecofood/core/enums/ComplaintTypeEnum.java
+corebe/src/main/java/com/ecofood/core/enums/DashboardPeriodEnum.java
+corebe/src/main/java/com/ecofood/core/enums/PlanSaleOrchestratorStatusEnum.java
+corebe/src/main/java/com/ecofood/core/enums/PlanSaleWorkflowEnum.java
+corebe/src/main/java/com/ecofood/core/service/CatalogExternalService.java
+corebe/src/main/java/com/ecofood/core/service/CatalogPublicationService.java
+corebe/src/main/java/com/ecofood/core/service/ComplaintService.java
+corebe/src/main/java/com/ecofood/core/service/CustomerIdentityService.java
+corebe/src/main/java/com/ecofood/core/service/CustomerInvoiceService.java
+corebe/src/main/java/com/ecofood/core/service/CustomerQueryService.java
+corebe/src/main/java/com/ecofood/core/service/CustomerReceiptService.java
+corebe/src/main/java/com/ecofood/core/service/CustomerService.java
+corebe/src/main/java/com/ecofood/core/service/DashboardQueryService.java
+corebe/src/main/java/com/ecofood/core/service/NotificationManagementService.java
+corebe/src/main/java/com/ecofood/core/service/PlanSaleOrchestratorService.java
+corebe/src/test/java/com/ecofood/core/client/CoreCustomerInvoiceClientTest.java
+
+FILE SỬA TẠI CHỖ (58)
+backend/pom.xml
+backend/src/main/java/com/ecofood/app/auth/controller/AuthController.java
+backend/src/main/java/com/ecofood/app/transaction/entity/Invoice.java
+backend/src/main/java/com/ecofood/app/transaction/service/InvoiceSnapshotFactory.java
+backend/src/main/java/com/ecofood/app/userACL/dto/RoleCreateRequest.java
+backend/src/main/java/com/ecofood/app/userACL/dto/RoleDetailResponse.java
+backend/src/main/java/com/ecofood/app/userACL/dto/RoleResponse.java
+backend/src/main/java/com/ecofood/app/userACL/dto/RoleUpdateRequest.java
+backend/src/main/java/com/ecofood/app/userACL/entity/Role.java
+backend/src/main/java/com/ecofood/app/userACL/entity/UserRole.java
+backend/src/test/java/com/ecofood/app/auth/controller/AuthControllerTest.java
+backend/src/test/java/com/ecofood/app/catalog/AtomicCatalogMongo.java
+backend/src/test/java/com/ecofood/app/catalog/CatalogAccessTest.java
+backend/src/test/java/com/ecofood/app/catalog/CatalogApiTest.java
+backend/src/test/java/com/ecofood/app/catalog/CatalogDataTest.java
+backend/src/test/java/com/ecofood/app/catalog/CatalogExternalTest.java
+backend/src/test/java/com/ecofood/app/catalog/CatalogFixtures.java
+backend/src/test/java/com/ecofood/app/catalog/CatalogHttpSecurityTest.java
+backend/src/test/java/com/ecofood/app/catalog/CatalogIndexTest.java
+backend/src/test/java/com/ecofood/app/catalog/CatalogLifecycleTest.java
+backend/src/test/java/com/ecofood/app/complaint/AtomicComplaintMongo.java
+backend/src/test/java/com/ecofood/app/complaint/ComplaintAccessTest.java
+backend/src/test/java/com/ecofood/app/complaint/ComplaintApiTest.java
+backend/src/test/java/com/ecofood/app/complaint/ComplaintNotificationTest.java
+backend/src/test/java/com/ecofood/app/complaint/ComplaintServiceTest.java
+backend/src/test/java/com/ecofood/app/customer/CustomerApiTest.java
+backend/src/test/java/com/ecofood/app/customer/CustomerFixtures.java
+backend/src/test/java/com/ecofood/app/customer/CustomerIdentityTest.java
+backend/src/test/java/com/ecofood/app/customer/CustomerProfileTest.java
+backend/src/test/java/com/ecofood/app/customer/CustomerQrTest.java
+backend/src/test/java/com/ecofood/app/customer/CustomerReceiptTest.java
+backend/src/test/java/com/ecofood/app/customer/CustomerSettingsTest.java
+backend/src/test/java/com/ecofood/app/dashboard/DashboardAccessTest.java
+backend/src/test/java/com/ecofood/app/dashboard/DashboardAggregationTest.java
+backend/src/test/java/com/ecofood/app/dashboard/DashboardApiTest.java
+backend/src/test/java/com/ecofood/app/dashboard/DashboardFixtures.java
+backend/src/test/java/com/ecofood/app/dashboard/DashboardServiceTest.java
+backend/src/test/java/com/ecofood/app/notification/AtomicNotificationMongo.java
+backend/src/test/java/com/ecofood/app/notification/NotificationApiTest.java
+backend/src/test/java/com/ecofood/app/notification/NotificationFixtures.java
+backend/src/test/java/com/ecofood/app/notification/NotificationIndexTest.java
+backend/src/test/java/com/ecofood/app/notification/NotificationPipelineTest.java
+backend/src/test/java/com/ecofood/app/notification/NotificationSecurityTest.java
+backend/src/test/java/com/ecofood/app/notification/NotificationSmtpTest.java
+backend/src/test/java/com/ecofood/app/orchestrator/PersistentPlanSaleRuntimeTest.java
+backend/src/test/java/com/ecofood/app/orchestrator/PlanSaleAccessTest.java
+backend/src/test/java/com/ecofood/app/orchestrator/PlanSaleMongoMappingTest.java
+backend/src/test/java/com/ecofood/app/orchestrator/PlanSaleOrchestratorControllerTest.java
+backend/src/test/java/com/ecofood/app/orchestrator/PlanSaleOrchestratorServiceTest.java
+backend/src/test/java/com/ecofood/app/orchestrator/SaleFixtures.java
+backend/src/test/java/com/ecofood/app/orchestrator/SaleSchemaValidatorTest.java
+backend/src/test/java/com/ecofood/app/transaction/InvoiceSnapshotFactoryTest.java
+backend/src/test/java/com/ecofood/app/userACL/controller/RoleControllerTest.java
+backend/src/test/java/com/ecofood/app/userACL/service/GroupServiceTest.java
+backend/src/test/java/com/ecofood/app/userACL/service/RoleServiceTest.java
+backend/src/test/java/com/ecofood/app/userACL/service/UserAccessServiceImplTest.java
+backend/src/test/java/com/ecofood/app/userACL/service/UserServiceImplTest.java
+corebe/pom.xml
+
+FILE XÓA KHÔNG CÓ ĐÍCH DI CHUYỂN (0)
+
+LÝ DO CỦA CÁC NHÓM FILE
+Các file di chuyển: thống nhất module → lớp trách nhiệm; cập nhật package/import và tên implementation.
+DTO/enum/core service mới: đưa contract dùng chung ra khỏi implementation main.
+CoreCustomerInvoiceClient và test: giữ kiểm tra ownership ở customer khi complaint gọi qua core.
+Các test/API/controller liên quan: cập nhật kiểu, constructor và import; giữ assertions hiện có.
+ModuleRefactorCompatibilityTest: kiểm tra các rủi ro MongoDB/JSON phát sinh khi đổi package.
+Invoice.java: thực hiện CustomerInvoiceReference để client chỉ thấy id/Tenant sau kiểm tra ownership.
+AuthController và InvoiceSnapshotFactory: cập nhật import của lớp đã di chuyển, không đổi logic.
+Các DTO/entity userACL: dùng chung RoleType từ core, giữ giá trị Functional/Administrative.
+Các pom.xml: dùng phiên bản core mới đồng nhất.
+
+Log cuối backend: build/refactor-final-verify.log.
+Log corebe: target/core-refactor-verify.log.
