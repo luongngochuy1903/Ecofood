@@ -44,6 +44,7 @@ public class AuthController {
 
   private final KeycloakTokenVerifier keycloakTokenVerifier;
   private final InternalTokenService internalTokenService;
+  private final com.ecofood.app.customer.CustomerIdentity customerIdentity;
 
   @PostMapping("/exchange")
   public ResponseEntity<?> exchange(@Valid @RequestBody ExchangeTokenRequest request) {
@@ -61,6 +62,9 @@ public class AuthController {
       log.warn("Rejecting exchange with 401: Keycloak token has no email claim");
       return unauthorized();
     }
+    com.ecofood.app.customer.CustomerIdentity.ExchangeIdentity customer;
+    try { customer = customerIdentity.guardExchange(keycloakClaims); }
+    catch (org.springframework.web.server.ResponseStatusException invalidCustomer) { return unauthorized(); }
 
     // Resolve the tenant from the realm that actually issued this Keycloak
     // token — NOT the user's "primary" tenant assignment — so a user
@@ -70,7 +74,8 @@ public class AuthController {
 
     TokenPair tokenPair;
     try {
-      tokenPair = internalTokenService.mintTokenPairForKeycloakLogin(email, realm);
+      tokenPair = customer == null ? internalTokenService.mintTokenPairForKeycloakLogin(email, realm)
+          : internalTokenService.mintTokenPair(customer.userId(), customer.tenantId());
     } catch (IllegalArgumentException e) {
       log.warn("Rejecting exchange with 401: {}", e.getMessage());
       return unauthorized();

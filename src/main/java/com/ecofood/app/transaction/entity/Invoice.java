@@ -2,6 +2,8 @@ package com.ecofood.app.transaction.entity;
 
 import com.ecofood.core.dto.InvoiceItemDto;
 import com.ecofood.core.enums.TransactionStatus;
+import com.ecofood.app.submission.entity.Submission;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
@@ -19,6 +21,16 @@ public class Invoice {
   private String invoiceNumber, currency;
   private Instant transactionTime, receivedAt;
   private TransactionStatus status;
+  private String type, paymentStatus, submissionId, invoiceDocumentId;
+  private InvoiceHolder invoiceHolder;
+  private InvoiceSnapshot snapshot;
+
+  public record InvoiceHolder(String customerId, String userId) {}
+
+  @JsonIgnore private Submission submissionHandoff;
+  @JsonIgnore private boolean submissionPending;
+  @JsonIgnore private Instant submissionRetryAt;
+  @JsonIgnore private int submissionAttempts;
 
   @Field(targetType = FieldType.DECIMAL128)
   private BigDecimal totalAmount;

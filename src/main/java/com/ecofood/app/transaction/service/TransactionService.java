@@ -6,11 +6,13 @@ import com.ecofood.app.transaction.repository.InvoiceRepository;
 import com.ecofood.core.dto.*;
 import com.ecofood.core.enums.TransactionStatus;
 import com.ecofood.core.service.SaleOrchestratorRuntime;
+import com.ecofood.app.submission.service.InvoiceSubmissionHandoff;
 import jakarta.validation.Validator;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.bson.types.ObjectId;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.*;
 import org.springframework.http.HttpStatus;
@@ -23,6 +25,8 @@ public class TransactionService {
   private final SaleOrchestratorRuntime runtime;
   private final InvoiceRepository invoices;
   private final Validator validator;
+  private final InvoiceSnapshotFactory snapshots;
+  private final InvoiceSubmissionHandoff handoff;
 
   public SubmitTransactionResponse submit(
       String tenant, String subject, String orchestrator, Map<String, Object> payload) {
@@ -60,6 +64,7 @@ public class TransactionService {
     if (invoices.existsByTenantIdAndPosIdAndInvoiceNumber(tenant, subject, request.invoiceNumber()))
       throw duplicate();
     var invoice = new Invoice();
+    invoice.setId(new ObjectId().toHexString());
     invoice.setTenantId(tenant);
     invoice.setSubmittedBy(subject);
     invoice.setPosId(subject);
@@ -71,8 +76,12 @@ public class TransactionService {
     invoice.setInvoiceNumber(request.invoiceNumber());
     invoice.setCurrency(request.currency());
     invoice.setTransactionTime(request.transactionTime());
-    invoice.setReceivedAt(Instant.now());
+    // MongoDB dates have millisecond precision; keep the durable event identical across retries.
+    invoice.setReceivedAt(Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS));
     invoice.setStatus(TransactionStatus.ACCEPTED);
+    invoice.setType("PLAN_SALE");
+    invoice.setPaymentStatus("PAID");
+    invoice.setSnapshot(snapshots.capture(tenant, prepared, invoice.getReceivedAt()));
     invoice.setTotalAmount(request.totalAmount());
     invoice.setItems(List.copyOf(request.items()));
     invoice.setOrchestratorPayload(prepared.payload());
@@ -84,11 +93,13 @@ public class TransactionService {
         workflows.put(action, "PENDING");
       }
     invoice.setPostWorkflowResults(workflows);
+    handoff.prepare(invoice);
     try {
       invoice = invoices.insert(invoice);
     } catch (DuplicateKeyException ex) {
       throw duplicate();
     }
+    handoff.deliver(invoice);
     return new SubmitTransactionResponse(
         invoice.getId(), invoice.getInvoiceNumber(), invoice.getStatus(), invoice.getReceivedAt());
   }

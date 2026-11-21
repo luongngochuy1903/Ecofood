@@ -28,6 +28,10 @@ public class TransactionMongoConfig {
                   .on("tenantId", Sort.Direction.ASC)
                   .on("receivedAt", Sort.Direction.DESC)
                   .named("ix_invoice_tenant_received"));
+      mongo.indexOps(Invoice.class).ensureIndex(new Index()
+          .on("submissionPending", Sort.Direction.ASC)
+          .on("submissionRetryAt", Sort.Direction.ASC)
+          .named("ix_invoice_submission_pending"));
     };
   }
 }

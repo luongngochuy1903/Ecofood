@@ -41,12 +41,13 @@ class AuthControllerTest {
   @Mock private KeycloakTokenVerifier keycloakTokenVerifier;
   @Mock private InternalTokenService internalTokenService;
   @Mock private Claims refreshClaims;
+  @Mock private com.ecofood.app.customer.CustomerIdentity customerIdentity;
 
   private MockMvc mockMvc;
 
   @BeforeEach
   void setUp() {
-    mockMvc = MockMvcBuilders.standaloneSetup(new AuthController(keycloakTokenVerifier, internalTokenService)).build();
+    mockMvc = MockMvcBuilders.standaloneSetup(new AuthController(keycloakTokenVerifier, internalTokenService, customerIdentity)).build();
   }
 
   @AfterEach
@@ -88,6 +89,16 @@ class AuthControllerTest {
         .andExpect(jsonPath("$.accessToken", is("access-1")))
         .andExpect(jsonPath("$.refreshToken", is("refresh-1")))
         .andExpect(jsonPath("$.keycloakClaims.email", is("jane.doe@example.com")));
+  }
+  @Test
+  void customerExchangeMintsForTheVerifiedIdentityWithoutAnotherEmailLookup() throws Exception {
+    var claims = keycloakClaims("customer@example.org", "http://localhost:8080/realms/acme");
+    when(keycloakTokenVerifier.verify("kc-customer")).thenReturn(claims);
+    when(customerIdentity.guardExchange(claims)).thenReturn(new com.ecofood.app.customer.CustomerIdentity.ExchangeIdentity("user-id", "tenant-id"));
+    when(internalTokenService.mintTokenPair("user-id", "tenant-id")).thenReturn(new TokenPair("customer-access", "customer-refresh"));
+    mockMvc.perform(post("/api/v1/auth/exchange").contentType(MediaType.APPLICATION_JSON).content("{\"accessToken\":\"kc-customer\"}"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.accessToken", is("customer-access")));
+    org.mockito.Mockito.verify(internalTokenService, org.mockito.Mockito.never()).mintTokenPairForKeycloakLogin(anyString(), anyString());
   }
 
   @Test

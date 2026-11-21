@@ -1,0 +1,141 @@
+package com.ecofood.app.customer;
+
+import com.ecofood.app.notification.*;
+import com.ecofood.app.submission.entity.Submission;
+import com.ecofood.app.userACL.entity.UserEntity;
+import com.ecofood.core.enums.TransactionStatus;
+import com.ecofood.core.security.AuthenticationContext;
+import com.ecofood.core.service.UserAccessService;
+import java.time.*;
+import java.util.*;
+import lombok.RequiredArgsConstructor;
+import org.bson.types.ObjectId;
+import org.springframework.data.mongodb.core.*;
+import org.springframework.data.mongodb.core.query.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
+
+@Service
+@RequiredArgsConstructor
+public class CustomerReceiptService {
+  public static final String ISSUE = "CUSTOMER_RECEIPT_ISSUE", CLAIMED = "INVOICE_CLAIMED";
+  private final MongoTemplate mongo;
+  private final CustomerAccess access;
+  private final UserAccessService users;
+  private final CustomerSettings settings;
+  private final CustomerReceiptTokens tokens;
+  private final CustomerIdentity identity;
+  private final NotificationSettings mail;
+  private final CustomerClaimHandoff handoff;
+  public record IssueRequest(String requestId) {}
+  public record TokenRequest(String token) {}
+  public record Issued(String receiptId, String invoiceId, String receiptUrl, String qrPngBase64, Instant expiresAt) {}
+  public record GuestInvoice(String invoiceNumber, Instant transactionTime, String currency,
+      @com.fasterxml.jackson.annotation.JsonFormat(shape = com.fasterxml.jackson.annotation.JsonFormat.Shape.STRING) java.math.BigDecimal totalAmount,
+      List<CustomerDtos.Item> items, CustomerIdentity.LoginConfig login) {}
+  public record Claimed(CustomerDtos.OwnedInvoice invoice, String emailStatus) {}
+  private record Seller(String user, String tenant) {}
+  private Seller seller() {
+    String user, tenant;
+    try { user = AuthenticationContext.getUserId().toHexString(); tenant = AuthenticationContext.getTenantId().toHexString(); }
+    catch (RuntimeException invalid) { throw CustomerAccess.denied(); }
+    var record = mongo.findById(new ObjectId(user), UserEntity.class);
+    if (record == null || Boolean.TRUE.equals(record.getDeleted()) || !CustomerIdentity.belongs(record, tenant)
+        || record.getUserCategory() == null || !"PARTNER".equals(record.getUserCategory().getUserCategoryCode())) throw CustomerAccess.denied();
+    var permissions = new HashSet<>(users.resolveAccess(record.getId(), new ObjectId(tenant)).permissions());
+    permissions.retainAll(Optional.ofNullable(AuthenticationContext.getPermissions()).orElse(List.of()));
+    if (!permissions.contains(ISSUE) || !permissions.contains("TRANSACTION_SUBMIT")) throw CustomerAccess.denied();
+    return new Seller(user, tenant);
+  }
+  private Query source(String id, Seller seller) {
+    return Query.query(Criteria.where("_id").is(id).and("tenantId").is(seller.tenant()).and("submittedBy").is(seller.user())
+        .and("posId").is(seller.user()).and("status").is(TransactionStatus.ACCEPTED).and("paymentStatus").is("PAID"));
+  }
+  private Criteria unowned() { return Criteria.where("invoiceHolder.userId").is(null).and("invoiceHolder.customerId").is(null); }
+  public Issued issue(String invoiceId, IssueRequest request) {
+    var seller = seller(); String requestId;
+    try { requestId = UUID.fromString(request.requestId()).toString(); if (!requestId.equalsIgnoreCase(request.requestId())) throw new IllegalArgumentException(); }
+    catch (RuntimeException invalid) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A full UUID requestId is required"); }
+    var query = source(invoiceId, seller); query.addCriteria(unowned());
+    var invoice = mongo.findOne(query, CustomerInvoice.class); if (invoice == null) throw CustomerService.unavailable();
+    Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+    var old = invoice.getCustomerReceipt(); CustomerInvoice.Receipt receipt;
+    if (old != null && old.requestId().equals(requestId)) {
+      if (old.revokedAt() != null || !old.expiresAt().isAfter(now)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Receipt expired or revoked; use a new requestId"); receipt = old;
+    } else {
+      if (old != null && old.revokedAt() == null && old.expiresAt().isAfter(now)) throw new ResponseStatusException(HttpStatus.CONFLICT, "An active receipt already exists");
+      // A new generation cannot revive an old revoked capability, even if request IDs/timestamps repeat.
+      String id = tokens.id(seller.tenant(), seller.user(), invoiceId, requestId + "\n" + UUID.randomUUID()), token = tokens.token(id, now);
+      receipt = new CustomerInvoice.Receipt(id, requestId, CustomerReceiptTokens.hash(token), seller.user(), now, now.plus(Duration.ofHours(settings.receiptHours)), null);
+      // Validate trusted origin/QR before persisting the new capability.
+      tokens.qr(tokens.url(token));
+      var update = source(invoiceId, seller); update.addCriteria(unowned());
+      if (old == null) update.addCriteria(Criteria.where("customerReceipt").is(null));
+      else update.addCriteria(Criteria.where("customerReceipt.id").is(old.id()).and("customerReceipt.revokedAt").is(old.revokedAt()));
+      var saved = mongo.findAndModify(update, new Update().set("customerReceipt", receipt), FindAndModifyOptions.options().returnNew(true), CustomerInvoice.class);
+      if (saved == null) {
+        saved = mongo.findOne(query, CustomerInvoice.class);
+        if (saved == null || saved.getCustomerReceipt() == null || !saved.getCustomerReceipt().requestId().equals(requestId)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Receipt changed; reload");
+        receipt = saved.getCustomerReceipt();
+        if (receipt.revokedAt() != null || !receipt.expiresAt().isAfter(now)) throw CustomerService.unavailable();
+      }
+    }
+    String raw = tokens.token(receipt.id(), receipt.issuedAt());
+    if (!CustomerReceiptTokens.hash(raw).equals(receipt.tokenHash())) throw new ResponseStatusException(HttpStatus.CONFLICT, "Receipt signing key changed; revoke and issue a new receipt");
+    String url = tokens.url(raw);
+    return new Issued(receipt.id(), invoiceId, url, tokens.qr(url), receipt.expiresAt());
+  }
+  public void revoke(String invoiceId) {
+    var seller = seller(); var query = source(invoiceId, seller);
+    query.addCriteria(Criteria.where("customerReceipt.id").exists(true));
+    if (!mongo.exists(query, CustomerInvoice.class)) throw CustomerService.unavailable();
+    query.addCriteria(Criteria.where("customerReceipt.revokedAt").is(null));
+    mongo.updateFirst(query, new Update().set("customerReceipt.revokedAt", Instant.now()).set("customerReceipt.revokedBy", seller.user()), CustomerInvoice.class);
+  }
+  private Criteria valid(String token, Instant now) {
+    CustomerReceiptTokens.validate(token);
+    return Criteria.where("customerReceipt.tokenHash").is(CustomerReceiptTokens.hash(token)).and("customerReceipt.revokedAt").is(null)
+        .and("customerReceipt.expiresAt").gt(now).and("status").is(TransactionStatus.ACCEPTED).and("paymentStatus").is("PAID");
+  }
+  public GuestInvoice view(String token) {
+    var invoice = mongo.findOne(Query.query(new Criteria().andOperator(valid(token, Instant.now()), unowned())), CustomerInvoice.class);
+    if (invoice == null) throw CustomerService.unavailable();
+    var safe = CustomerService.invoice(invoice);
+    return new GuestInvoice(safe.invoiceNumber(), safe.transactionTime(), safe.currency(), safe.totalAmount(), safe.items(), identity.config(invoice.getTenantId()));
+  }
+  public Claimed claim(String token) {
+    var actor = access.current(); CustomerReceiptTokens.validate(token);
+    String hash = CustomerReceiptTokens.hash(token);
+    var prior = mongo.findOne(Query.query(Criteria.where("customerReceipt.tokenHash").is(hash).and("tenantId").is(actor.tenantId())
+        .and("invoiceHolder.userId").is(actor.userId()).and("invoiceHolder.customerId").is(actor.userId())), CustomerInvoice.class);
+    if (prior != null) { handoff.deliver(prior); return result(prior); }
+    Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+    Query query = Query.query(new Criteria().andOperator(valid(token, now), unowned(), Criteria.where("tenantId").is(actor.tenantId())));
+    var invoice = mongo.findOne(query, CustomerInvoice.class); if (invoice == null) throw CustomerService.unavailable();
+    String eventId = invoice.getId() + ":INVOICE_CLAIMED";
+    var event = new Submission(eventId, CLAIMED, now, actor.tenantId(), "INVOICE", invoice.getId(), invoice.getPropositionId(), invoice.getPlanId(), invoice.getOrchestratorId(), invoice.getOrchestratorVersion());
+    Notification notice = new Notification(); notice.setId(CustomerReceiptTokens.hash(eventId + ":customer-email")); notice.setSubmissionId(eventId);
+    notice.setTenantId(actor.tenantId()); notice.setRuleId("UC021_INVOICE_LINKED"); notice.setType(CLAIMED); notice.setRuleRevision(1);
+    notice.setRecipientUserId(actor.userId()); notice.setSendTo(NotificationSettings.canonical(actor.user().getEmail())); notice.setSendFrom(mail.from);
+    notice.setSubject("Hóa đơn " + String.valueOf(invoice.getInvoiceNumber()).replace('\r', ' ').replace('\n', ' '));
+    notice.setContent("Hóa đơn đã được liên kết với tài khoản của bạn.\n" + settings.base() + "/customer/invoices/" + invoice.getId() + "?tenant=" + actor.tenantId());
+    notice.setCreatedAt(now); notice.setNextAttemptAt(now);
+    var saved = mongo.findAndModify(query, new Update().set("invoiceHolder", new com.ecofood.app.transaction.entity.Invoice.InvoiceHolder(actor.userId(), actor.userId()))
+        .set("customerOwnership", new CustomerInvoice.Ownership(actor.userId(), now, "RECEIPT_TOKEN", invoice.getCustomerReceipt().id()))
+        .set("customerClaimHandoff", new CustomerInvoice.Handoff(event, notice, true, now, 0)), FindAndModifyOptions.options().returnNew(true), CustomerInvoice.class);
+    if (saved == null) {
+      saved = mongo.findOne(Query.query(Criteria.where("_id").is(invoice.getId()).and("tenantId").is(actor.tenantId()).and("invoiceHolder.userId").is(actor.userId()).and("invoiceHolder.customerId").is(actor.userId())), CustomerInvoice.class);
+      if (saved == null) throw CustomerService.unavailable();
+    }
+    handoff.deliver(saved); return result(saved);
+  }
+  private Claimed result(CustomerInvoice invoice) {
+    String status = "PENDING_HANDOFF";
+    if (invoice.getCustomerClaimHandoff() != null) {
+      var notice = mongo.findById(invoice.getCustomerClaimHandoff().notification().getId(), Notification.class);
+      if (notice != null) status = notice.getStatus();
+    }
+    return new Claimed(CustomerService.invoice(invoice), status);
+  }
+}

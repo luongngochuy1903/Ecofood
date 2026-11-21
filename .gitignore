@@ -38,3 +38,6 @@ newrelic/*
 
 ### Local secrets ###
 .env
+
+*.md
+class(2).drawio

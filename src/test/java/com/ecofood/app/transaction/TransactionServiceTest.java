@@ -8,6 +8,8 @@ import com.ecofood.app.config.*;
 import com.ecofood.app.transaction.entity.Invoice;
 import com.ecofood.app.transaction.repository.InvoiceRepository;
 import com.ecofood.app.transaction.service.TransactionService;
+import com.ecofood.app.transaction.service.InvoiceSnapshotFactory;
+import com.ecofood.app.submission.service.InvoiceSubmissionHandoff;
 import com.ecofood.core.dto.*;
 import com.ecofood.core.service.SaleOrchestratorRuntime;
 import jakarta.validation.Validation;
@@ -21,10 +23,12 @@ import org.springframework.web.server.ResponseStatusException;
 class TransactionServiceTest {
   private final SaleOrchestratorRuntime runtime = mock(SaleOrchestratorRuntime.class);
   private final InvoiceRepository repo = mock(InvoiceRepository.class);
+  private final InvoiceSnapshotFactory snapshots = mock(InvoiceSnapshotFactory.class);
+  private final InvoiceSubmissionHandoff handoff = mock(InvoiceSubmissionHandoff.class);
   private final jakarta.validation.ValidatorFactory factory =
       Validation.buildDefaultValidatorFactory();
   private final TransactionService service =
-      new TransactionService(runtime, repo, factory.getValidator());
+      new TransactionService(runtime, repo, factory.getValidator(), snapshots, handoff);
   private SubmitTransactionRequest request;
 
   @BeforeEach
@@ -43,7 +47,6 @@ class TransactionServiceTest {
         .thenAnswer(
             inv -> {
               Invoice row = inv.getArgument(0);
-              row.setId("invoice");
               return row;
             });
   }
@@ -70,10 +73,17 @@ class TransactionServiceTest {
 
   @Test
   void savesInvoiceWithTrustedScopeVersionAndWorkflowInOneInsert() {
-    assertEquals("invoice", service.submit("tenant", "subject", "orch", Map.of()).id());
+    var response = service.submit("tenant", "subject", "orch", Map.of());
     var capture = org.mockito.ArgumentCaptor.forClass(Invoice.class);
     verify(repo).insert(capture.capture());
     var invoice = capture.getValue();
+    assertEquals(invoice.getId(), response.id());
+    assertTrue(org.bson.types.ObjectId.isValid(invoice.getId()));
+    assertEquals(com.ecofood.core.enums.TransactionStatus.ACCEPTED, invoice.getStatus());
+    assertEquals("PAID", invoice.getPaymentStatus());
+    assertEquals("PLAN_SALE", invoice.getType());
+    assertNull(invoice.getInvoiceHolder());
+    assertNull(invoice.getInvoiceDocumentId());
     assertEquals("tenant", invoice.getTenantId());
     assertEquals("subject", invoice.getSubmittedBy());
     assertEquals("plan", invoice.getPlanId());
@@ -82,6 +92,10 @@ class TransactionServiceTest {
     assertEquals(Map.of("SEND_EMAIL_NOTIFICATION", "PENDING"), invoice.getPostWorkflowResults());
     assertEquals("value", invoice.getOrchestratorPayload().get("custom"));
     assertNotNull(invoice.getReceivedAt());
+    var order = inOrder(handoff, repo);
+    order.verify(handoff).prepare(invoice);
+    order.verify(repo).insert(invoice);
+    order.verify(handoff).deliver(invoice);
   }
 
   @Test
@@ -159,6 +173,7 @@ class TransactionServiceTest {
             .getStatusCode()
             .value());
     verify(repo, never()).insert(any(Invoice.class));
+    verifyNoInteractions(handoff);
   }
 
   @Test
@@ -171,6 +186,7 @@ class TransactionServiceTest {
                 () -> service.submit("tenant", "subject", "orch", Map.of()))
             .getStatusCode()
             .value());
+    verify(handoff, never()).deliver(any());
   }
 
   @Test
@@ -181,6 +197,7 @@ class TransactionServiceTest {
     assertThrows(
         org.springframework.dao.DataAccessResourceFailureException.class,
         () -> service.submit("tenant", "subject", "orch", Map.of()));
+    verify(handoff, never()).deliver(any());
   }
 
   @Test
@@ -189,5 +206,17 @@ class TransactionServiceTest {
     assertThrows(ResponseStatusException.class, () -> service.detail("other", "invoice"));
     verify(repo).findByIdAndTenantId("invoice", "other");
     assertThrows(BadRequestException.class, () -> service.list("tenant", 0, 101));
+  }
+
+  @Test
+  void storesTheCapturedSnapshotAndDoesNotAcceptSnapshotIdentityFromPayload() {
+    var snapshot = mock(com.ecofood.app.transaction.entity.InvoiceSnapshot.class);
+    when(snapshots.capture(eq("tenant"), any(PreparedSaleTransaction.class), any(Instant.class)))
+        .thenReturn(snapshot);
+    service.submit("tenant", "subject", "orch", Map.of("tenantId", "other"));
+    var capture = org.mockito.ArgumentCaptor.forClass(Invoice.class);
+    verify(repo).insert(capture.capture());
+    assertSame(snapshot, capture.getValue().getSnapshot());
+    assertEquals("tenant", capture.getValue().getTenantId());
   }
 }
