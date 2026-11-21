@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 @Slf4j
 public class ActualMetricsProcessor {
+  private static final String NEXT_RETRY_AT = "actualMetrics.nextRetryAt";
   private final ActualMetricsStore store;
   private final MongoTemplate mongo;
 
@@ -31,8 +32,8 @@ public class ActualMetricsProcessor {
             .and("actualMetrics.projectedAt").exists(false));
         var update = new Update().set("actualMetrics.state", retryable ? "RETRY" : "BLOCKED")
             .set("actualMetrics.lastErrorCode", code).inc("actualMetrics.attempts", 1);
-        if (retryable) update.set("actualMetrics.nextRetryAt", Instant.now().plusSeconds(60));
-        else update.unset("actualMetrics.nextRetryAt");
+        if (retryable) update.set(NEXT_RETRY_AT, Instant.now().plusSeconds(60));
+        else update.unset(NEXT_RETRY_AT);
         mongo.updateFirst(query, update, Submission.class);
       } catch (RuntimeException bookkeepingFailure) {
         log.warn("KPI retry metadata deferred for {} ({})", submissionId,
@@ -48,7 +49,7 @@ public class ActualMetricsProcessor {
       var due = new Criteria().orOperator(
           Criteria.where("actualMetrics.state").exists(false),
           new Criteria().andOperator(Criteria.where("actualMetrics.state").is("RETRY"),
-              Criteria.where("actualMetrics.nextRetryAt").lte(Instant.now())));
+              Criteria.where(NEXT_RETRY_AT).lte(Instant.now())));
       var query = Query.query(new Criteria().andOperator(
           Criteria.where("event").is(Submission.INVOICE_PAID), Criteria.where("sourceType").is("INVOICE"), due))
           .with(Sort.by("createdAt", "id")).limit(100);

@@ -2,12 +2,15 @@ package com.ecofood.app.transaction.service;
 
 import com.ecofood.app.config.ForbiddenException;
 import com.ecofood.app.orchestrator.PlanSaleAccess;
+import com.ecofood.app.proposition.entity.PropositionEntity;
 import com.ecofood.app.transaction.entity.InvoiceSnapshot;
 import com.ecofood.core.dto.PreparedSaleTransaction;
 import com.ecofood.core.dto.ProductCostingAttributeResponse;
+import com.ecofood.core.dto.ProductProcessResponse;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -27,40 +30,11 @@ public class InvoiceSnapshotFactory {
     var proposition = scope.proposition();
     var plan = scope.plan();
     var source = proposition.getSourceProcess();
-    boolean sourceMatches = source != null
-        && proposition.getProductProcessId() != null
-        && Objects.equals(proposition.getProductProcessId().toHexString(), source.id())
-        && proposition.getProductId() != null
-        && Objects.equals(proposition.getProductId().toHexString(), source.productId())
-        && proposition.getProductVersion() == source.version();
+    boolean sourceMatches = sourceMatches(proposition, source);
     var missing = new ArrayList<String>();
     missing.add("NET_REVENUE_UNVERIFIED");
-    ProductCostingAttributeResponse cost = null;
-    if (source == null) {
-      missing.add("PRODUCT_PROCESS_MISSING");
-    } else if (!sourceMatches) {
-      missing.add("PRODUCT_PROCESS_REFERENCE_MISMATCH");
-    } else if (source.costing() != null
-        && source.costing().processElementAttribute() != null
-        && source.costing().processElementAttribute().size() == 1) {
-      var candidate = source.costing().processElementAttribute().get(0);
-      if (candidate != null
-          && Objects.equals(candidate.productProcessId(), source.id())
-          && Objects.equals(candidate.processRevision(), source.revision())) {
-        cost = candidate;
-      } else {
-        missing.add("COSTING_REFERENCE_MISMATCH");
-      }
-    }
-    if (cost == null) missing.add("COSTING_MISSING");
-    if (source != null && source.revision() == null) missing.add("PRODUCT_PROCESS_REVISION_MISSING");
-    if (cost != null && cost.id() == null) missing.add("COSTING_ATTRIBUTE_ID_MISSING");
-    if (cost != null && !Objects.equals(cost.currency(), prepared.transaction().currency()))
-      missing.add("COSTING_CURRENCY_MISMATCH");
-    if (cost != null
-        && (cost.ingredientCost() == null || cost.packagingCost() == null
-            || cost.laborCost() == null || cost.operationCost() == null
-            || cost.marketingFee() == null)) missing.add("COSTING_COMPONENTS_MISSING");
+    var cost = costing(source, sourceMatches, missing);
+    validateCosting(source, cost, prepared.transaction().currency(), missing);
     var definition = proposition.getDefinition();
     if (definition.enterpriseProfitShare() == null || definition.platformProfitShare() == null
         || definition.distributionProfitShare() == null) missing.add("PROFIT_SHARE_MISSING");
@@ -85,5 +59,49 @@ public class InvoiceSnapshotFactory {
         prepared.transaction().currency(), receivedAt, ACCOUNTING_ZONE.getId(),
         accountingDate.getMonthValue(), accountingDate.getYear(), "MISSING_DATA", missing,
         null, null, null);
+  }
+
+  private boolean sourceMatches(PropositionEntity proposition, ProductProcessResponse source) {
+    return source != null
+        && proposition.getProductProcessId() != null
+        && Objects.equals(proposition.getProductProcessId().toHexString(), source.id())
+        && proposition.getProductId() != null
+        && Objects.equals(proposition.getProductId().toHexString(), source.productId())
+        && proposition.getProductVersion() == source.version();
+  }
+
+  private ProductCostingAttributeResponse costing(ProductProcessResponse source,
+      boolean sourceMatches, List<String> missing) {
+    ProductCostingAttributeResponse cost = null;
+    if (source == null) {
+      missing.add("PRODUCT_PROCESS_MISSING");
+    } else if (!sourceMatches) {
+      missing.add("PRODUCT_PROCESS_REFERENCE_MISMATCH");
+    } else if (source.costing() != null
+        && source.costing().processElementAttribute() != null
+        && source.costing().processElementAttribute().size() == 1) {
+      var candidate = source.costing().processElementAttribute().get(0);
+      if (candidate != null
+          && Objects.equals(candidate.productProcessId(), source.id())
+          && Objects.equals(candidate.processRevision(), source.revision())) {
+        cost = candidate;
+      } else {
+        missing.add("COSTING_REFERENCE_MISMATCH");
+      }
+    }
+    return cost;
+  }
+
+  private void validateCosting(ProductProcessResponse source,
+      ProductCostingAttributeResponse cost, String currency, List<String> missing) {
+    if (cost == null) missing.add("COSTING_MISSING");
+    if (source != null && source.revision() == null) missing.add("PRODUCT_PROCESS_REVISION_MISSING");
+    if (cost != null && cost.id() == null) missing.add("COSTING_ATTRIBUTE_ID_MISSING");
+    if (cost != null && !Objects.equals(cost.currency(), currency))
+      missing.add("COSTING_CURRENCY_MISMATCH");
+    if (cost != null
+        && (cost.ingredientCost() == null || cost.packagingCost() == null
+            || cost.laborCost() == null || cost.operationCost() == null
+            || cost.marketingFee() == null)) missing.add("COSTING_COMPONENTS_MISSING");
   }
 }

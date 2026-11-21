@@ -17,7 +17,9 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @RequiredArgsConstructor
 public class ComplaintAccess {
-  public static final String READ="COMPLAINT_READ", MANAGE="COMPLAINT_MANAGE", ASSIGN="COMPLAINT_ASSIGN";
+  public static final String READ="COMPLAINT_READ";
+  public static final String MANAGE="COMPLAINT_MANAGE";
+  public static final String ASSIGN="COMPLAINT_ASSIGN";
   private final NotificationDirectory directory;
   private final CoreTenantQueryClient tenants;
   private final MongoTemplate mongo;

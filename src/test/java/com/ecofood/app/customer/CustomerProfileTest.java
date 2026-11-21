@@ -43,7 +43,8 @@ class CustomerProfileTest {
   }
   @Test void staleProfileAndInvalidPaginationDoNotOverwriteOtherRecords() {
     var access = mock(CustomerAccess.class); when(access.current()).thenReturn(actor(A)); var service = new CustomerService(access, mock(MongoTemplate.class));
-    assertThrows(ResponseStatusException.class, () -> service.update(new CustomerDtos.UpdateProfile("First", "Last", 3L)));
+    var updateProfile1 = new CustomerDtos.UpdateProfile("First", "Last", 3L);
+    assertThrows(ResponseStatusException.class, () -> service.update(updateProfile1));
     assertThrows(ResponseStatusException.class, () -> service.invoices(-1, 20));
   }
 }

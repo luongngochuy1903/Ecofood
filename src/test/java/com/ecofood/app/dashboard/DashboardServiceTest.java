@@ -21,7 +21,8 @@ class DashboardServiceTest {
     verify(data).actual(Set.of(A), Set.of(PROP), 2026, "USD");
   }
   @Test void tenantCannotSelectAnotherTenantEvenWithKnownIdentifier() {
-    assertThrows(ResponseStatusException.class, () -> service.summary(new Selection(B, PROP, "USD", 2026, Period.MONTHLY, 1, null, false)));
+    var selection1 = new Selection(B, PROP, "USD", 2026, Period.MONTHLY, 1, null, false);
+    assertThrows(ResponseStatusException.class, () -> service.summary(selection1));
     verify(data, never()).actual(anySet(), anySet(), any(), any());
   }
   @Test void enterpriseTotalsSumTenantsOnceAndUseGlobalExpectedOnlyForFullScope() {
@@ -40,17 +41,22 @@ class DashboardServiceTest {
     verify(data, times(1)).actual(anySet(), anySet(), eq(2026), eq("USD"));
   }
   @Test void inaccessiblePropositionAndInvalidCurrencyAreRejected() {
-    when(data.propositions(any())).thenReturn(List.of()); assertThrows(ResponseStatusException.class, () -> service.summary(selection(Period.MONTHLY)));
-    assertThrows(ResponseStatusException.class, () -> service.summary(new Selection(A, PROP, "NOT_CURRENCY", 2026, Period.MONTHLY, 1, null, false)));
+    when(data.propositions(any())).thenReturn(List.of());
+    var selection2 = selection(Period.MONTHLY);
+    assertThrows(ResponseStatusException.class, () -> service.summary(selection2));
+    var selection3 = new Selection(A, PROP, "NOT_CURRENCY", 2026, Period.MONTHLY, 1, null, false);
+    assertThrows(ResponseStatusException.class, () -> service.summary(selection3));
   }
   @Test void legacyPropositionActualIsNotUsedAsSecondSource() {
     var prop = proposition(); prop.setActualMetrics(List.of(quarter(1, "999999"))); when(data.propositions(any())).thenReturn(List.of(prop));
     assertEquals(bd("2"), service.summary(selection(Period.MONTHLY)).metrics().get("profit").actual());
   }
   @Test void totalRequiresEnterprisePartnerPermissionAndOwnerAssociation() {
-    assertThrows(ResponseStatusException.class, () -> service.summary(new Selection(null, PROP, "USD", 2026, Period.QUARTERLY, null, 1, true)));
+    var selection4 = new Selection(null, PROP, "USD", 2026, Period.QUARTERLY, null, 1, true);
+    assertThrows(ResponseStatusException.class, () -> service.summary(selection4));
     when(access.current()).thenReturn(new DashboardAccess.Actor(USER, tenant(OWNER, true), Set.of(OWNER), false, null));
-    assertThrows(ResponseStatusException.class, () -> service.summary(new Selection(null, PROP, "USD", 2026, Period.QUARTERLY, null, 1, true)));
+    var selection5 = new Selection(null, PROP, "USD", 2026, Period.QUARTERLY, null, 1, true);
+    assertThrows(ResponseStatusException.class, () -> service.summary(selection5));
   }
   @Test void mismatchedExpectedCurrencyCannotBeHiddenByOtherMatchingTargets() {
     var changed = proposition(); var d = changed.getDefinition();

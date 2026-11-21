@@ -94,7 +94,7 @@ class NotificationPipelineTest {
   }
   @Test void temporaryFailureBacksOffAndStopsAtLimit() {
     db.insert(NotificationFixtures.delivery());
-    doThrow(new NotificationEmailSender.DeliveryFailure("SMTP_CONNECT_FAILED", true, false)).when(sender).send(any());
+    doThrow(new DeliveryFailure("SMTP_CONNECT_FAILED", true, false)).when(sender).send(any());
     for (int count = 1; count <= 3; count++) {
       delivery.poll(); var row = db.find(new Query(), Notification.class).get(0);
       assertEquals(count < 3 ? "RETRY_PENDING" : "FAILED", row.getStatus()); assertEquals(count, row.getRetryCount());

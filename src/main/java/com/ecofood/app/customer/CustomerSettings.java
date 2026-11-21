@@ -9,7 +9,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Component
 public class CustomerSettings {
-  private final String registrationTenants, receiptSecret, publicBase;
+  private final String registrationTenants;
+  private final String receiptSecret;
+  private final String publicBase;
   public final int receiptHours;
   public CustomerSettings(@Value("${ecofood.customer.registration-tenants:}") String tenants,
       @Value("${ecofood.customer.receipt-secret:}") String secret,
@@ -29,9 +31,14 @@ public class CustomerSettings {
       boolean local = "localhost".equals(uri.getHost()) || "127.0.0.1".equals(uri.getHost()) || (uri.getHost() != null && uri.getHost().endsWith(".localhost"));
       if (uri.getHost() != null && uri.getUserInfo() == null && uri.getQuery() == null && uri.getFragment() == null && publicBase.length() <= 500
           && (uri.getPath() == null || uri.getPath().isEmpty() || uri.getPath().equals("/"))
-          && ("https".equals(uri.getScheme()) || (local && "http".equals(uri.getScheme())))) return publicBase.replaceAll("/+$", "");
+          && ("https".equals(uri.getScheme()) || (local && "http".equals(uri.getScheme())))) return stripTrailingSlashes(publicBase);
     } catch (IllegalArgumentException ignored) { }
     throw unavailable("Configure CUSTOMER_PUBLIC_BASE_URL with the trusted frontend origin");
+  }
+  private String stripTrailingSlashes(String value) {
+    int end = value.length();
+    while (end > 0 && value.charAt(end - 1) == '/') end--;
+    return value.substring(0, end);
   }
   static ResponseStatusException unavailable(String message) { return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, message); }
 }

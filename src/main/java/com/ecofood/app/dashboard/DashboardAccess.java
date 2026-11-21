@@ -57,11 +57,8 @@ public class DashboardAccess {
     var membership = mongo.findOne(Query.query(Criteria.where("userIdentifier").is(user).and("deleted").ne(true)), UserGroupEntity.class);
     if (membership == null || membership.getGroups() == null) return result;
     for (var link : membership.getGroups()) {
-      if (!tenant.equals(link.getTenantIdentifier()) || link.getGroupIdentifier() == null) continue;
-      var group = mongo.findById(link.getGroupIdentifier(), Group.class);
-      if (group == null || Boolean.TRUE.equals(group.getDeleted()) || group.getGroupType() != GroupType.ACCESS_CONTROL_GROUP
-          || group.getAccessEntityType() == null || group.getPartyRelationships() == null
-          || group.getPartyRelationships().stream().noneMatch(r -> "TENANT".equals(r.getRelationshipTypeCode()) && tenant.equals(r.getToPartyId()))) continue;
+      var group = scopedGroup(tenant, link.getTenantIdentifier(), link.getGroupIdentifier());
+      if (group == null) continue;
       var type = group.getAccessEntityType(); var old = result.get(type);
       Set<String> ids = new HashSet<>(old == null ? Set.of() : old.ids());
       boolean full = (old != null && old.full()) || group.getAccessLevel() == AccessLevelEnum.FULL_ACCESS;
@@ -71,6 +68,14 @@ public class DashboardAccess {
       result.put(type, new Grant(full, Set.copyOf(ids)));
     }
     return result;
+  }
+  private Group scopedGroup(ObjectId tenant, ObjectId linkedTenant, ObjectId groupId) {
+    if (!tenant.equals(linkedTenant) || groupId == null) return null;
+    var group = mongo.findById(groupId, Group.class);
+    if (group == null || Boolean.TRUE.equals(group.getDeleted()) || group.getGroupType() != GroupType.ACCESS_CONTROL_GROUP
+        || group.getAccessEntityType() == null || group.getPartyRelationships() == null
+        || group.getPartyRelationships().stream().noneMatch(r -> "TENANT".equals(r.getRelationshipTypeCode()) && tenant.equals(r.getToPartyId()))) return null;
+    return group;
   }
   static ResponseStatusException denied() { return error(HttpStatus.FORBIDDEN, "Dashboard permission or Tenant scope denied"); }
   static ResponseStatusException error(HttpStatus status, String message) { return new ResponseStatusException(status, message); }

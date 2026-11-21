@@ -45,26 +45,30 @@ class ComplaintServiceTest {
   }
   @Test void missingInvoiceIsRejected() {
     var i=input(Complaint.Type.TENANT);
-    assertThrows(ResponseStatusException.class,()->service.create(new ComplaintDtos.Create(i.complaintType(),null,i.subject(),i.description(),i.requestId())));
+    var create1 = new ComplaintDtos.Create(i.complaintType(),null,i.subject(),i.description(),i.requestId());
+    assertThrows(ResponseStatusException.class,()-> service.create(create1));
     assertTrue(db.rows(Complaint.class).isEmpty());
   }
   @Test void otherCustomerUnownedAndMissingInvoicesAreRejectedWithoutDisclosure() {
     for(String reference:List.of("other-owner","unowned","missing")) {
       when(invoices.requireOwned(any(),eq(reference))).thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND,"Invoice unavailable"));
       var i=input(Complaint.Type.TENANT);
-      var error=assertThrows(ResponseStatusException.class,()->service.create(new ComplaintDtos.Create(i.complaintType(),reference,i.subject(),i.description(),i.requestId())));
+      var create2 = new ComplaintDtos.Create(i.complaintType(),reference,i.subject(),i.description(),i.requestId());
+      var error=assertThrows(ResponseStatusException.class,()-> service.create(create2));
       assertEquals(HttpStatus.NOT_FOUND,error.getStatusCode());
     }
     assertTrue(db.rows(Complaint.class).isEmpty()); assertTrue(db.rows(Submission.class).isEmpty());
   }
   @Test void optionalEcosystemInvoiceStillRequiresOwnership() {
     when(invoices.requireOwned(any(),eq("private"))).thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND));
-    assertThrows(ResponseStatusException.class,()->service.create(new ComplaintDtos.Create(Complaint.Type.ECOSYSTEM,"private","Subject","Description",UUID.randomUUID().toString())));
+    var create3 = new ComplaintDtos.Create(Complaint.Type.ECOSYSTEM,"private","Subject","Description",UUID.randomUUID().toString());
+    assertThrows(ResponseStatusException.class,()-> service.create(create3));
   }
   @Test void createRetryHasOneComplaintOneCreatedEventOneSubmissionAndRejectsChangedPayload() {
     var i=input(Complaint.Type.TENANT); var first=service.create(i); var retry=service.create(i);
     assertEquals(first.getId(),retry.getId()); assertEquals(1,db.rows(Complaint.class).size()); assertEquals(1,db.rows(Submission.class).size()); assertEquals(1,retry.getEvents().size());
-    assertThrows(ResponseStatusException.class,()->service.create(new ComplaintDtos.Create(i.complaintType(),i.invoiceId(),"Changed",i.description(),i.requestId())));
+    var create4 = new ComplaintDtos.Create(i.complaintType(),i.invoiceId(),"Changed",i.description(),i.requestId());
+    assertThrows(ResponseStatusException.class,()-> service.create(create4));
   }
   @Test void sourcePersistsWhenSubmissionInsertFailsAndRecoveryIsIdempotent() {
     doThrow(new DataAccessResourceFailureException("offline")).doAnswer(a->db.insert(a.getArgument(0))).when(db.mongo).insert(any(Submission.class));
@@ -74,12 +78,16 @@ class ComplaintServiceTest {
   }
   @Test void customerAHasNoAccessToBComplaintEvenKnowingId() {
     var c=submit(); when(customers.current()).thenReturn(new CustomerAccess.Actor(OTHER,TENANT,null));
-    assertThrows(ResponseStatusException.class,()->service.customerDetail(c.getId())); assertTrue(service.customerList(null,0,20).content().isEmpty());
-    assertThrows(ResponseStatusException.class,()->service.reply(c.getId(),new ComplaintDtos.Reply(c.getRevision(),"reply")));
+    var complaintId1 = c.getId();
+    assertThrows(ResponseStatusException.class,()-> service.customerDetail(complaintId1)); assertTrue(service.customerList(null,0,20).content().isEmpty());
+    var complaintId2 = c.getId();
+    var reply1 = new ComplaintDtos.Reply(c.getRevision(),"reply");
+    assertThrows(ResponseStatusException.class,()-> service.reply(complaintId2, reply1));
   }
   @Test void tenantAdminCannotReadOrUpdateAnotherTenantOrEcosystem() {
     var c=submit(); when(admins.current()).thenReturn(new ComplaintAccess.Actor(ADMIN,OTHER,List.of(Complaint.Type.TENANT),true,true));
-    assertThrows(ResponseStatusException.class,()->service.adminDetail(c.getId())); assertTrue(service.adminList(null,null,0,20).content().isEmpty());
+    var complaintId3 = c.getId();
+    assertThrows(ResponseStatusException.class,()-> service.adminDetail(complaintId3)); assertTrue(service.adminList(null,null,0,20).content().isEmpty());
     assertThrows(ResponseStatusException.class,()->action(c,"accept",null));
   }
   @Test void fullLifecycleRecordsAuditAndResolutionSubmissionWithoutChangingRoute() {
@@ -96,10 +104,14 @@ class ComplaintServiceTest {
   @Test void invalidTransitionsCustomerRepliesAndEscalationAreRejected() {
     var c=submit();
     assertThrows(ResponseStatusException.class,()->action(c,"transition",Complaint.Status.CLOSED));
-    assertThrows(ResponseStatusException.class,()->service.reply(c.getId(),new ComplaintDtos.Reply(c.getRevision(),"Premature")));
+    var complaintId4 = c.getId();
+    var reply2 = new ComplaintDtos.Reply(c.getRevision(),"Premature");
+    assertThrows(ResponseStatusException.class,()-> service.reply(complaintId4, reply2));
     assertThrows(ResponseStatusException.class,()->action(c,"escalate",null));
     assertThrows(ResponseStatusException.class,()->action(c,"internal",null));
-    assertThrows(ResponseStatusException.class,()->service.action(c.getId(),"accept",new ComplaintDtos.Action(c.getRevision(),"spoof",Complaint.Status.CLOSED,OTHER)));
+    var complaintId5 = c.getId();
+    var action1 = new ComplaintDtos.Action(c.getRevision(),"spoof",Complaint.Status.CLOSED,OTHER);
+    assertThrows(ResponseStatusException.class,()-> service.action(complaintId5, "accept", action1));
   }
   @Test void waitingReporterCanBeResumedByAdminAndStaleRevisionCannotRepeatAction() {
     var c=action(submit(),"accept",null); var old=c; c=action(c,"transition",Complaint.Status.WAITING_REPORTER);
@@ -108,12 +120,16 @@ class ComplaintServiceTest {
   }
   @Test void assignmentRequiresSeparatePermissionAndEligibleAdmin() {
     var c=submit();
-    assertThrows(ResponseStatusException.class,()->service.action(c.getId(),"assign",new ComplaintDtos.Action(c.getRevision(),"assign",null,OTHER)));
+    var complaintId6 = c.getId();
+    var action2 = new ComplaintDtos.Action(c.getRevision(),"assign",null,OTHER);
+    assertThrows(ResponseStatusException.class,()-> service.action(complaintId6, "assign", action2));
     when(admins.eligible(OTHER,TENANT,Complaint.Type.TENANT)).thenReturn(true);
     var assigned=service.action(c.getId(),"assign",new ComplaintDtos.Action(c.getRevision(),"assign",null,OTHER)); assertEquals(OTHER,assigned.getAssignedTo()); assertEquals("ASSIGNED",assigned.getEvents().get(1).eventType());
     assertTrue(assigned.getEvents().get(1).note().contains("UNASSIGNED -> "+OTHER));
     when(admins.current()).thenReturn(new ComplaintAccess.Actor(ADMIN,TENANT,List.of(Complaint.Type.TENANT),true,false));
-    assertThrows(ResponseStatusException.class,()->service.action(c.getId(),"assign",new ComplaintDtos.Action(assigned.getRevision(),"assign",null,ADMIN)));
+    var complaintId7 = c.getId();
+    var action3 = new ComplaintDtos.Action(assigned.getRevision(),"assign",null,ADMIN);
+    assertThrows(ResponseStatusException.class,()-> service.action(complaintId7, "assign", action3));
   }
   @Test void concurrentAcceptanceCommitsExactlyOneTransitionAndAudit() throws Exception {
     var c=submit(); ExecutorService pool=Executors.newFixedThreadPool(2); var start=new CountDownLatch(1);
@@ -125,7 +141,8 @@ class ComplaintServiceTest {
   }
   @Test void missingEcoRouteFailsClosedWithoutFakeTenant() {
     when(admins.ecosystemTenant()).thenThrow(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE));
-    assertThrows(ResponseStatusException.class,()->service.create(input(Complaint.Type.ECOSYSTEM))); assertTrue(db.rows(Complaint.class).isEmpty());
+    var argument1 = input(Complaint.Type.ECOSYSTEM);
+    assertThrows(ResponseStatusException.class,()-> service.create(argument1)); assertTrue(db.rows(Complaint.class).isEmpty());
   }
   @Test void realUc021OwnershipGuardRejectsUnownedOtherOwnerAndCrossTenantInvoices() {
     var realInvoices=new CustomerService(customers,db.mongo);

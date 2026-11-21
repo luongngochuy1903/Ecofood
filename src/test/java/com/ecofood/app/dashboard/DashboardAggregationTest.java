@@ -66,4 +66,22 @@ class DashboardAggregationTest {
   @Test void duplicateProjectionBucketIsRejectedInsteadOfCountedTwice() {
     var row = actual(A, 1, "USD", 1, "1"); assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> calculator.summarize(selection(Period.MONTHLY), Set.of(A), List.of(), List.of(row, row)));
   }
+  @Test void blankAndMismatchedTargetCurrenciesKeepTheirFailureStatus() {
+    var blank = new DashboardAggregation.Target(" ", List.of(quarter(1, "10")));
+    var foreign = new DashboardAggregation.Target("VND", List.of(quarter(1, "10")));
+    var selected = selection(Period.QUARTERLY);
+    var unverified = calculator.summarize(selected, Set.of(A), List.of(blank), List.of()).metrics().get("profit");
+    var mismatch = calculator.summarize(selected, Set.of(A), List.of(foreign), List.of()).metrics().get("profit");
+    assertNull(unverified.expected()); assertEquals("CURRENCY_UNVERIFIED", unverified.expectedStatus());
+    assertNull(mismatch.expected()); assertEquals("CURRENCY_MISMATCH", mismatch.expectedStatus());
+  }
+  @Test void missingTargetRowsDoNotHideInvalidCurrencyInLaterTarget() {
+    var missing = new DashboardAggregation.Target("USD", null);
+    var foreign = new DashboardAggregation.Target("VND", List.of(quarter(1, "10")));
+    var selected = selection(Period.QUARTERLY);
+    var incomplete = calculator.summarize(selected, Set.of(A), List.of(missing), List.of()).metrics().get("profit");
+    var mismatch = calculator.summarize(selected, Set.of(A), List.of(missing, foreign), List.of()).metrics().get("profit");
+    assertNull(incomplete.expected()); assertEquals("NOT_FULLY_CONFIGURED", incomplete.expectedStatus());
+    assertNull(mismatch.expected()); assertEquals("CURRENCY_MISMATCH", mismatch.expectedStatus());
+  }
 }

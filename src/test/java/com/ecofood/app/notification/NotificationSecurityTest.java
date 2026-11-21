@@ -44,9 +44,11 @@ class NotificationSecurityTest {
       when(directory.claims(user, TENANT)).thenReturn(new UserAccessClaims(List.of("ECO_ADMIN"), List.of(), List.of()));
       assertFalse(new NotificationAccess(directory).current().manage());
       when(directory.claims(user, TENANT)).thenReturn(new UserAccessClaims(List.of("TENANT_ADMIN"), permissions, List.of()));
-      assertThrows(ResponseStatusException.class, () -> new NotificationAccess(directory).current());
+      var notificationAccess1 = new NotificationAccess(directory);
+      assertThrows(ResponseStatusException.class, () -> notificationAccess1.current());
       when(directory.user(USER, TENANT)).thenReturn(null);
-      assertThrows(ResponseStatusException.class, () -> new NotificationAccess(directory).current());
+      var notificationAccess2 = new NotificationAccess(directory);
+      assertThrows(ResponseStatusException.class, () -> notificationAccess2.current());
     }
   }
   @Test void requiresLiveTenantAdminAndExplicitPermissions() {
@@ -60,14 +62,16 @@ class NotificationSecurityTest {
       var scope = new NotificationAccess(directory).current(); assertTrue(scope.read()); assertFalse(scope.manage());
       assertThrows(ResponseStatusException.class, scope::requireManage);
       when(directory.claims(user, TENANT)).thenReturn(new UserAccessClaims(List.of("TENANT_EMPLOYEE"), List.of(NotificationAccess.READ), List.of()));
-      assertThrows(ResponseStatusException.class, () -> new NotificationAccess(directory).current());
+      var notificationAccess3 = new NotificationAccess(directory);
+      assertThrows(ResponseStatusException.class, () -> notificationAccess3.current());
     }
   }
   @Test void tokenCannotGrantAccessToAnotherTenantOrRevokedMembership() {
     var directory = mock(NotificationDirectory.class);
     try (var token = mockStatic(AuthenticationContext.class)) {
       token.when(AuthenticationContext::getTenantId).thenReturn(new ObjectId(OTHER)); token.when(AuthenticationContext::getUserId).thenReturn(new ObjectId(USER));
-      assertThrows(ResponseStatusException.class, () -> new NotificationAccess(directory).current());
+      var notificationAccess4 = new NotificationAccess(directory);
+      assertThrows(ResponseStatusException.class, () -> notificationAccess4.current());
       verify(directory).user(USER, OTHER); verify(directory, never()).claims(any(), any());
     }
   }
@@ -77,10 +81,12 @@ class NotificationSecurityTest {
   }
   @Test void ruleCannotReferenceOutOfScopeUserOrUnapprovedEmail() {
     var directory = mock(NotificationDirectory.class); var resolver = new NotificationRecipients(directory, settings());
-    assertThrows(ResponseStatusException.class, () -> resolver.validate(rule().getRecipients(), OTHER));
+    var recipients1 = rule().getRecipients();
+    assertThrows(ResponseStatusException.class, () -> resolver.validate(recipients1, OTHER));
     var recipient = new NotificationRule.Recipients(List.of(), List.of(), List.of(), false, List.of("approved@example.org"));
     resolver.validate(recipient, TENANT); assertThrows(ResponseStatusException.class, () -> resolver.validate(recipient, OTHER));
-    assertThrows(ResponseStatusException.class, () -> resolver.validate(new NotificationRule.Recipients(List.of(), List.of(), List.of(), false, List.of("attacker@example.org")), TENANT));
+    var recipients2 = new NotificationRule.Recipients(List.of(), List.of(), List.of(), false, List.of("attacker@example.org"));
+    assertThrows(ResponseStatusException.class, () -> resolver.validate(recipients2, TENANT));
   }
   @Test void missingEmailSkippedAndNeverUsesSubmittedBy() {
     var directory = mock(NotificationDirectory.class); var user = user(); user.setEmail(null); when(directory.user(USER, TENANT)).thenReturn(user);
@@ -107,7 +113,8 @@ class NotificationSecurityTest {
     assertThrows(ResponseStatusException.class, () -> template.validate("Subject {profit}", "body"));
     assertThrows(ResponseStatusException.class, () -> template.validate("Subject", "Malformed {customer.email}"));
     assertEquals("Invoice a  Bcc:other", template.render("Invoice {invoiceNumber}", Map.of("invoiceNumber", "a\r\nBcc:other"), true));
-    assertThrows(IllegalStateException.class, () -> template.render("Amount {totalAmount}", Map.of(), false));
+    Map<String, String> values = Map.of();
+    assertThrows(IllegalStateException.class, () -> template.render("Amount {totalAmount}", values, false));
   }
   @Test void notificationIdIncludesRuleAndCanonicalRecipient() {
     assertNotEquals(NotificationProcessor.deliveryId("event", "rule", "a@x.com"), NotificationProcessor.deliveryId("event", "rule2", "a@x.com"));
@@ -123,10 +130,12 @@ class NotificationSecurityTest {
     when(access.current()).thenReturn(new NotificationAccess.Scope(TENANT, USER, true, true, true));
     var service = new NotificationManagement(mongo, access, mock(NotificationRecipients.class), mock(NotificationDirectory.class), settings(), new NotificationTemplate());
     var sent = delivery(); sent.setStatus("SENT"); when(mongo.findOne(any(Query.class), eq(Notification.class))).thenReturn(sent);
-    assertThrows(ResponseStatusException.class, () -> service.retry("delivery", new NotificationManagement.RetryRequest(false)));
+    var retryRequest1 = new NotificationManagement.RetryRequest(false);
+    assertThrows(ResponseStatusException.class, () -> service.retry("delivery", retryRequest1));
     var query = org.mockito.ArgumentCaptor.forClass(Query.class); verify(mongo).findOne(query.capture(), eq(Notification.class)); assertEquals(TENANT, query.getValue().getQueryObject().getString("tenantId"));
     when(mongo.findOne(any(Query.class), eq(NotificationRule.class))).thenReturn(null);
-    assertThrows(ResponseStatusException.class, () -> service.enable("other-tenant-rule", new NotificationManagement.EnabledRequest(true, 1)));
+    var enabledRequest1 = new NotificationManagement.EnabledRequest(true, 1);
+    assertThrows(ResponseStatusException.class, () -> service.enable("other-tenant-rule", enabledRequest1));
     verify(mongo, never()).findAndModify(any(), any(), any(), eq(NotificationRule.class));
   }
   @Test void ambiguousDeliveryRequiresExplicitAcknowledgment() {
@@ -135,7 +144,8 @@ class NotificationSecurityTest {
     var failed = delivery(); failed.setStatus("FAILED"); failed.setDeliveryUncertain(true);
     when(mongo.findOne(any(Query.class), eq(Notification.class))).thenReturn(failed);
     var service = new NotificationManagement(mongo, access, mock(NotificationRecipients.class), mock(NotificationDirectory.class), settings(), new NotificationTemplate());
-    assertThrows(ResponseStatusException.class, () -> service.retry("delivery", new NotificationManagement.RetryRequest(false)));
+    var retryRequest2 = new NotificationManagement.RetryRequest(false);
+    assertThrows(ResponseStatusException.class, () -> service.retry("delivery", retryRequest2));
     verify(mongo, never()).findAndModify(any(), any(), any(), eq(Notification.class));
   }
 }

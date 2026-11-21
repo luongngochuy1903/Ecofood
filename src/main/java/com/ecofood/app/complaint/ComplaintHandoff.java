@@ -24,17 +24,23 @@ public class ComplaintHandoff {
     for(int i=0;i<c.getHandoffs().size();i++) {
       var handoff=c.getHandoffs().get(i); if(!handoff.pending()) continue;
       try {
-        try { mongo.insert(handoff.submission()); }
-        catch(DuplicateKeyException duplicate) {
-          var existing=mongo.findById(handoff.submission().id(),Submission.class);
-          if(!handoff.submission().equals(existing)) throw new IllegalStateException("COMPLAINT_EVENT_CONFLICT");
-        }
+        insertSubmission(handoff.submission());
         mongo.updateFirst(Query.query(Criteria.where("_id").is(c.getId()).and("handoffs."+i+".submission.id").is(handoff.submission().id())),
             new Update().set("handoffs."+i+".pending",false).unset("handoffError"),Complaint.class);
       } catch(RuntimeException failure) {
-        try { mongo.updateFirst(Query.query(Criteria.where("_id").is(c.getId())),new Update().set("handoffError","SUBMISSION_HANDOFF_RETRY"),Complaint.class); }
-        catch(RuntimeException unavailable) { /* Retry from durable source. */ }
+        recordFailure(c);
       }
     }
+  }
+  private void insertSubmission(Submission submission) {
+    try { mongo.insert(submission); }
+    catch(DuplicateKeyException duplicate) {
+      var existing=mongo.findById(submission.id(),Submission.class);
+      if(!submission.equals(existing)) throw new IllegalStateException("COMPLAINT_EVENT_CONFLICT");
+    }
+  }
+  private void recordFailure(Complaint c) {
+    try { mongo.updateFirst(Query.query(Criteria.where("_id").is(c.getId())),new Update().set("handoffError","SUBMISSION_HANDOFF_RETRY"),Complaint.class); }
+    catch(RuntimeException unavailable) { /* Retry from durable source. */ }
   }
 }

@@ -30,19 +30,25 @@ class CatalogLifecycleTest {
   }
   @Test void approvedSourceRequiredAndFailedValidationIsAudited() {
     var p=f.publications.save(null,f.draft(ApiPublication.CatalogType.PRODUCT,1)); f.proposition.setStatus(com.ecofood.core.enums.PropositionStatusEnum.DRAFT);
-    assertThrows(ResponseStatusException.class,()->f.publications.validate(p.id(),new CatalogDtos.Revision(p.revision())));
+    var publicationId1 = p.id();
+    var revision1 = new CatalogDtos.Revision(p.revision());
+    assertThrows(ResponseStatusException.class,()-> f.publications.validate(publicationId1, revision1));
     var failed=f.publications.detail(p.id()); assertEquals(ApiPublication.Status.DRAFT,failed.status()); assertEquals("FAILED",failed.audit().get(failed.audit().size()-1).result());
   }
   @Test void updateResetsValidationAndPublishedConfigurationCannotBeEdited() {
     var d=f.draft(ApiPublication.CatalogType.PRODUCT,1); var p=f.publications.save(null,d); p=f.publications.validate(p.id(),new CatalogDtos.Revision(p.revision()));
     var edited=f.publications.save(p.id(),new CatalogDtos.Draft(d.apiKey(),"Edited",d.catalogType(),d.version(),d.selections(),d.partnerIds(),d.policy(),d.customField(),p.revision())); assertEquals(ApiPublication.Status.DRAFT,edited.status()); assertTrue(edited.pins().isEmpty());
     edited=f.publications.validate(edited.id(),new CatalogDtos.Revision(edited.revision())); var pub=f.publications.publish(edited.id(),new CatalogDtos.Revision(edited.revision()));
-    assertThrows(ResponseStatusException.class,()->f.publications.save(pub.id(),new CatalogDtos.Draft(d.apiKey(),d.name(),d.catalogType(),d.version(),d.selections(),d.partnerIds(),d.policy(),d.customField(),pub.revision())));
+    var publicationId2 = pub.id();
+    var draft1 = new CatalogDtos.Draft(d.apiKey(),d.name(),d.catalogType(),d.version(),d.selections(),d.partnerIds(),d.policy(),d.customField(),pub.revision());
+    assertThrows(ResponseStatusException.class,()-> f.publications.save(publicationId2, draft1));
   }
   @Test void sourceChangeBetweenValidateAndPublishRequiresRevalidation() {
     var p=f.publications.save(null,f.draft(ApiPublication.CatalogType.PRICE,1)); var v=f.publications.validate(p.id(),new CatalogDtos.Revision(p.revision()));
     f.proposition.getPlans().get(0).setProductOverrides(new com.ecofood.core.dto.PlanProductOverrides("Changed",null,null));
-    assertThrows(ResponseStatusException.class,()->f.publications.publish(v.id(),new CatalogDtos.Revision(v.revision()))); assertEquals(ApiPublication.Status.VALIDATED,f.publications.detail(v.id()).status());
+    var publicationId3 = v.id();
+    var revision2 = new CatalogDtos.Revision(v.revision());
+    assertThrows(ResponseStatusException.class,()-> f.publications.publish(publicationId3, revision2)); assertEquals(ApiPublication.Status.VALIDATED,f.publications.detail(v.id()).status());
   }
   @Test void newVersionPublishesInParallelAndRetirementDoesNotRetireOldVersion() {
     var first=f.published(ApiPublication.CatalogType.PRODUCT,1); var second=f.published(ApiPublication.CatalogType.PRODUCT,2);
@@ -52,7 +58,11 @@ class CatalogLifecycleTest {
   }
   @Test void crossTenantCannotInspectVersionsAuditOrRetire() {
     var p=f.published(ApiPublication.CatalogType.PRODUCT,1); when(f.access.current()).thenReturn(new CatalogAccess.Actor(USER,tenant(B,com.ecofood.core.enums.PartnerTypeEnum.ECOSYSTEM_PARTNER),null,f.actor.permissions()));
-    assertThrows(ResponseStatusException.class,()->f.publications.detail(p.id())); assertThrows(ResponseStatusException.class,()->f.publications.retire(p.id(),new CatalogDtos.Revision(p.revision()))); assertTrue(f.publications.list(null,null,0,20).content().isEmpty());
+    var publicationId4 = p.id();
+    assertThrows(ResponseStatusException.class,()-> f.publications.detail(publicationId4));
+    var publicationId5 = p.id();
+    var revision3 = new CatalogDtos.Revision(p.revision());
+    assertThrows(ResponseStatusException.class,()-> f.publications.retire(publicationId5, revision3)); assertTrue(f.publications.list(null,null,0,20).content().isEmpty());
   }
   @Test void simultaneousPublishCommitsOneActivationAndAudit() throws Exception {
     var d=f.publications.save(null,f.draft(ApiPublication.CatalogType.PRODUCT,1)); var p=f.publications.validate(d.id(),new CatalogDtos.Revision(d.revision()));
@@ -65,9 +75,15 @@ class CatalogLifecycleTest {
   @Test void managePermissionDoesNotImplyPublishOrGrantPermission() {
     when(f.access.current()).thenReturn(new CatalogAccess.Actor(USER,f.actor.tenant(),null,Set.of(CatalogAccess.READ,CatalogAccess.MANAGE)));
     var draft=f.publications.save(null,f.draft(ApiPublication.CatalogType.PRODUCT,1));
-    assertThrows(ResponseStatusException.class,()->f.publications.validate(draft.id(),new CatalogDtos.Revision(draft.revision())));
-    assertThrows(ResponseStatusException.class,()->f.publications.publish(draft.id(),new CatalogDtos.Revision(draft.revision())));
-    assertThrows(ResponseStatusException.class,()->f.publications.grant(draft.id(),new CatalogDtos.Grant(draft.revision(),B,null,java.time.Instant.now().plusSeconds(60))));
+    var publicationId6 = draft.id();
+    var revision4 = new CatalogDtos.Revision(draft.revision());
+    assertThrows(ResponseStatusException.class,()-> f.publications.validate(publicationId6, revision4));
+    var publicationId7 = draft.id();
+    var revision5 = new CatalogDtos.Revision(draft.revision());
+    assertThrows(ResponseStatusException.class,()-> f.publications.publish(publicationId7, revision5));
+    var publicationId8 = draft.id();
+    var grant1 = new CatalogDtos.Grant(draft.revision(),B,null,java.time.Instant.now().plusSeconds(60));
+    assertThrows(ResponseStatusException.class,()-> f.publications.grant(publicationId8, grant1));
   }
   @Test void auditCapacityNeverPreventsSecurityRevocationOrRetirement() {
     var p=f.published(ApiPublication.CatalogType.PRODUCT,1); f.credential(p.id(),B);

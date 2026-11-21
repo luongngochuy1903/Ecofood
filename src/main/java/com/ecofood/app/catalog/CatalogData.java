@@ -41,7 +41,9 @@ public class CatalogData {
   }
   public void authorize(CatalogAccess.Actor actor,List<CatalogDtos.Selection> selections) { for(var selection:selections) source(actor,selection); }
   public Resolved resolve(CatalogAccess.Actor actor,CatalogDtos.Selection selection,ApiPublication.CatalogType type) {
-    var source=source(actor,selection); var p=source.proposition(); var plan=source.plan();
+    var source=source(actor,selection);
+    var p=source.proposition();
+    var plan=source.plan();
     if(!PlanAvailability.active(p,plan,Instant.now())) throw invalid("Proposition and Plan must be approved, effective and not superseded");
     parties.validate(p);
     var eligible=parties.eligible(p).stream().filter(t->!t.deleted() && t.partnerType()==PartnerTypeEnum.ECOSYSTEM_PARTNER
@@ -51,14 +53,9 @@ public class CatalogData {
         && parties.eligible(p).stream().noneMatch(t->t.id().equals(actor.tenant().id()))) throw unavailable();
     var product=mongo.findById(p.getProductId(),ProductEntity.class);
     var process=p.getProductProcessId()==null?null:mongo.findById(p.getProductProcessId(),ProductProcessEntity.class);
-    if(product==null || Boolean.TRUE.equals(product.getDeleted()) || !p.getEnterpriseId().equals(product.getEnterpriseId())
-        || process==null || Boolean.TRUE.equals(process.getDeleted()) || !p.getProductId().equals(process.getProductId()) || process.getVersion()!=p.getProductVersion()
-        || process.getStatus()!=ProductStatusEnum.APPROVED || process.getRevision()==null || process.getDefinition()==null || process.getDefinition().processElementAttribute()==null
-        || process.getDefinition().processElementAttribute().size()!=1) throw invalid("Approved typed ProductProcess source is unavailable");
+    requireApprovedSource(p,product,process);
     var definition=mongo.findById(process.getDefinition().processElementAttribute().get(0),ProductDefinitionAttribute.class);
-    if(definition==null || Boolean.TRUE.equals(definition.getDeleted()) || !process.getId().equals(definition.getProductProcessId())
-        || !Objects.equals(process.getRevision(),definition.getProcessRevision()) || definition.getProductName()==null || definition.getProductName().isBlank())
-      throw invalid("Product definition does not match approved process revision");
+    requireDefinition(process,definition);
     var overrides=plan.getProductOverrides();
     String name=overrides!=null && overrides.name()!=null?overrides.name():definition.getProductName();
     String description=overrides!=null && overrides.description()!=null?overrides.description():definition.getDescription();
@@ -69,6 +66,17 @@ public class CatalogData {
     var pin=new ApiPublication.Pin(p.getIdAsString(),plan.getIdAsString(),plan.getVersion(),product.getIdAsString(),process.getIdAsString(),process.getVersion(),
         process.getRevision(),definition.getIdAsString(),fingerprint(item));
     return new Resolved(pin,item,eligible);
+  }
+  private void requireApprovedSource(PropositionEntity p,ProductEntity product,ProductProcessEntity process) {
+    if(product==null || Boolean.TRUE.equals(product.getDeleted()) || !p.getEnterpriseId().equals(product.getEnterpriseId())
+        || process==null || Boolean.TRUE.equals(process.getDeleted()) || !p.getProductId().equals(process.getProductId()) || process.getVersion()!=p.getProductVersion()
+        || process.getStatus()!=ProductStatusEnum.APPROVED || process.getRevision()==null || process.getDefinition()==null || process.getDefinition().processElementAttribute()==null
+        || process.getDefinition().processElementAttribute().size()!=1) throw invalid("Approved typed ProductProcess source is unavailable");
+  }
+  private void requireDefinition(ProductProcessEntity process,ProductDefinitionAttribute definition) {
+    if(definition==null || Boolean.TRUE.equals(definition.getDeleted()) || !process.getId().equals(definition.getProductProcessId())
+        || !Objects.equals(process.getRevision(),definition.getProcessRevision()) || definition.getProductName()==null || definition.getProductName().isBlank())
+      throw invalid("Product definition does not match approved process revision");
   }
   public List<Resolved> resolve(CatalogAccess.Actor actor,ApiPublication publication) {
     return publication.getSelections().stream().map(s->resolve(actor,s,publication.getCatalogType())).toList();

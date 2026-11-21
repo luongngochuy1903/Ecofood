@@ -10,13 +10,19 @@ import org.springframework.data.mongodb.core.mapping.Document;
 @Document("notification_rule")
 public class NotificationRule {
   @Id private String id;
-  private String tenantId, name, eventType, channel = "EMAIL";
+  private String tenantId;
+  private String name;
+  private String eventType;
+  private String channel = "EMAIL";
   private boolean enabled;
   private Recipients recipients;
-  private String subject, content;
+  private String subject;
+  private String content;
   private long revision;
-  private Instant createdAt, updatedAt;
-  private String createdBy, updatedBy;
+  private Instant createdAt;
+  private Instant updatedAt;
+  private String createdBy;
+  private String updatedBy;
   // Old deliveries retain their rendered content and rule revision.
   private List<Change> audit;
   public record Recipients(List<String> userIds, List<String> roles, List<String> permissions,

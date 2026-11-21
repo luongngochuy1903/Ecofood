@@ -19,7 +19,7 @@ import org.springframework.data.mongodb.core.mapping.MongoMappingContext;
 import org.springframework.data.repository.query.parser.PartTree;
 
 class InvoiceMongoMappingTest {
-  private MappingMongoConverter converter() throws Exception {
+  private MappingMongoConverter converter() {
     var conversions = new com.ecofood.app.proposition.service.PropositionMongoConfiguration()
         .propositionMongoConversions();
     var context = new MongoMappingContext();

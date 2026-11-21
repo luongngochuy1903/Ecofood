@@ -47,28 +47,37 @@ class CustomerIdentityTest {
   }
   @Test void unverifiedEmailWrongSubjectAndWrongClientCannotTakeOverExistingCustomer() throws Exception {
     when(mongo.findOne(any(Query.class), eq(CustomerUser.class))).thenReturn(user(A));
-    when(verifier.verify("kc-token")).thenReturn(claims(false, "kc-" + A)); assertThrows(ResponseStatusException.class, () -> service.bootstrap(new CustomerIdentity.Bootstrap("kc-token", TENANT, true)));
-    when(verifier.verify("kc-token")).thenReturn(claims(true, "attacker")); assertThrows(ResponseStatusException.class, () -> service.bootstrap(new CustomerIdentity.Bootstrap("kc-token", TENANT, true)));
+    when(verifier.verify("kc-token")).thenReturn(claims(false, "kc-" + A));
+    var bootstrap1 = new CustomerIdentity.Bootstrap("kc-token", TENANT, true);
+    assertThrows(ResponseStatusException.class, () -> service.bootstrap(bootstrap1));
+    when(verifier.verify("kc-token")).thenReturn(claims(true, "attacker"));
+    var bootstrap2 = new CustomerIdentity.Bootstrap("kc-token", TENANT, true);
+    assertThrows(ResponseStatusException.class, () -> service.bootstrap(bootstrap2));
     var wrong = new JWTClaimsSet.Builder(claims(true, "kc-" + A)).claim("azp", "other-client").build(); when(verifier.verify("kc-token")).thenReturn(wrong);
-    assertThrows(ResponseStatusException.class, () -> service.bootstrap(new CustomerIdentity.Bootstrap("kc-token", TENANT, true))); verify(mongo, never()).insert(any());
+    var bootstrap3 = new CustomerIdentity.Bootstrap("kc-token", TENANT, true);
+    assertThrows(ResponseStatusException.class, () -> service.bootstrap(bootstrap3)); verify(mongo, never()).insert(any());
   }
   @Test void registrationCannotConvertPartnerIdentityIntoCustomer() {
     var staff = user(A); staff.setUserCategory(UserCategory.builder().userCategoryCode("PARTNER").build()); when(mongo.findOne(any(Query.class), eq(CustomerUser.class))).thenReturn(staff);
-    assertThrows(ResponseStatusException.class, () -> service.bootstrap(new CustomerIdentity.Bootstrap("kc-token", TENANT, true))); verify(mongo, never()).insert(any());
+    var bootstrap4 = new CustomerIdentity.Bootstrap("kc-token", TENANT, true);
+    assertThrows(ResponseStatusException.class, () -> service.bootstrap(bootstrap4)); verify(mongo, never()).insert(any());
     assertNull(service.guardExchange(claims(true, "staff-subject")));
   }
   @Test void signupPolicyIsExplicitAndNoEmailIndexIsCreatedWhenDisabled() {
     var disabled = new CustomerIdentity(mongo, tenants, verifier, new CustomerSettings("", "", "", 24));
-    assertThrows(ResponseStatusException.class, () -> disabled.bootstrap(new CustomerIdentity.Bootstrap("kc-token", TENANT, true))); verify(mongo, never()).insert(any());
+    var bootstrap5 = new CustomerIdentity.Bootstrap("kc-token", TENANT, true);
+    assertThrows(ResponseStatusException.class, () -> disabled.bootstrap(bootstrap5)); verify(mongo, never()).insert(any());
   }
   @Test void legacyDuplicateEmailIndexFailureBlocksRegistrationWithoutDeletingData() {
     when(mongo.indexOps(CustomerUser.class)).thenThrow(new org.springframework.dao.DataIntegrityViolationException("duplicates"));
-    assertThrows(ResponseStatusException.class, () -> service.bootstrap(new CustomerIdentity.Bootstrap("kc-token", TENANT, true))); verify(mongo, never()).insert(any()); verify(mongo, never()).remove(any(Query.class), any(Class.class));
+    var bootstrap6 = new CustomerIdentity.Bootstrap("kc-token", TENANT, true);
+    assertThrows(ResponseStatusException.class, () -> service.bootstrap(bootstrap6)); verify(mongo, never()).insert(any()); verify(mongo, never()).remove(any(Query.class), any(Class.class));
   }
   @Test void exchangeReturnsVerifiedUserIdInsteadOfResolvingEmailAgain() {
     when(mongo.findOne(any(Query.class), eq(CustomerUser.class))).thenReturn(user(A));
     assertEquals(new CustomerIdentity.ExchangeIdentity(A, TENANT), service.guardExchange(claims(true, "kc-" + A)));
-    assertThrows(ResponseStatusException.class, () -> service.guardExchange(claims(true, "wrong")));
+    var invalidClaims1 = claims(true, "wrong");
+    assertThrows(ResponseStatusException.class, () -> service.guardExchange(invalidClaims1));
   }
   @Test void simultaneousBootstrapUsesOneIdentity() throws Exception {
     var records = new ConcurrentHashMap<org.bson.types.ObjectId, CustomerUser>();

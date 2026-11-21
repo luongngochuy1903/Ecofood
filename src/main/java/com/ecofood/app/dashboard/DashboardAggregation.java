@@ -13,7 +13,9 @@ import org.springframework.stereotype.Component;
 /** Aggregates stored KPI values only; this is not another financial calculator. */
 @Component
 public class DashboardAggregation {
-  public static final List<String> KPIS = List.of("totalSalesVolume", "profit", "ingredientCost", "platformCost");
+  private static final String PROFIT = "profit";
+  private static final String TOTAL_SALES_VOLUME = "totalSalesVolume";
+  public static final List<String> KPIS = List.of(TOTAL_SALES_VOLUME, PROFIT, "ingredientCost", "platformCost");
   public record Target(String currency, List<EconomicMetricsRequest> rows) {}
   private record Value(BigDecimal amount, String status) {}
   public Summary summarize(Selection selection, Set<String> tenants, List<Target> targets, List<ActualMetrics> input) {
@@ -28,7 +30,7 @@ public class DashboardAggregation {
     }
     Map<String, Metric> metrics = new LinkedHashMap<>();
     for (String name : KPIS) {
-      boolean count = name.equals("totalSalesVolume"), cost = name.endsWith("Cost");
+      boolean count = name.equals(TOTAL_SALES_VOLUME), cost = name.endsWith("Cost");
       BigDecimal actual = count ? BigDecimal.valueOf(volume) : BigDecimal.ZERO;
       long covered = count ? volume : 0; boolean complete = true;
       for (var row : rows) if (!count) {
@@ -56,13 +58,17 @@ public class DashboardAggregation {
     if (targets.isEmpty()) return new Value(null, "NOT_CONFIGURED");
     BigDecimal total = BigDecimal.ZERO; boolean missing = false;
     for (var target : targets) {
-      if (target.currency() == null || target.currency().isBlank()) return new Value(null, "CURRENCY_UNVERIFIED");
-      if (!selection.currency().equals(target.currency())) return new Value(null, "CURRENCY_MISMATCH");
-      var value = expectedPeriod(target.rows() == null ? List.of() : target.rows(), selection, name);
+      var value = expectedTarget(target, selection, name);
+      if (value.status().equals("CURRENCY_UNVERIFIED") || value.status().equals("CURRENCY_MISMATCH")) return value;
       if (value.status().equals("OVERLAPPING_PERIODS") || value.status().equals("INVALID_PERIOD")) return value;
       if (value.amount() == null) missing = true; else total = total.add(value.amount());
     }
     return missing ? new Value(null, "NOT_FULLY_CONFIGURED") : new Value(total, "CONFIGURED");
+  }
+  private Value expectedTarget(Target target, Selection selection, String name) {
+    if (target.currency() == null || target.currency().isBlank()) return new Value(null, "CURRENCY_UNVERIFIED");
+    if (!selection.currency().equals(target.currency())) return new Value(null, "CURRENCY_MISMATCH");
+    return expectedPeriod(target.rows() == null ? List.of() : target.rows(), selection, name);
   }
   private Value expectedPeriod(List<EconomicMetricsRequest> input, Selection selection, String name) {
     var rows = input.stream().filter(r -> r != null && Objects.equals(r.year(), selection.year())).toList();
@@ -90,13 +96,13 @@ public class DashboardAggregation {
     return missing ? new Value(null, "NOT_CONFIGURED") : new Value(sum, "CONFIGURED");
   }
   private BigDecimal expected(EconomicMetricsRequest r, String kpi) {
-    return switch (kpi) { case "totalSalesVolume" -> r.totalSalesVolume(); case "profit" -> r.profit(); case "ingredientCost" -> r.ingredientCost(); case "platformCost" -> r.platformCost(); default -> throw new IllegalArgumentException(kpi); };
+    return switch (kpi) { case TOTAL_SALES_VOLUME -> r.totalSalesVolume(); case PROFIT -> r.profit(); case "ingredientCost" -> r.ingredientCost(); case "platformCost" -> r.platformCost(); default -> throw new IllegalArgumentException(kpi); };
   }
   private BigDecimal actual(ActualMetrics r, String kpi) {
-    return switch (kpi) { case "profit" -> r.profit(); case "ingredientCost" -> r.ingredientCost(); case "platformCost" -> r.platformCost(); default -> throw new IllegalArgumentException(kpi); };
+    return switch (kpi) { case PROFIT -> r.profit(); case "ingredientCost" -> r.ingredientCost(); case "platformCost" -> r.platformCost(); default -> throw new IllegalArgumentException(kpi); };
   }
   private long coverage(ActualMetrics r, String kpi) {
     if (r.coverage() == null) return -1;
-    return switch (kpi) { case "profit" -> r.coverage().profitInvoices(); case "ingredientCost" -> r.coverage().ingredientCostInvoices(); case "platformCost" -> r.coverage().platformCostInvoices(); default -> 0; };
+    return switch (kpi) { case PROFIT -> r.coverage().profitInvoices(); case "ingredientCost" -> r.coverage().ingredientCostInvoices(); case "platformCost" -> r.coverage().platformCostInvoices(); default -> 0; };
   }
 }

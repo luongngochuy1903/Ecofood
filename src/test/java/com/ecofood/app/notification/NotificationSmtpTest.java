@@ -26,14 +26,19 @@ class NotificationSmtpTest {
     verify(sender).send(message);
   }
   @Test void missingProviderAndConnectionFailureAreRetryableButAmbiguousSmtpIsNot() {
-    var missing = assertThrows(NotificationEmailSender.DeliveryFailure.class, () -> new SmtpNotificationSender(provider(null)).send(delivery()));
+    var missingSender = new SmtpNotificationSender(provider(null));
+    var missingNotice = delivery();
+    var missing = assertThrows(DeliveryFailure.class, () -> missingSender.send(missingNotice));
     assertTrue(missing.retryable); assertFalse(missing.uncertain);
     var sender = mock(JavaMailSender.class); when(sender.createMimeMessage()).thenReturn(new MimeMessage(Session.getInstance(new Properties())));
     doThrow(new MailSendException("connection", new ConnectException())).when(sender).send(org.mockito.ArgumentMatchers.any(MimeMessage.class));
-    var connection = assertThrows(NotificationEmailSender.DeliveryFailure.class, () -> new SmtpNotificationSender(provider(sender)).send(delivery()));
+    var smtp = new SmtpNotificationSender(provider(sender));
+    var connectionNotice = delivery();
+    var connection = assertThrows(DeliveryFailure.class, () -> smtp.send(connectionNotice));
     assertTrue(connection.retryable); assertFalse(connection.uncertain);
     doThrow(new MailSendException("lost acknowledgment after DATA")).when(sender).send(org.mockito.ArgumentMatchers.any(MimeMessage.class));
-    var ambiguous = assertThrows(NotificationEmailSender.DeliveryFailure.class, () -> new SmtpNotificationSender(provider(sender)).send(delivery()));
+    var ambiguousNotice = delivery();
+    var ambiguous = assertThrows(DeliveryFailure.class, () -> smtp.send(ambiguousNotice));
     assertFalse(ambiguous.retryable); assertTrue(ambiguous.uncertain);
   }
 }

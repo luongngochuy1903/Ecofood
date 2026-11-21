@@ -19,6 +19,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @RequiredArgsConstructor
 public class CustomerReceiptService {
+  private static final String TENANT_ID = "tenantId";
   public static final String ISSUE = "CUSTOMER_RECEIPT_ISSUE", CLAIMED = "INVOICE_CLAIMED";
   private final MongoTemplate mongo;
   private final CustomerAccess access;
@@ -49,7 +50,7 @@ public class CustomerReceiptService {
     return new Seller(user, tenant);
   }
   private Query source(String id, Seller seller) {
-    return Query.query(Criteria.where("_id").is(id).and("tenantId").is(seller.tenant()).and("submittedBy").is(seller.user())
+    return Query.query(Criteria.where("_id").is(id).and(TENANT_ID).is(seller.tenant()).and("submittedBy").is(seller.user())
         .and("posId").is(seller.user()).and("status").is(TransactionStatus.ACCEPTED).and("paymentStatus").is("PAID"));
   }
   private Criteria unowned() { return Criteria.where("invoiceHolder.userId").is(null).and("invoiceHolder.customerId").is(null); }
@@ -107,11 +108,11 @@ public class CustomerReceiptService {
   public Claimed claim(String token) {
     var actor = access.current(); CustomerReceiptTokens.validate(token);
     String hash = CustomerReceiptTokens.hash(token);
-    var prior = mongo.findOne(Query.query(Criteria.where("customerReceipt.tokenHash").is(hash).and("tenantId").is(actor.tenantId())
+    var prior = mongo.findOne(Query.query(Criteria.where("customerReceipt.tokenHash").is(hash).and(TENANT_ID).is(actor.tenantId())
         .and("invoiceHolder.userId").is(actor.userId()).and("invoiceHolder.customerId").is(actor.userId())), CustomerInvoice.class);
     if (prior != null) { handoff.deliver(prior); return result(prior); }
     Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
-    Query query = Query.query(new Criteria().andOperator(valid(token, now), unowned(), Criteria.where("tenantId").is(actor.tenantId())));
+    Query query = Query.query(new Criteria().andOperator(valid(token, now), unowned(), Criteria.where(TENANT_ID).is(actor.tenantId())));
     var invoice = mongo.findOne(query, CustomerInvoice.class); if (invoice == null) throw CustomerService.unavailable();
     String eventId = invoice.getId() + ":INVOICE_CLAIMED";
     var event = new Submission(eventId, CLAIMED, now, actor.tenantId(), "INVOICE", invoice.getId(), invoice.getPropositionId(), invoice.getPlanId(), invoice.getOrchestratorId(), invoice.getOrchestratorVersion());
@@ -125,7 +126,7 @@ public class CustomerReceiptService {
         .set("customerOwnership", new CustomerInvoice.Ownership(actor.userId(), now, "RECEIPT_TOKEN", invoice.getCustomerReceipt().id()))
         .set("customerClaimHandoff", new CustomerInvoice.Handoff(event, notice, true, now, 0)), FindAndModifyOptions.options().returnNew(true), CustomerInvoice.class);
     if (saved == null) {
-      saved = mongo.findOne(Query.query(Criteria.where("_id").is(invoice.getId()).and("tenantId").is(actor.tenantId()).and("invoiceHolder.userId").is(actor.userId()).and("invoiceHolder.customerId").is(actor.userId())), CustomerInvoice.class);
+      saved = mongo.findOne(Query.query(Criteria.where("_id").is(invoice.getId()).and(TENANT_ID).is(actor.tenantId()).and("invoiceHolder.userId").is(actor.userId()).and("invoiceHolder.customerId").is(actor.userId())), CustomerInvoice.class);
       if (saved == null) throw CustomerService.unavailable();
     }
     handoff.deliver(saved); return result(saved);

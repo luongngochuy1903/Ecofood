@@ -17,6 +17,9 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @RequiredArgsConstructor
 public class CatalogPublications {
+  private static final String STATUS = "status";
+  private static final String VALIDATED_AT = "validatedAt";
+  private static final String SUCCESS = "SUCCESS";
   private static final SecureRandom RANDOM=new SecureRandom();
   private final MongoTemplate mongo;
   private final CatalogAccess access;
@@ -26,7 +29,9 @@ public class CatalogPublications {
   }
   public Options options(ApiPublication.CatalogType type) { return data.options(access.current(),type); }
   public Page<PlanOption> plans(ApiPublication.CatalogType type,String search,int page,int size) {
-    page(page,size); var options=data.plans(access.current(),type); String needle=search==null?"":search.trim().toLowerCase(Locale.ROOT);
+    page(page,size);
+    var options=data.plans(access.current(),type);
+    String needle=search==null?"":search.trim().toLowerCase(Locale.ROOT);
     var filtered=options.stream().filter(p->needle.isEmpty() || Objects.toString(p.planName(),"").toLowerCase(Locale.ROOT).contains(needle) || Objects.toString(p.propositionName(),"").toLowerCase(Locale.ROOT).contains(needle)).toList();
     return slice(filtered,page,size);
   }
@@ -49,7 +54,7 @@ public class CatalogPublications {
       p.setSelections(List.copyOf(input.selections())); p.setPartnerIds(List.copyOf(input.partnerIds())); p.setPolicy(input.policy());
       p.setCatalogOrchestrator(new CatalogOrchestrator(UUID.randomUUID().toString(),custom(input),input.selections().stream().map(Selection::planId).toList()));
       p.setCreatedAt(now()); p.setUpdatedAt(p.getCreatedAt()); p.setCreatedBy(a.userId()); p.setUpdatedBy(a.userId()); p.setPins(List.of());
-      p.setAudit(List.of(event(p,a,"CREATE_DRAFT","SUCCESS","Draft created")));
+      p.setAudit(List.of(event(p,a,"CREATE_DRAFT",SUCCESS,"Draft created")));
       try { mongo.insert(p); } catch(DuplicateKeyException duplicate) { throw new ResponseStatusException(HttpStatus.CONFLICT,"API/type/version already exists in this Tenant"); }
       return view(p);
     }
@@ -59,7 +64,7 @@ public class CatalogPublications {
     if(!p.getApiKey().equals(input.apiKey()) || p.getVersion()!=input.version() || p.getCatalogType()!=input.catalogType()) throw bad("API key, catalog type and version are immutable; create a new version");
     return view(write(p,a,new Update().set("name",input.name().trim()).set("selections",List.copyOf(input.selections())).set("partnerIds",List.copyOf(input.partnerIds())).set("policy",input.policy())
         .set("catalogOrchestrator",new CatalogOrchestrator(p.getCatalogOrchestrator().id(),custom(input),input.selections().stream().map(Selection::planId).toList()))
-        .set("status",ApiPublication.Status.DRAFT).set("pins",List.of()).unset("validatedAt"),"UPDATE_DRAFT","SUCCESS","Draft updated; validation invalidated"));
+        .set(STATUS,ApiPublication.Status.DRAFT).set("pins",List.of()).unset(VALIDATED_AT),"UPDATE_DRAFT",SUCCESS,"Draft updated; validation invalidated"));
   }
   public View validate(String id,Revision input) {
     var a=access.current(); a.require(CatalogAccess.PUBLISH); var p=load(a,id); revision(p,input);
@@ -69,10 +74,10 @@ public class CatalogPublications {
       for(String partner:p.getPartnerIds()) {
         data.partner(partner); if(sources.stream().noneMatch(s->s.partnerIds().contains(partner))) throw bad("Partner has no distributable Plan in selected scope");
       }
-      return view(write(p,a,new Update().set("status",ApiPublication.Status.VALIDATED).set("pins",sources.stream().map(CatalogData.Resolved::pin).toList()).set("validatedAt",now()),"VALIDATE","SUCCESS","Sources and partner scopes validated"));
+      return view(write(p,a,new Update().set(STATUS,ApiPublication.Status.VALIDATED).set("pins",sources.stream().map(CatalogData.Resolved::pin).toList()).set(VALIDATED_AT,now()),"VALIDATE",SUCCESS,"Sources and partner scopes validated"));
     } catch(ResponseStatusException failure) {
       // Persist a safe validation outcome without recording request content or credentials.
-      try { write(p,a,new Update().set("status",ApiPublication.Status.DRAFT).set("pins",List.of()).unset("validatedAt"),"VALIDATE","FAILED","Catalog source/policy validation failed"); } catch(ResponseStatusException concurrent) { /* Winning revision remains authoritative. */ }
+      try { write(p,a,new Update().set(STATUS,ApiPublication.Status.DRAFT).set("pins",List.of()).unset(VALIDATED_AT),"VALIDATE","FAILED","Catalog source/policy validation failed"); } catch(ResponseStatusException concurrent) { /* Winning revision remains authoritative. */ }
       throw failure;
     }
   }
@@ -83,14 +88,14 @@ public class CatalogPublications {
     if(!Objects.equals(p.getPins(),current)) throw CatalogData.invalid("Source changed since validation; validate again");
     for(String partner:p.getPartnerIds()) if(data.allowedPlans(a,p,partner).isEmpty()) throw CatalogData.invalid("Partner distribution changed; validate again");
     String endpoint="/api/external/v1/catalog/"+p.getId()+"/versions/"+p.getVersion();
-    var updated=write(p,a,new Update().set("status",ApiPublication.Status.PUBLISHED).set("endpoint",endpoint).set("publishedAt",now()).set("publishedBy",a.userId()),
-        "PUBLISH","SUCCESS","Published contract v1; sources are pinned, eligible sources required on every read");
+    var updated=write(p,a,new Update().set(STATUS,ApiPublication.Status.PUBLISHED).set("endpoint",endpoint).set("publishedAt",now()).set("publishedBy",a.userId()),
+        "PUBLISH",SUCCESS,"Published contract v1; sources are pinned, eligible sources required on every read");
     return view(updated);
   }
   public View retire(String id,Revision input) {
     var a=access.current(); a.require(CatalogAccess.PUBLISH); var p=load(a,id); revision(p,input);
     if(p.getStatus()!=ApiPublication.Status.PUBLISHED) throw conflict();
-    return view(write(p,a,new Update().set("status",ApiPublication.Status.RETIRED).set("retiredAt",now()),"RETIRE","SUCCESS","New external requests disabled; historical configuration retained"));
+    return view(write(p,a,new Update().set(STATUS,ApiPublication.Status.RETIRED).set("retiredAt",now()),"RETIRE",SUCCESS,"New external requests disabled; historical configuration retained"));
   }
   public Credential grant(String id,Grant input) {
     var a=access.current(); a.require(CatalogAccess.GRANT); var p=load(a,id);
@@ -106,7 +111,7 @@ public class CatalogPublications {
     String raw=p.getId()+"."+grantId+"."+Base64.getUrlEncoder().withoutPadding().encodeToString(secret);
     var grant=new ApiPublication.PartnerAccess(grantId,input.partnerId(),CatalogData.hash(raw),List.copyOf(selected),input.expiresAt(),now(),a.userId(),null);
     var partnerIds=new ArrayList<>(p.getPartnerIds()); if(!partnerIds.contains(input.partnerId())) partnerIds.add(input.partnerId());
-    write(p,a,new Update().set("grants."+input.partnerId(),grant).set("partnerIds",partnerIds),"GRANT_PARTNER_ACCESS","SUCCESS","Partner "+input.partnerId()+"; credential "+grantId+"; plans "+String.join(",",selected)+"; previous credential replaced");
+    write(p,a,new Update().set("grants."+input.partnerId(),grant).set("partnerIds",partnerIds),"GRANT_PARTNER_ACCESS",SUCCESS,"Partner "+input.partnerId()+"; credential "+grantId+"; plans "+String.join(",",selected)+"; previous credential replaced");
     return new Credential(p.getId(),input.partnerId(),"Catalog "+raw,grant.expiresAt(),p.getEndpoint());
   }
   public List<PartnerScope> partnerOptions(String id) {
@@ -121,7 +126,7 @@ public class CatalogPublications {
     if(!org.bson.types.ObjectId.isValid(partnerId)) throw bad("Invalid Partner ID");
     var grant=p.getGrants().get(partnerId); if(grant==null) throw CatalogData.unavailable();
     if(grant.revokedAt()!=null) return view(p);
-    return view(write(p,a,new Update().set("grants."+partnerId+".revokedAt",now()),"REVOKE_PARTNER_ACCESS","SUCCESS","Partner "+partnerId+"; credential "+grant.id()+" revoked"));
+    return view(write(p,a,new Update().set("grants."+partnerId+".revokedAt",now()),"REVOKE_PARTNER_ACCESS",SUCCESS,"Partner "+partnerId+"; credential "+grant.id()+" revoked"));
   }
   private ApiPublication load(CatalogAccess.Actor a,String id) {
     var p=mongo.findOne(Query.query(Criteria.where("_id").is(id).and("tenantId").is(a.tenant().id())),ApiPublication.class);
@@ -135,9 +140,9 @@ public class CatalogPublications {
   }
   private ApiPublication write(ApiPublication p,CatalogAccess.Actor a,Update update,String action,String result,String detail) {
     if(p.getAudit().size()>=2000 && !Set.of("RETIRE","REVOKE_PARTNER_ACCESS").contains(action)) throw bad("Publication audit limit reached; retire and create a new version");
-    if("PUBLISH".equals(action) && p.getVersion()>1) update.push("audit").each(event(p,a,action,result,detail),event(p,a,"PUBLISH_NEW_VERSION","SUCCESS","Published parallel API version "+p.getVersion()));
+    if("PUBLISH".equals(action) && p.getVersion()>1) update.push("audit").each(event(p,a,action,result,detail),event(p,a,"PUBLISH_NEW_VERSION",SUCCESS,"Published parallel API version "+p.getVersion()));
     else update.push("audit",event(p,a,action,result,detail));
-    var updated=mongo.findAndModify(Query.query(Criteria.where("_id").is(p.getId()).and("tenantId").is(a.tenant().id()).and("revision").is(p.getRevision()).and("status").is(p.getStatus())),
+    var updated=mongo.findAndModify(Query.query(Criteria.where("_id").is(p.getId()).and("tenantId").is(a.tenant().id()).and("revision").is(p.getRevision()).and(STATUS).is(p.getStatus())),
         update.inc("revision",1).set("updatedAt",now()).set("updatedBy",a.userId()),FindAndModifyOptions.options().returnNew(true),ApiPublication.class);
     if(updated==null) throw conflict(); return updated;
   }

@@ -20,7 +20,8 @@ public class NotificationAccess {
   }
   public Scope current() {
     try {
-      String tenant = AuthenticationContext.getTenantId().toHexString(), actor = AuthenticationContext.getUserId().toHexString();
+      String tenant = AuthenticationContext.getTenantId().toHexString();
+      String actor = AuthenticationContext.getUserId().toHexString();
       var user = directory.user(actor, tenant);
       if (user == null) throw denied();
       var live = directory.claims(user, tenant);

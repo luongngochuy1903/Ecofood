@@ -2,6 +2,7 @@ package com.ecofood.app.metrics.service;
 
 import com.mongodb.*;
 import com.mongodb.client.MongoClient;
+import com.mongodb.client.ClientSession;
 import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import org.bson.Document;
@@ -26,23 +27,25 @@ public class MongoMetricsTransactions {
     for (int attempt = 0; ; attempt++) {
       try (var session = client.startSession()) {
         // Driver retries TransientTransactionError and UnknownTransactionCommitResult correctly.
-        return session.withTransaction(() -> {
-          try { return action.apply(mongo.withSession(session)); }
-          catch (DataAccessException translated) {
-            // Preserve retry labels that Spring's exception translation would otherwise hide.
-            for (Throwable cause = translated.getCause(); cause != null; cause = cause.getCause()) {
-              if (cause instanceof MongoException failure
-                  && failure.hasErrorLabel("TransientTransactionError")) throw failure;
-            }
-            throw translated;
-          }
-        }, OPTIONS);
+        return session.withTransaction(() -> apply(action, session), OPTIONS);
       } catch (DuplicateKeyException ex) {
         // A concurrent first writer/rebuild may create the same bucket or source event.
         if (attempt >= 2) throw ex;
       } catch (MongoException ex) {
         if (ex.getCode() != 11000 || attempt >= 2) throw ex;
       }
+    }
+  }
+
+  private <T> T apply(Function<MongoOperations, T> action, ClientSession session) {
+    try { return action.apply(mongo.withSession(session)); }
+    catch (DataAccessException translated) {
+      // Preserve retry labels that Spring's exception translation would otherwise hide.
+      for (Throwable cause = translated.getCause(); cause != null; cause = cause.getCause()) {
+        if (cause instanceof MongoException failure
+            && failure.hasErrorLabel("TransientTransactionError")) throw failure;
+      }
+      throw translated;
     }
   }
 

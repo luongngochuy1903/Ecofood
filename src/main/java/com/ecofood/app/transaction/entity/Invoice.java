@@ -15,13 +15,23 @@ import org.springframework.data.mongodb.core.mapping.*;
 @Document("invoice")
 public class Invoice {
   @Id private String id;
-  private String tenantId, submittedBy, posId, distributionPartnerId, propositionId, planId;
+  private String tenantId;
+  private String submittedBy;
+  private String posId;
+  private String distributionPartnerId;
+  private String propositionId;
+  private String planId;
   private String orchestratorId;
   private int orchestratorVersion;
-  private String invoiceNumber, currency;
-  private Instant transactionTime, receivedAt;
+  private String invoiceNumber;
+  private String currency;
+  private Instant transactionTime;
+  private Instant receivedAt;
   private TransactionStatus status;
-  private String type, paymentStatus, submissionId, invoiceDocumentId;
+  private String type;
+  private String paymentStatus;
+  private String submissionId;
+  private String invoiceDocumentId;
   private InvoiceHolder invoiceHolder;
   private InvoiceSnapshot snapshot;
 

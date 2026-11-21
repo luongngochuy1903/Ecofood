@@ -45,7 +45,11 @@ public class ComplaintService {
     c.setEvents(List.of(event(c,actor.userId(),"CREATED",null,c.getStatus(),"Complaint submitted",c.getCreatedAt())));
     c.setHandoffs(List.of(new Complaint.Handoff(submission(c,"COMPLAINT_CREATED",c.getCreatedAt()),true)));
     try { mongo.insert(c); } catch(DuplicateKeyException race) {
-      var winner=mongo.findById(id,Complaint.class); if(winner==null) throw conflict(); return retry(actor,input,winner);
+      var winner=mongo.findById(id,Complaint.class);
+      if(winner==null) {
+        throw conflict();
+      }
+      return retry(actor,input,winner);
     }
     handoff.deliver(c); return c;
   }

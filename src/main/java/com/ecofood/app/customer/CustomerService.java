@@ -16,6 +16,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @RequiredArgsConstructor
 public class CustomerService {
+  private static final String CUSTOMER_PROFILE_REVISION = "customerProfileRevision";
   private final CustomerAccess access;
   private final MongoTemplate mongo;
   public Profile profile() { return profile(access.current()); }
@@ -29,13 +30,13 @@ public class CustomerService {
         || request.lastName() == null || request.lastName().isBlank() || request.firstName().length() > 100 || request.lastName().length() > 100)
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid Customer profile");
     Criteria revision = request.revision() == 0
-        ? new Criteria().orOperator(Criteria.where("customerProfileRevision").is(0), Criteria.where("customerProfileRevision").is(null))
-        : Criteria.where("customerProfileRevision").is(request.revision());
+        ? new Criteria().orOperator(Criteria.where(CUSTOMER_PROFILE_REVISION).is(0), Criteria.where(CUSTOMER_PROFILE_REVISION).is(null))
+        : Criteria.where(CUSTOMER_PROFILE_REVISION).is(request.revision());
     Query query = Query.query(new Criteria().andOperator(Criteria.where("_id").is(new ObjectId(actor.userId())).and("deleted").ne(true)
         .and("userCategory.userCategoryCode").is("CUSTOMER").and("partyRelationships").elemMatch(
           Criteria.where("relationshipTypeCode").is("TENANT").and("toPartyId").is(new ObjectId(actor.tenantId()))), revision));
     CustomerUser updated = mongo.findAndModify(query, new Update().set("firstName", request.firstName().trim()).set("lastName", request.lastName().trim())
-        .set("updatedBy", actor.userId()).set("updatedAt", Instant.now()).inc("customerProfileRevision", 1), FindAndModifyOptions.options().returnNew(true), CustomerUser.class);
+        .set("updatedBy", actor.userId()).set("updatedAt", Instant.now()).inc(CUSTOMER_PROFILE_REVISION, 1), FindAndModifyOptions.options().returnNew(true), CustomerUser.class);
     if (updated == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "Profile changed; reload before saving");
     return profile(new CustomerAccess.Actor(actor.userId(), actor.tenantId(), updated));
   }

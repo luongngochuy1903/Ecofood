@@ -4,6 +4,7 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -98,7 +99,7 @@ class AuthControllerTest {
     when(internalTokenService.mintTokenPair("user-id", "tenant-id")).thenReturn(new TokenPair("customer-access", "customer-refresh"));
     mockMvc.perform(post("/api/v1/auth/exchange").contentType(MediaType.APPLICATION_JSON).content("{\"accessToken\":\"kc-customer\"}"))
         .andExpect(status().isOk()).andExpect(jsonPath("$.accessToken", is("customer-access")));
-    org.mockito.Mockito.verify(internalTokenService, org.mockito.Mockito.never()).mintTokenPairForKeycloakLogin(anyString(), anyString());
+    verify(internalTokenService, never()).mintTokenPairForKeycloakLogin(anyString(), anyString());
   }
 
   @Test

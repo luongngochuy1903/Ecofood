@@ -45,8 +45,10 @@ class ActualMetricsTest {
     var a = calculator.calculate(invoice("i1", "tenant", "prop", "USD", null));
     var row = ActualMetrics.empty(a.key(), KpiCalculator.VERSION, Instant.now());
     var other = calculator.calculate(invoice("i2", "other", "prop", "USD", null));
-    assertThrows(IllegalStateException.class, () -> row.add(other, Instant.now()));
+    var now1 = Instant.now();
+    assertThrows(IllegalStateException.class, () -> row.add(other, now1));
     var currency = calculator.calculate(invoice("i3", "tenant", "prop", "VND", null));
-    assertThrows(IllegalStateException.class, () -> row.add(currency, Instant.now()));
+    var now2 = Instant.now();
+    assertThrows(IllegalStateException.class, () -> row.add(currency, now2));
   }
 }

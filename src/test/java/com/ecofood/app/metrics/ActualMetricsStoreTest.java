@@ -35,7 +35,8 @@ class ActualMetricsStoreTest {
     var invoice = invoice("i", "tenant", "prop", "USD", null);
     db.add(invoice);
     db.failNextMarker = true;
-    assertThrows(DataAccessResourceFailureException.class, () -> store.process(invoice.getSubmissionId(), "tenant"));
+    var submissionId1 = invoice.getSubmissionId();
+    assertThrows(DataAccessResourceFailureException.class, () -> store.process(submissionId1, "tenant"));
     assertTrue(db.metrics.isEmpty());
     assertTrue(db.states.isEmpty());
     store.process(invoice.getSubmissionId(), "tenant");
@@ -77,9 +78,11 @@ class ActualMetricsStoreTest {
   void invalidEventTenantOrInvoicePaymentCannotContribute() {
     var invoice = invoice("i", "tenant", "prop", "USD", null);
     db.add(invoice);
-    assertThrows(KpiProcessingException.class, () -> store.process(invoice.getSubmissionId(), "other"));
+    var submissionId2 = invoice.getSubmissionId();
+    assertThrows(KpiProcessingException.class, () -> store.process(submissionId2, "other"));
     invoice.setPaymentStatus(null);
-    assertThrows(KpiProcessingException.class, () -> store.process(invoice.getSubmissionId(), "tenant"));
+    var submissionId3 = invoice.getSubmissionId();
+    assertThrows(KpiProcessingException.class, () -> store.process(submissionId3, "tenant"));
     assertTrue(db.metrics.isEmpty());
     assertTrue(db.states.isEmpty());
   }
@@ -91,8 +94,9 @@ class ActualMetricsStoreTest {
     store.process(invoice.getSubmissionId(), "tenant");
     var original = db.metrics.values().iterator().next();
     invoice.setSnapshot(snapshot(invoice, bd("500"), invoice.getSnapshot().costing(), bd("25"), "tenant", List.of()));
+    var submissionId4 = invoice.getSubmissionId();
     var failure = assertThrows(KpiProcessingException.class,
-        () -> store.process(invoice.getSubmissionId(), "tenant"));
+        () -> store.process(submissionId4, "tenant"));
     assertEquals("PROJECTED_INVOICE_INPUT_CHANGED", failure.code());
     assertEquals(original, db.metrics.values().iterator().next());
     assertFalse(store.reconcile(original.key()).consistent());
@@ -153,7 +157,8 @@ class ActualMetricsStoreTest {
     var second = invoice("i2", "tenant", "prop", "USD", null);
     db.add(first); db.add(second);
     var limited = new ActualMetricsStore(db.transactions, calculator, 1);
-    assertThrows(KpiProcessingException.class, () -> limited.rebuild(calculator.calculate(first).key()));
+    var metricsKey1 = calculator.calculate(first).key();
+    assertThrows(KpiProcessingException.class, () -> limited.rebuild(metricsKey1));
     assertTrue(db.metrics.isEmpty());
     assertTrue(db.states.isEmpty());
   }

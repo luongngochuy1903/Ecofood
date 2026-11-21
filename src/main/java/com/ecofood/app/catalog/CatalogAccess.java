@@ -28,7 +28,8 @@ public class CatalogAccess {
   }
   public Actor current() {
     try {
-      String id=AuthenticationContext.getUserId().toHexString(), tenant=AuthenticationContext.getTenantId().toHexString();
+      String id=AuthenticationContext.getUserId().toHexString();
+      String tenant=AuthenticationContext.getTenantId().toHexString();
       return resolve(id,tenant,Optional.ofNullable(AuthenticationContext.getRoles()).orElse(List.of()),Optional.ofNullable(AuthenticationContext.getPermissions()).orElse(List.of()));
     } catch(ResponseStatusException e) { throw e; } catch(RuntimeException invalid) { throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,"Internal Employee authentication required"); }
   }

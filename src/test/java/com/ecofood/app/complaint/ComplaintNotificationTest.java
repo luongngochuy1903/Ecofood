@@ -59,7 +59,7 @@ class ComplaintNotificationTest {
   }
   @Test void deliveryFailureDoesNotRollbackComplaintAndHasExistingRetryMetadata() {
     var event=persist("COMPLAINT_CREATED"); db.insert(rule(event.event()));
-    doThrow(new NotificationEmailSender.DeliveryFailure("SMTP_CONNECT_FAILED",true,false)).when(sender).send(any());
+    doThrow(new DeliveryFailure("SMTP_CONNECT_FAILED",true,false)).when(sender).send(any());
     processor.poll(); delivery.poll(); assertEquals(1,db.rows(Complaint.class).size());
     var n=db.find(new Query(),Notification.class).get(0); assertEquals("RETRY_PENDING",n.getStatus()); assertEquals("SMTP_CONNECT_FAILED",n.getLastError());
   }
@@ -84,7 +84,9 @@ class ComplaintNotificationTest {
     var resolved=new NotificationRule.Recipients(List.of(),List.of(),List.of(),false,List.of(),true);
     assertDoesNotThrow(()->adapter.validate("COMPLAINT_RESOLVED",resolved,TENANT));
     assertThrows(ResponseStatusException.class,()->adapter.validate("COMPLAINT_CREATED",resolved,TENANT));
-    assertThrows(ResponseStatusException.class,()->adapter.validate("COMPLAINT_RESOLVED",new NotificationRule.Recipients(List.of(OTHER),List.of(),List.of(),false,List.of(),true),TENANT));
-    assertThrows(ResponseStatusException.class,()->adapter.validate("COMPLAINT_CREATED",new NotificationRule.Recipients(List.of(),List.of("TENANT_ADMIN"),List.of(),false,List.of("external@example.org")),TENANT));
+    var recipients1 = new NotificationRule.Recipients(List.of(OTHER),List.of(),List.of(),false,List.of(),true);
+    assertThrows(ResponseStatusException.class,()-> adapter.validate("COMPLAINT_RESOLVED", recipients1, TENANT));
+    var recipients2 = new NotificationRule.Recipients(List.of(),List.of("TENANT_ADMIN"),List.of(),false,List.of("external@example.org"));
+    assertThrows(ResponseStatusException.class,()-> adapter.validate("COMPLAINT_CREATED", recipients2, TENANT));
   }
 }

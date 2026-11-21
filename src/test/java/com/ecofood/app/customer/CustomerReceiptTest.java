@@ -100,6 +100,7 @@ class CustomerReceiptTest {
     var first = issue(); service.revoke(INVOICE);
     service.issue(INVOICE, new CustomerReceiptService.IssueRequest("731b7ba2-9e93-4e68-bb66-f89ec11382a4")); service.revoke(INVOICE);
     var replacement = issue(); assertNotEquals(first.receiptUrl(), replacement.receiptUrl());
-    assertThrows(ResponseStatusException.class, () -> service.view(token(first))); assertNotNull(service.view(token(replacement)));
+    var receiptToken1 = token(first);
+    assertThrows(ResponseStatusException.class, () -> service.view(receiptToken1)); assertNotNull(service.view(token(replacement)));
   }
 }
