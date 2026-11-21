@@ -304,6 +304,8 @@ class ProductApiTest {
     product.setId(productId);products.put(productId,product);
     ProductVersionEntity old=ProductVersionEntity.builder().productId(productId).version(1).revision(3L)
         .status(com.ecofood.core.enums.ProductStatusEnum.DRAFT).name("Old product").code("OLD").category("Meals").build();
+    // Persisted legacy records include audit fields populated by Mongo auditing.
+    String actorId=new ObjectId().toHexString();old.setCreatedBy(actorId);old.setUpdatedBy(actorId);
     old.setId(new ObjectId());legacyData.put(old.getId(),old);
     String base="/api/v1/products/"+productId.toHexString();
     mvc.perform(get(base).header("Authorization","Bearer "+token)).andExpect(status().isOk())
