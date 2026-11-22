@@ -36,7 +36,8 @@ public class ProductVersionReviewService {
         .append("actorId", actor).append("at", now).append("status", "PENDING_REVIEW");
     mongo.updateMulti(query, new Update().set("status", PropositionStatusEnum.PENDING_REVIEW)
         .unset("approvedAt").unset("approvedBy").set("sourceProcess.status", ProductStatusEnum.PENDING_REVIEW)
-        .set("updatedAt", now).set("updatedBy", actor).inc("revision", 1).push("changes", audit), PropositionEntity.class);
+        // This system action has no user ObjectId; its identity lives in changes.actorId.
+        .set("updatedAt", now).unset("updatedBy").inc("revision", 1).push("changes", audit), PropositionEntity.class);
     // Ack only after both steps succeed. Revision prevents a stale Product save restoring the queue.
     mongo.updateFirst(new Query(Criteria.where("_id").is(product.getId()).and("pendingVersionReviews").is(version)),
         new Update().pull("pendingVersionReviews", version).inc("revision", 1), ProductEntity.class);

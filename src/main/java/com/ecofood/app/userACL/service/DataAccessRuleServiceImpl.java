@@ -193,7 +193,7 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
   }
 
   private boolean isOwnedByCaller(Group group) {
-    return AuthenticationContext.getUserId().toHexString().equals(group.getCreatedBy());
+    return AuthenticationContext.getUserId().equals(group.getCreatedBy());
   }
 
   /** Replaces any existing GroupEntity row for this rule wholesale — simpler than diffing since there's at most one (accessEntityType is a single value). */

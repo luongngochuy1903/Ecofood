@@ -346,7 +346,7 @@ public class PropositionServiceImpl implements PropositionService {
                         .build();
         plan.setId(new ObjectId());
         plan.setCreatedAt(Instant.now());
-        plan.setCreatedBy(AuthenticationContext.getUserId().toHexString());
+        plan.setCreatedBy(AuthenticationContext.getUserId());
         stamp(plan);
         if (r.marketConfiguration() != null)
             plan.setMarketConfiguration(
@@ -359,7 +359,7 @@ public class PropositionServiceImpl implements PropositionService {
 
     private void stamp(Plan p) {
         p.setUpdatedAt(Instant.now());
-        p.setUpdatedBy(AuthenticationContext.getUserId().toHexString());
+        p.setUpdatedBy(AuthenticationContext.getUserId());
     }
 
     private void reviewProposition(PropositionEntity p) {

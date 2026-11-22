@@ -6,7 +6,15 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.ecofood.app.config.*;
-import com.ecofood.app.orchestrator.PlanSaleOrchestrator.*;
+import com.ecofood.app.config.BadRequestException;
+import com.ecofood.app.config.ForbiddenException;
+import com.ecofood.app.orchestrator.entity.PlanSaleOrchestrator;
+import com.ecofood.app.orchestrator.repository.PlanSaleOrchestratorRepository;
+import com.ecofood.app.orchestrator.security.PlanSaleAccess;
+import com.ecofood.app.orchestrator.service.PersistentPlanSaleRuntime;
+import com.ecofood.app.orchestrator.validation.SaleSchemaValidator;
+import com.ecofood.core.dto.PlanSaleOrchestratorDtos;
+import com.ecofood.core.enums.PlanSaleOrchestratorStatusEnum;
 import jakarta.validation.Validation;
 import java.time.Instant;
 import java.util.*;
@@ -44,9 +52,9 @@ class PersistentPlanSaleRuntimeTest {
     r.setActiveVersion(1);
     r.getVersions()
         .add(
-            new ConfigVersion(
+            new PlanSaleOrchestratorDtos.ConfigVersion(
                 1,
-                Status.ACTIVE,
+                PlanSaleOrchestratorStatusEnum.ACTIVE,
                 config(),
                 Instant.now(),
                 "employee",
@@ -56,9 +64,9 @@ class PersistentPlanSaleRuntimeTest {
                 "employee"));
     r.getVersions()
         .add(
-            new ConfigVersion(
+            new PlanSaleOrchestratorDtos.ConfigVersion(
                 2,
-                Status.DRAFT,
+                PlanSaleOrchestratorStatusEnum.DRAFT,
                 config(),
                 Instant.now(),
                 "employee",

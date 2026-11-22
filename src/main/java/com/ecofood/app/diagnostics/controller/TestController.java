@@ -1,0 +1,22 @@
+package com.ecofood.app.diagnostics.controller;
+
+import com.ecofood.app.diagnostics.service.DumpCallCoreServiceImpl;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@CrossOrigin(origins = {"http://localhost:5173", "https://ecofood.dpdns.org"})
+@RestController
+@RequestMapping("/api/test")
+public class TestController {
+
+    private final DumpCallCoreServiceImpl testService;
+
+    public TestController(DumpCallCoreServiceImpl testService) {
+        this.testService = testService;
+    }
+
+    @GetMapping("/core")
+    public ResponseEntity<String> testCore() {
+        return ResponseEntity.ok(testService.callDump());
+    }
+}

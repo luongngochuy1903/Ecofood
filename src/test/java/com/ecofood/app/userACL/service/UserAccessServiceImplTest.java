@@ -3,14 +3,14 @@ package com.ecofood.app.userACL.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
-import com.ecofood.core.service.UserAccessService.UserAccessClaims;
 import com.ecofood.app.userACL.entity.GroupRole;
 import com.ecofood.app.userACL.entity.RolePermission;
-import com.ecofood.app.userACL.entity.RoleType;
 import com.ecofood.app.userACL.entity.UserRole;
 import com.ecofood.app.userACL.repository.GroupRoleRepository;
 import com.ecofood.app.userACL.repository.RolePermissionRepository;
 import com.ecofood.app.userACL.repository.UserRoleRepository;
+import com.ecofood.core.enums.RoleType;
+import com.ecofood.core.service.UserAccessService.UserAccessClaims;
 import java.util.List;
 import java.util.Optional;
 import org.bson.types.ObjectId;
@@ -89,12 +89,14 @@ class UserAccessServiceImplTest {
     UserAccessClaims claims = userAccessService.resolveAccess(userId, tenantId);
 
     assertThat(claims.roles()).containsExactlyInAnyOrder("TENANT_ADMIN", "VIEWER");
-    assertThat(claims.permissions()).containsExactlyInAnyOrder("tenants.write.any", "tenants.read.any");
+    assertThat(claims.permissions()).containsExactlyInAnyOrder("tenants.write.any", "tenants.read.any",
+        "CATALOG_API_READ", "CATALOG_API_MANAGE", "CATALOG_API_PUBLISH", "CATALOG_API_GRANT", "TRANSACTION_SUBMIT", "DASHBOARD_READ",
+        "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY");
     assertThat(claims.roleGroups()).containsExactly("TENANT");
   }
 
   @Test
-  void returnsEmptyPermissionsWhenNoRolePermissionDocExistsForARole() {
+  void returnsDefaultCatalogAndSubmitPermissionsForAdminWithoutRolePermissionDocument() {
     userAccessService = service();
     ObjectId userId = new ObjectId();
     ObjectId tenantId = new ObjectId();
@@ -112,7 +114,27 @@ class UserAccessServiceImplTest {
 
     UserAccessClaims claims = userAccessService.resolveAccess(userId, tenantId);
 
-    assertThat(claims.permissions()).isEmpty();
+    assertThat(claims.permissions()).containsExactlyInAnyOrder(
+        "CATALOG_API_READ", "CATALOG_API_MANAGE", "CATALOG_API_PUBLISH", "CATALOG_API_GRANT", "TRANSACTION_SUBMIT", "DASHBOARD_READ",
+        "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY");
     assertThat(claims.roleGroups()).isEmpty();
+  }
+
+  @Test
+  void dashboardDefaultsCoverAllAdminRolesAndOnlyEnterpriseAdminReceivesPartnerPermission() {
+    when(groupRoleRepository.findAll()).thenReturn(List.of());
+    var service = service();
+    for (String code : List.of("TENANT_ADMIN", "MASTER_ADMIN", "ENTERPRISE_ADMIN", "ECO_ADMIN", "TENANT_EMPLOYEE")) {
+      var user = new ObjectId(); var tenant = new ObjectId(); var role = new ObjectId();
+      var assignment = UserRole.builder().userId(user).tenantId(tenant)
+          .roles(List.of(UserRole.EmbeddedRole.builder().id(role).code(code).build())).build();
+      when(userRoleRepository.findByUserIdAndTenantId(user, tenant)).thenReturn(Optional.of(assignment));
+      when(rolePermissionRepository.findByRoleId(role)).thenReturn(Optional.empty());
+      var permissions = service.resolveAccess(user, tenant).permissions();
+      if (code.endsWith("_ADMIN")) assertThat(permissions).contains("DASHBOARD_READ", "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY");
+      else assertThat(permissions).doesNotContain("DASHBOARD_READ", "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY");
+      if (code.equals("ENTERPRISE_ADMIN")) assertThat(permissions).contains("DASHBOARD_READ_PARTNERS");
+      else assertThat(permissions).doesNotContain("DASHBOARD_READ_PARTNERS");
+    }
   }
 }

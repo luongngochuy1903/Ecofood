@@ -4,6 +4,7 @@ import static com.ecofood.app.orchestrator.SaleFixtures.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.ecofood.app.config.BadRequestException;
+import com.ecofood.app.orchestrator.validation.SaleSchemaValidator;
 import com.ecofood.core.dto.SalePayloadSchema;
 import com.ecofood.core.dto.SalePayloadSchema.*;
 import java.math.BigDecimal;

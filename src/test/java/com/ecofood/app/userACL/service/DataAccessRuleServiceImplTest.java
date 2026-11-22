@@ -389,7 +389,7 @@ class DataAccessRuleServiceImplTest {
     when(aclService.getMaxLevel()).thenReturn(RoleLevel.SYSTEM);
 
     Group group = tenantScopedGroup("Billing Viewer", "DAR0001");
-    group.setCreatedBy(ownerId);
+    group.setCreatedBy(new ObjectId(ownerId));
     when(groupRepository.findById(group.getId())).thenReturn(Optional.of(group));
     when(groupEntityRepository.findAllByGroupIdentifier(group.getId())).thenReturn(List.of());
     when(userGroupEntityRepository.findAllByGroups_GroupIdentifier(group.getId())).thenReturn(List.of());
@@ -408,7 +408,7 @@ class DataAccessRuleServiceImplTest {
     when(aclService.getMaxLevel()).thenReturn(RoleLevel.SYSTEM);
 
     Group group = tenantScopedGroup("Billing Viewer", "DAR0001");
-    group.setCreatedBy(new ObjectId().toHexString());
+    group.setCreatedBy(new ObjectId());
     when(groupRepository.findById(group.getId())).thenReturn(Optional.of(group));
     when(groupEntityRepository.findAllByGroupIdentifier(group.getId())).thenReturn(List.of());
     when(userGroupEntityRepository.findAllByGroups_GroupIdentifier(group.getId())).thenReturn(List.of());
@@ -439,7 +439,7 @@ class DataAccessRuleServiceImplTest {
     authenticateAsUser(new ObjectId().toHexString());
 
     Group group = tenantScopedGroup("Billing Viewer", "DAR0001");
-    group.setCreatedBy(new ObjectId().toHexString());
+    group.setCreatedBy(new ObjectId());
     when(groupRepository.findById(group.getId())).thenReturn(Optional.of(group));
 
     com.ecofood.core.dto.UpdateDataAccessRuleRequest request = new com.ecofood.core.dto.UpdateDataAccessRuleRequest();
@@ -459,7 +459,7 @@ class DataAccessRuleServiceImplTest {
     authenticateAsUser(ownerId);
 
     Group group = tenantScopedGroup("Billing Viewer", "DAR0001");
-    group.setCreatedBy(ownerId);
+    group.setCreatedBy(new ObjectId(ownerId));
     when(groupRepository.findById(group.getId())).thenReturn(Optional.of(group));
     when(groupEntityRepository.findAllByGroupIdentifier(group.getId())).thenReturn(List.of());
     when(userGroupEntityRepository.findAllByGroups_GroupIdentifier(group.getId())).thenReturn(List.of());
@@ -486,7 +486,7 @@ class DataAccessRuleServiceImplTest {
     authenticateAsUser(ownerId);
 
     Group group = tenantScopedGroup("Billing Viewer", "DAR0001");
-    group.setCreatedBy(ownerId);
+    group.setCreatedBy(new ObjectId(ownerId));
     when(groupRepository.findById(group.getId())).thenReturn(Optional.of(group));
     when(groupEntityRepository.findAllByGroupIdentifier(group.getId())).thenReturn(List.of());
 

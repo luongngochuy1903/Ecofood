@@ -5,11 +5,18 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.ecofood.app.config.ForbiddenException;
+import com.ecofood.app.orchestrator.security.PlanSaleAccess;
 import com.ecofood.app.proposition.entity.*;
+import com.ecofood.app.proposition.entity.Plan;
+import com.ecofood.app.proposition.entity.PropositionEntity;
 import com.ecofood.app.proposition.repository.PropositionRepository;
 import com.ecofood.app.proposition.service.PropositionAccess;
 import com.ecofood.core.dto.*;
+import com.ecofood.core.dto.PropositionDefinition;
+import com.ecofood.core.dto.PropositionTenantReference;
 import com.ecofood.core.enums.*;
+import com.ecofood.core.enums.PlanStatusEnum;
+import com.ecofood.core.enums.PropositionStatusEnum;
 import com.ecofood.core.security.AuthenticationContext;
 import io.jsonwebtoken.Jwts;
 import java.time.Instant;

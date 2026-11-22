@@ -1,7 +1,10 @@
 package com.ecofood.app.transaction.entity;
 
+import com.ecofood.app.submission.entity.Submission;
+import com.ecofood.core.dto.CustomerInvoiceReference;
 import com.ecofood.core.dto.InvoiceItemDto;
 import com.ecofood.core.enums.TransactionStatus;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
@@ -11,14 +14,38 @@ import org.springframework.data.mongodb.core.mapping.*;
 
 @Data
 @Document("invoice")
-public class Invoice {
+public class Invoice implements CustomerInvoiceReference {
   @Id private String id;
-  private String tenantId, submittedBy, posId, distributionPartnerId, propositionId, planId;
+  private String tenantId;
+  private String submittedBy;
+  private String posId;
+  private String distributionPartnerId;
+  private String propositionId;
+  private String planId;
   private String orchestratorId;
   private int orchestratorVersion;
-  private String invoiceNumber, currency;
-  private Instant transactionTime, receivedAt;
+  private String invoiceNumber;
+  private String currency;
+  private Instant transactionTime;
+  private Instant receivedAt;
   private TransactionStatus status;
+  private String type;
+  private String paymentStatus;
+  private String submissionId;
+  private String invoiceDocumentId;
+  private InvoiceHolder invoiceHolder;
+  private InvoiceSnapshot snapshot;
+  /** Null for legacy one-Plan Invoices. Batch Invoices have no representative top-level Plan. */
+  private List<InvoicePlanLine> planLines;
+  private String sourcePayloadFingerprint;
+  private String transactionTimeSource;
+
+  public record InvoiceHolder(String customerId, String userId) {}
+
+  @JsonIgnore private Submission submissionHandoff;
+  @JsonIgnore private boolean submissionPending;
+  @JsonIgnore private Instant submissionRetryAt;
+  @JsonIgnore private int submissionAttempts;
 
   @Field(targetType = FieldType.DECIMAL128)
   private BigDecimal totalAmount;

@@ -7,10 +7,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ecofood.app.userACL.dto.RoleResponse;
-import com.ecofood.app.userACL.entity.RoleType;
 import com.ecofood.app.userACL.service.GroupService;
 import com.ecofood.app.userACL.service.RolePermissionService;
 import com.ecofood.app.userACL.service.RoleService;
+import com.ecofood.core.enums.RoleType;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
