@@ -15,6 +15,14 @@ public record SubmissionMetricsState(@Id String id, Processing actualMetrics) {
         int attempts,Instant nextRetryAt,String lastErrorCode) {
       this(state,contribution,projectedAt,projectionRevision,attempts,nextRetryAt,lastErrorCode,null);
     }
-    public List<KpiContribution> entries() { return contributions!=null?contributions:contribution==null?List.of():List.of(contribution); }
+    public List<KpiContribution> entries() {
+      if (contributions != null) {
+        return contributions;
+      }
+      if (contribution == null) {
+        return List.of();
+      }
+      return List.of(contribution);
+    }
   }
 }

@@ -41,7 +41,8 @@ class CatalogAccessTest {
       var actor=access.current(); assertTrue(actor.permissions().contains(CatalogAccess.MANAGE)); assertFalse(actor.permissions().contains(CatalogAccess.PUBLISH));
       token.when(AuthenticationContext::getPermissions).thenReturn(List.of());
       assertEquals(Set.of(CatalogAccess.READ),access.current().permissions());
-      assertThrows(ResponseStatusException.class,()->access.current().require(CatalogAccess.MANAGE));
+      var readOnlyActor=access.current();
+      assertThrows(ResponseStatusException.class,()->readOnlyActor.require(CatalogAccess.MANAGE));
       token.when(AuthenticationContext::getPermissions).thenReturn(List.of(CatalogAccess.READ)); user.setUserCategory(UserCategory.builder().userCategoryCode("CUSTOMER").build()); assertThrows(ResponseStatusException.class,access::current);
       user.setUserCategory(UserCategory.builder().userCategoryCode("PARTNER").build()); when(directory.user(USER,A)).thenReturn(null); assertThrows(ResponseStatusException.class,access::current);
     }

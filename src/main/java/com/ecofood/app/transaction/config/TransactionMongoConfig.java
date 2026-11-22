@@ -9,6 +9,7 @@ import org.springframework.data.mongodb.core.index.Index;
 
 @Configuration
 public class TransactionMongoConfig {
+  private static final String TENANT_ID = "tenantId";
   @Bean
   ApplicationRunner invoiceIndexes(MongoTemplate mongo) {
     return args -> {
@@ -16,7 +17,7 @@ public class TransactionMongoConfig {
           .indexOps(Invoice.class)
           .ensureIndex(
               new Index()
-                  .on("tenantId", Sort.Direction.ASC)
+                  .on(TENANT_ID, Sort.Direction.ASC)
                   .on("posId", Sort.Direction.ASC)
                   .on("invoiceNumber", Sort.Direction.ASC)
                   .unique()
@@ -25,14 +26,14 @@ public class TransactionMongoConfig {
           .indexOps(Invoice.class)
           .ensureIndex(
               new Index()
-                  .on("tenantId", Sort.Direction.ASC)
+                  .on(TENANT_ID, Sort.Direction.ASC)
                   .on("receivedAt", Sort.Direction.DESC)
                   .named("ix_invoice_tenant_received"));
       mongo.indexOps(Invoice.class).ensureIndex(new Index()
           .on("submissionPending", Sort.Direction.ASC)
           .on("submissionRetryAt", Sort.Direction.ASC)
           .named("ix_invoice_submission_pending"));
-      mongo.indexOps(Invoice.class).ensureIndex(new Index().on("tenantId",Sort.Direction.ASC)
+      mongo.indexOps(Invoice.class).ensureIndex(new Index().on(TENANT_ID,Sort.Direction.ASC)
           .on("planLines.snapshot.propositionId",Sort.Direction.ASC).on("currency",Sort.Direction.ASC)
           .on("receivedAt",Sort.Direction.ASC).named("ix_invoice_plan_lines_metrics"));
     };

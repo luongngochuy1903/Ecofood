@@ -39,6 +39,7 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class UserAccessServiceImpl implements UserAccessService {
+  private static final String ENTERPRISE_ADMIN = "ENTERPRISE_ADMIN";
 
   private final UserRoleRepository userRoleRepository;
   private final RolePermissionRepository rolePermissionRepository;
@@ -68,17 +69,17 @@ public class UserAccessServiceImpl implements UserAccessService {
             .toList();
 
     // Default Catalog and Submit authority for Tenant administrators; other permissions remain data-driven.
-    if (roleCodes.stream().anyMatch(code -> Set.of("TENANT_ADMIN", "MASTER_ADMIN", "ENTERPRISE_ADMIN").contains(code))) {
+    if (roleCodes.stream().anyMatch(code -> Set.of("TENANT_ADMIN", "MASTER_ADMIN", ENTERPRISE_ADMIN).contains(code))) {
       Set<String> effectivePermissions = new LinkedHashSet<>(permissionCodes);
       effectivePermissions.addAll(List.of("CATALOG_API_READ", "CATALOG_API_MANAGE", "CATALOG_API_PUBLISH", "CATALOG_API_GRANT", "TRANSACTION_SUBMIT"));
       permissionCodes = List.copyOf(effectivePermissions);
     }
     // Dashboard access is available to every supported Admin; cross-Tenant reads still require Dashboard scope checks.
-    if (roleCodes.stream().anyMatch(code -> Set.of("TENANT_ADMIN", "MASTER_ADMIN", "ENTERPRISE_ADMIN", "ECO_ADMIN").contains(code))) {
+    if (roleCodes.stream().anyMatch(code -> Set.of("TENANT_ADMIN", "MASTER_ADMIN", ENTERPRISE_ADMIN, "ECO_ADMIN").contains(code))) {
       Set<String> effectivePermissions = new LinkedHashSet<>(permissionCodes);
       effectivePermissions.add("DASHBOARD_READ");
       effectivePermissions.addAll(List.of("NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY"));
-      if (roleCodes.contains("ENTERPRISE_ADMIN")) effectivePermissions.add("DASHBOARD_READ_PARTNERS");
+      if (roleCodes.contains(ENTERPRISE_ADMIN)) effectivePermissions.add("DASHBOARD_READ_PARTNERS");
       permissionCodes = List.copyOf(effectivePermissions);
     }
 

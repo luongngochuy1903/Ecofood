@@ -22,29 +22,69 @@ public class KpiCalculator {
 
   /** Legacy Invoices keep their original one-Plan contribution; batch lines carry explicit quantity. */
   public List<KpiContribution> calculateAll(Invoice invoice) {
-    if (!"PLAN_SALE_BATCH".equals(invoice.getType())) return List.of(calculate(invoice));
-    if (invoice.getPlanLines()==null || invoice.getPlanLines().isEmpty())
-      throw new KpiProcessingException("BATCH_PLAN_LINES_MISSING",false);
-    var results=new ArrayList<KpiContribution>(); var ids=new HashSet<String>();
-    for(var line:invoice.getPlanLines().stream().sorted(Comparator.comparing(com.ecofood.app.transaction.entity.InvoicePlanLine::lineId)).toList()) {
-      if(line.quantity()<1 || line.quantity()>1000000 || blank(line.lineId()) || !ids.add(line.lineId()) || line.snapshot()==null)
-        throw new KpiProcessingException("BATCH_PLAN_LINE_INVALID",false);
-      var unit=new Invoice(); unit.setId(invoice.getId()); unit.setTenantId(invoice.getTenantId());
-      unit.setDistributionPartnerId(invoice.getDistributionPartnerId()); unit.setPropositionId(line.snapshot().propositionId());
-      unit.setPlanId(line.planId()); unit.setOrchestratorId(line.orchestratorId()); unit.setOrchestratorVersion(line.snapshot().orchestratorVersion());
-      unit.setReceivedAt(invoice.getReceivedAt()); unit.setCurrency(invoice.getCurrency()); unit.setStatus(invoice.getStatus());
-      unit.setPaymentStatus(invoice.getPaymentStatus()); unit.setSnapshot(line.snapshot());
-      var contribution=calculate(unit); var missing=new ArrayList<>(contribution.missingData());
-      if(!line.saleConfigurationVerified()) missing.add("SALE_CONFIGURATION_TIME_UNVERIFIED");
-      String fingerprint;
-      try { fingerprint=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(mapper.writeValueAsBytes(List.of(contribution.inputFingerprint(),line)))); }
-      catch(Exception failure) { throw new IllegalStateException("Cannot fingerprint batch line",failure); }
-      results.add(new KpiContribution(invoice.getId(),contribution.key(),VERSION,fingerprint,line.quantity(),
-          line.saleConfigurationVerified()?scale(contribution.ingredientCost(),line.quantity()):null,
-          line.saleConfigurationVerified()?scale(contribution.platformCost(),line.quantity()):null,
-          line.saleConfigurationVerified()?scale(contribution.profit(),line.quantity()):null,missing));
+    if (!"PLAN_SALE_BATCH".equals(invoice.getType())) {
+      return List.of(calculate(invoice));
+    }
+    if (invoice.getPlanLines() == null || invoice.getPlanLines().isEmpty()) {
+      throw new KpiProcessingException("BATCH_PLAN_LINES_MISSING", false);
+    }
+    var results = new ArrayList<KpiContribution>();
+    var ids = new HashSet<String>();
+    var lines = invoice.getPlanLines().stream()
+        .sorted(Comparator.comparing(com.ecofood.app.transaction.entity.InvoicePlanLine::lineId)).toList();
+    for (var line : lines) {
+      validateBatchLine(line, ids);
+      results.add(calculateLineContribution(invoice, line));
     }
     return List.copyOf(results);
+  }
+
+  private void validateBatchLine(com.ecofood.app.transaction.entity.InvoicePlanLine line, Set<String> ids) {
+    if (line.quantity() < 1 || line.quantity() > 1000000 || blank(line.lineId())
+        || !ids.add(line.lineId()) || line.snapshot() == null) {
+      throw new KpiProcessingException("BATCH_PLAN_LINE_INVALID", false);
+    }
+  }
+
+  private KpiContribution calculateLineContribution(Invoice invoice,
+      com.ecofood.app.transaction.entity.InvoicePlanLine line) {
+    var contribution = calculate(planUnit(invoice, line));
+    var missing = new ArrayList<>(contribution.missingData());
+    if (!line.saleConfigurationVerified()) {
+      missing.add("SALE_CONFIGURATION_TIME_UNVERIFIED");
+    }
+    return new KpiContribution(invoice.getId(), contribution.key(), VERSION,
+        fingerprintLine(contribution, line), line.quantity(),
+        line.saleConfigurationVerified() ? scale(contribution.ingredientCost(), line.quantity()) : null,
+        line.saleConfigurationVerified() ? scale(contribution.platformCost(), line.quantity()) : null,
+        line.saleConfigurationVerified() ? scale(contribution.profit(), line.quantity()) : null, missing);
+  }
+
+  private Invoice planUnit(Invoice invoice, com.ecofood.app.transaction.entity.InvoicePlanLine line) {
+    var unit = new Invoice();
+    unit.setId(invoice.getId());
+    unit.setTenantId(invoice.getTenantId());
+    unit.setDistributionPartnerId(invoice.getDistributionPartnerId());
+    unit.setPropositionId(line.snapshot().propositionId());
+    unit.setPlanId(line.planId());
+    unit.setOrchestratorId(line.orchestratorId());
+    unit.setOrchestratorVersion(line.snapshot().orchestratorVersion());
+    unit.setReceivedAt(invoice.getReceivedAt());
+    unit.setCurrency(invoice.getCurrency());
+    unit.setStatus(invoice.getStatus());
+    unit.setPaymentStatus(invoice.getPaymentStatus());
+    unit.setSnapshot(line.snapshot());
+    return unit;
+  }
+
+  private String fingerprintLine(KpiContribution contribution,
+      com.ecofood.app.transaction.entity.InvoicePlanLine line) {
+    try {
+      return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+          .digest(mapper.writeValueAsBytes(List.of(contribution.inputFingerprint(), line))));
+    } catch (Exception failure) {
+      throw new IllegalStateException("Cannot fingerprint batch line", failure);
+    }
   }
   private BigDecimal scale(BigDecimal amount,long quantity) { return amount==null?null:amount.multiply(BigDecimal.valueOf(quantity)); }
 

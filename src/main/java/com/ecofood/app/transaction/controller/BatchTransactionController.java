@@ -18,7 +18,8 @@ public class BatchTransactionController {
   private final BatchTransactionService service;
   @PostMapping
   public BatchTransactionDtos.Response submit(@Valid @RequestBody BatchTransactionDtos.Request request) {
-    var permissions=AuthenticationContext.getPermissions(); var claims=AuthenticationContext.getClaims();
+    var permissions=AuthenticationContext.getPermissions();
+    var claims=AuthenticationContext.getClaims();
     if(permissions==null || !permissions.contains("TRANSACTION_SUBMIT") || claims==null) throw new ForbiddenException("TRANSACTION_SUBMIT required");
     return service.submit(claims.get("tenantId",String.class),claims.getSubject(),request);
   }

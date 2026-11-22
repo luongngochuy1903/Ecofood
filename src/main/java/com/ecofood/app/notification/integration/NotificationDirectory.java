@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class NotificationDirectory {
+  private static final String TENANT_ID = "tenantId";
   private final MongoTemplate mongo;
   private final UserAccessService access;
   public static boolean belongs(UserEntity user, String tenant) {
@@ -39,13 +40,13 @@ public class NotificationDirectory {
     return mongo.findOne(query, UserEntity.class);
   }
   public com.ecofood.app.transaction.entity.Invoice sourceInvoice(Notification notice) {
-    var event = mongo.findOne(Query.query(Criteria.where("_id").is(notice.getSubmissionId()).and("tenantId").is(notice.getTenantId())), com.ecofood.app.submission.entity.Submission.class);
+    var event = mongo.findOne(Query.query(Criteria.where("_id").is(notice.getSubmissionId()).and(TENANT_ID).is(notice.getTenantId())), com.ecofood.app.submission.entity.Submission.class);
     if (event == null || !"INVOICE".equals(event.sourceType())) return null;
-    return mongo.findOne(Query.query(Criteria.where("_id").is(event.sourceId()).and("tenantId").is(notice.getTenantId())), com.ecofood.app.transaction.entity.Invoice.class);
+    return mongo.findOne(Query.query(Criteria.where("_id").is(event.sourceId()).and(TENANT_ID).is(notice.getTenantId())), com.ecofood.app.transaction.entity.Invoice.class);
   }
   public com.ecofood.app.submission.entity.InvoiceBatchSubmission sourceBatch(Notification notice) {
     return mongo.findOne(Query.query(Criteria.where("_id").is(notice.getSubmissionId())
-        .and("tenantId").is(notice.getTenantId()).and("sourceType").is("INVOICE_BATCH")
+        .and(TENANT_ID).is(notice.getTenantId()).and("sourceType").is("INVOICE_BATCH")
         .and("event").is("INVOICE_PAID")),com.ecofood.app.submission.entity.InvoiceBatchSubmission.class);
   }
 }
