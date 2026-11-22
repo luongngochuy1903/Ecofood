@@ -22,7 +22,7 @@ import org.springframework.data.mongodb.core.index.IndexOperations;
 import org.springframework.data.mongodb.core.mapping.MongoMappingContext;
 
 class MetricsMongoMappingTest {
-  private MappingMongoConverter converter() throws Exception {
+  private MappingMongoConverter converter() {
     var conversions = new com.ecofood.app.proposition.service.PropositionMongoConfiguration()
         .propositionMongoConversions();
     var context = new MongoMappingContext();
@@ -35,7 +35,7 @@ class MetricsMongoMappingTest {
   }
 
   @Test
-  void signedMoneyAndPartialMetadataRoundTripAsDecimal128WithoutDatabase() throws Exception {
+  void signedMoneyAndPartialMetadataRoundTripAsDecimal128WithoutDatabase() {
     var converter = converter();
     var calculator = new KpiCalculator();
     var invoice = invoice("i", "tenant", "prop", "USD", "1");
@@ -85,7 +85,7 @@ class MetricsMongoMappingTest {
     assertEquals(true, index.getValue().getIndexOptions().getBoolean("unique"));
   }
   @Test
-  void sharedBatchEnvelopeAndMultiContributionMarkerRoundTripWithoutParallelCollection() throws Exception {
+  void sharedBatchEnvelopeAndMultiContributionMarkerRoundTripWithoutParallelCollection() {
     var converter=converter(); var now=Instant.parse("2026-11-20T03:00:00Z");
     var result=new com.ecofood.app.transaction.dto.BatchTransactionDtos.ReceiptResult("INV-1",
         List.of(new com.ecofood.app.transaction.dto.BatchTransactionDtos.Item("1","orch","plan",2,bd("50"),bd("100"))),"ACCEPTED",null);

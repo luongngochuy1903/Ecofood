@@ -48,8 +48,9 @@ public class DashboardAccess {
         .anyMatch(r -> live.roles().contains(r) && tokenRoles.contains(r));
     var grants = restrictions(user.getId(), new ObjectId(tenantId));
     var dashboard = grants.get(AccessEntityTypeEnum.Dashboard_bills);
-    if (dashboard == null ? !admin : !dashboard.full())
-throw error(HttpStatus.FORBIDDEN, "Dashboard aggregate requires full Dashboard_bills data access; Invoice-level restrictions cannot be applied to monthly aggregates");
+    if (dashboard == null ? !admin : !dashboard.full()) {
+      throw error(HttpStatus.FORBIDDEN, "Dashboard aggregate requires full Dashboard_bills data access; Invoice-level restrictions cannot be applied to monthly aggregates");
+    }
     var reference = tenants.propositionReference(tenantId);
     if (reference.deleted()) throw denied();
     boolean enterprise = reference.partnerType() == PartnerTypeEnum.ENTERPRISE || reference.partnerType() == PartnerTypeEnum.REGIONAL_ENTERPRISE;

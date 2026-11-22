@@ -15,8 +15,13 @@ public class SubmissionNotificationState {
   private String tenantId;
   private Processing notification;
   @Data public static class Processing {
-    private String state, leaseToken, result, lastError;
-    private Instant leaseUntil, nextAttemptAt, completedAt;
+    private String state;
+    private String leaseToken;
+    private String result;
+    private String lastError;
+    private Instant leaseUntil;
+    private Instant nextAttemptAt;
+    private Instant completedAt;
     private int attempts;
     private List<Notification> plan;
   }

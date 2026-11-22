@@ -88,8 +88,9 @@ public class CatalogData {
   }
   private void requireDefinition(ProductProcessEntity process,ProductDefinitionAttribute definition) {
     if(definition==null || Boolean.TRUE.equals(definition.getDeleted()) || !process.getId().equals(definition.getProductProcessId())
-        || !Objects.equals(process.getRevision(),definition.getProcessRevision()) || definition.getProductName()==null || definition.getProductName().isBlank())
-throw invalid("Product definition does not match approved process revision");
+        || !Objects.equals(process.getRevision(),definition.getProcessRevision()) || definition.getProductName()==null || definition.getProductName().isBlank()) {
+      throw invalid("Product definition does not match approved process revision");
+    }
   }
   public List<Resolved> resolve(CatalogAccess.Actor actor,ApiPublication publication) {
     return publication.getSelections().stream().map(s->resolve(actor,s,publication.getCatalogType())).toList();

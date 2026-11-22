@@ -27,8 +27,11 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @RequiredArgsConstructor
 public class CustomerReceiptServiceImpl implements CustomerReceiptService {
+  private static final String INVOICE_HOLDER_CUSTOMER_ID = "invoiceHolder.customerId";
+  private static final String RECEIPT_REVOKED_AT = "customerReceipt.revokedAt";
   private static final String TENANT_ID = "tenantId";
-  public static final String ISSUE = "CUSTOMER_RECEIPT_ISSUE", CLAIMED = "INVOICE_CLAIMED";
+  public static final String ISSUE = "CUSTOMER_RECEIPT_ISSUE";
+  public static final String CLAIMED = "INVOICE_CLAIMED";
   private final MongoTemplate mongo;
   private final CustomerAccess access;
   private final UserAccessService users;
@@ -39,7 +42,8 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
   private final CustomerClaimHandoff handoff;
   private record Seller(String user, String tenant) {}
   private Seller seller() {
-    String user, tenant;
+    String user;
+    String tenant;
     try { user = AuthenticationContext.getUserId().toHexString(); tenant = AuthenticationContext.getTenantId().toHexString(); }
     catch (RuntimeException invalid) { throw CustomerAccess.denied(); }
     var record = mongo.findById(new ObjectId(user), UserEntity.class);
@@ -54,7 +58,7 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
     return Query.query(Criteria.where("_id").is(id).and(TENANT_ID).is(seller.tenant()).and("submittedBy").is(seller.user())
         .and("posId").is(seller.user()).and("status").is(TransactionStatus.ACCEPTED).and("paymentStatus").is("PAID"));
   }
-  private Criteria unowned() { return Criteria.where("invoiceHolder.userId").is(null).and("invoiceHolder.customerId").is(null); }
+  private Criteria unowned() { return Criteria.where("invoiceHolder.userId").is(null).and(INVOICE_HOLDER_CUSTOMER_ID).is(null); }
   @Override
   public CustomerReceiptDtos.Issued issue(String invoiceId, CustomerReceiptDtos.IssueRequest request) {
     var seller = seller(); String requestId;
@@ -63,7 +67,8 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
     var query = source(invoiceId, seller); query.addCriteria(unowned());
     var invoice = mongo.findOne(query, CustomerInvoice.class); if (invoice == null) throw CustomerServiceImpl.unavailable();
     Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
-    var old = invoice.getCustomerReceipt(); CustomerInvoice.Receipt receipt;
+    var old = invoice.getCustomerReceipt();
+    CustomerInvoice.Receipt receipt;
     if (old != null && old.requestId().equals(requestId)) {
       if (old.revokedAt() != null || !old.expiresAt().isAfter(now)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Receipt expired or revoked; use a new requestId"); receipt = old;
     } else {
@@ -75,7 +80,7 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
       tokens.qr(tokens.url(token));
       var update = source(invoiceId, seller); update.addCriteria(unowned());
       if (old == null) update.addCriteria(Criteria.where("customerReceipt").is(null));
-      else update.addCriteria(Criteria.where("customerReceipt.id").is(old.id()).and("customerReceipt.revokedAt").is(old.revokedAt()));
+      else update.addCriteria(Criteria.where("customerReceipt.id").is(old.id()).and(RECEIPT_REVOKED_AT).is(old.revokedAt()));
       var saved = mongo.findAndModify(update, new Update().set("customerReceipt", receipt), FindAndModifyOptions.options().returnNew(true), CustomerInvoice.class);
       if (saved == null) {
         saved = mongo.findOne(query, CustomerInvoice.class);
@@ -94,12 +99,12 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
     var seller = seller(); var query = source(invoiceId, seller);
     query.addCriteria(Criteria.where("customerReceipt.id").exists(true));
     if (!mongo.exists(query, CustomerInvoice.class)) throw CustomerServiceImpl.unavailable();
-    query.addCriteria(Criteria.where("customerReceipt.revokedAt").is(null));
-    mongo.updateFirst(query, new Update().set("customerReceipt.revokedAt", Instant.now()).set("customerReceipt.revokedBy", seller.user()), CustomerInvoice.class);
+    query.addCriteria(Criteria.where(RECEIPT_REVOKED_AT).is(null));
+    mongo.updateFirst(query, new Update().set(RECEIPT_REVOKED_AT, Instant.now()).set("customerReceipt.revokedBy", seller.user()), CustomerInvoice.class);
   }
   private Criteria valid(String token, Instant now) {
     CustomerReceiptTokens.validate(token);
-    return Criteria.where("customerReceipt.tokenHash").is(CustomerReceiptTokens.hash(token)).and("customerReceipt.revokedAt").is(null)
+    return Criteria.where("customerReceipt.tokenHash").is(CustomerReceiptTokens.hash(token)).and(RECEIPT_REVOKED_AT).is(null)
         .and("customerReceipt.expiresAt").gt(now).and("status").is(TransactionStatus.ACCEPTED).and("paymentStatus").is("PAID");
   }
   @Override
@@ -114,7 +119,7 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
     var actor = access.current(); CustomerReceiptTokens.validate(token);
     String hash = CustomerReceiptTokens.hash(token);
     var prior = mongo.findOne(Query.query(Criteria.where("customerReceipt.tokenHash").is(hash).and(TENANT_ID).is(actor.tenantId())
-        .and("invoiceHolder.userId").is(actor.userId()).and("invoiceHolder.customerId").is(actor.userId())), CustomerInvoice.class);
+        .and("invoiceHolder.userId").is(actor.userId()).and(INVOICE_HOLDER_CUSTOMER_ID).is(actor.userId())), CustomerInvoice.class);
     if (prior != null) { handoff.deliver(prior); return result(prior); }
     Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
     Query query = Query.query(new Criteria().andOperator(valid(token, now), unowned(), Criteria.where(TENANT_ID).is(actor.tenantId())));
@@ -131,7 +136,7 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
         .set("customerOwnership", new CustomerInvoice.Ownership(actor.userId(), now, "RECEIPT_TOKEN", invoice.getCustomerReceipt().id()))
         .set("customerClaimHandoff", new CustomerInvoice.Handoff(event, notice, true, now, 0)), FindAndModifyOptions.options().returnNew(true), CustomerInvoice.class);
     if (saved == null) {
-      saved = mongo.findOne(Query.query(Criteria.where("_id").is(invoice.getId()).and(TENANT_ID).is(actor.tenantId()).and("invoiceHolder.userId").is(actor.userId()).and("invoiceHolder.customerId").is(actor.userId())), CustomerInvoice.class);
+      saved = mongo.findOne(Query.query(Criteria.where("_id").is(invoice.getId()).and(TENANT_ID).is(actor.tenantId()).and("invoiceHolder.userId").is(actor.userId()).and(INVOICE_HOLDER_CUSTOMER_ID).is(actor.userId())), CustomerInvoice.class);
       if (saved == null) throw CustomerServiceImpl.unavailable();
     }
     handoff.deliver(saved); return result(saved);

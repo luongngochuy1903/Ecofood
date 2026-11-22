@@ -89,25 +89,58 @@ public class KpiCalculator {
   private BigDecimal scale(BigDecimal amount,long quantity) { return amount==null?null:amount.multiply(BigDecimal.valueOf(quantity)); }
 
   public KpiContribution calculate(Invoice invoice) {
-    if ("PLAN_SALE_BATCH".equals(invoice.getType())) throw new KpiProcessingException("USE_BATCH_CONTRIBUTIONS",false);
-    if (invoice.getStatus() != TransactionStatus.ACCEPTED || !"PAID".equals(invoice.getPaymentStatus()))
+    validateInvoice(invoice);
+    var dimensions = dimensions(invoice);
+    var key = dimensions.key();
+    int digits = dimensions.digits();
+    var missing = new ArrayList<String>();
+    var snapshot = verifiedSnapshot(invoice, missing);
+    var costing = verifiedCosting(snapshot, key.currency(), missing);
+    var costs = costs(costing, digits, missing);
+    BigDecimal net = netRevenue(snapshot, digits, missing);
+    BigDecimal rate = platformRate(snapshot, missing);
+    BigDecimal platform = platformCost(net, rate, digits);
+    BigDecimal profit = profit(net, costs, platform, digits);
+    return new KpiContribution(invoice.getId(), key, VERSION, fingerprint(invoice), 1,
+        costs.ingredient(), platform, profit, missing);
+  }
+
+  private void validateInvoice(Invoice invoice) {
+    if ("PLAN_SALE_BATCH".equals(invoice.getType())) {
+      throw new KpiProcessingException("USE_BATCH_CONTRIBUTIONS", false);
+    }
+    if (invoice.getStatus() != TransactionStatus.ACCEPTED || !"PAID".equals(invoice.getPaymentStatus())) {
       throw new KpiProcessingException("INVOICE_NOT_ACCEPTED_PAID", false);
-    if (blank(invoice.getId()) || invoice.getReceivedAt() == null)
+    }
+    if (blank(invoice.getId()) || invoice.getReceivedAt() == null) {
       throw new KpiProcessingException("INVOICE_ID_OR_RECEIVED_AT_MISSING", false);
-    final MetricsKey key;
-    final int digits;
+    }
+  }
+
+  private record Dimensions(MetricsKey key, int digits) {}
+
+  private Dimensions dimensions(Invoice invoice) {
     try {
       var date = invoice.getReceivedAt().atZone(ZONE);
-      key = new MetricsKey(invoice.getPropositionId(), invoice.getTenantId(), date.getYear(),
+      var key = new MetricsKey(invoice.getPropositionId(), invoice.getTenantId(), date.getYear(),
           date.getMonthValue(), invoice.getCurrency());
-      digits = Currency.getInstance(key.currency()).getDefaultFractionDigits();
+      int digits = Currency.getInstance(key.currency()).getDefaultFractionDigits();
       if (digits < 0) throw new IllegalArgumentException();
-    } catch (IllegalArgumentException ex) {
+      return new Dimensions(key, digits);
+    } catch (IllegalArgumentException invalid) {
       throw new KpiProcessingException("INVOICE_METRICS_DIMENSIONS_INVALID", false);
     }
-    var missing = new ArrayList<String>();
+  }
+
+  private InvoiceSnapshot verifiedSnapshot(Invoice invoice, List<String> missing) {
     var snapshot = invoice.getSnapshot();
-    boolean trusted = snapshot != null
+    if (matchesInvoice(snapshot, invoice)) return snapshot;
+    missing.add(snapshot == null ? "SNAPSHOT_MISSING" : "SNAPSHOT_SCOPE_MISMATCH");
+    return null;
+  }
+
+  private boolean matchesInvoice(InvoiceSnapshot snapshot, Invoice invoice) {
+    return snapshot != null
         && Objects.equals(snapshot.tenantId(), invoice.getTenantId())
         && Objects.equals(snapshot.distributionPartnerId(), invoice.getDistributionPartnerId())
         && Objects.equals(snapshot.propositionId(), invoice.getPropositionId())
@@ -115,36 +148,62 @@ public class KpiCalculator {
         && Objects.equals(snapshot.orchestratorId(), invoice.getOrchestratorId())
         && snapshot.orchestratorVersion() == invoice.getOrchestratorVersion()
         && Objects.equals(snapshot.currency(), invoice.getCurrency());
-    if (!trusted) missing.add(snapshot == null ? "SNAPSHOT_MISSING" : "SNAPSHOT_SCOPE_MISMATCH");
-    var costing = trusted ? snapshot.costing() : null;
-    boolean validCosting = costing != null && !blank(costing.attributeId())
+  }
+
+  private InvoiceSnapshot.Costing verifiedCosting(InvoiceSnapshot snapshot, String currency, List<String> missing) {
+    var costing = snapshot == null ? null : snapshot.costing();
+    boolean valid = costing != null && !blank(costing.attributeId())
         && !blank(snapshot.productProcessId()) && snapshot.productProcessRevision() != null
         && Objects.equals(costing.productProcessId(), snapshot.productProcessId())
         && Objects.equals(costing.processRevision(), snapshot.productProcessRevision())
-        && Objects.equals(costing.currency(), key.currency());
-    if (!validCosting) missing.add("COSTING_REFERENCE_OR_CURRENCY_INVALID");
-    BigDecimal ingredient = amount(validCosting ? costing.ingredientCost() : null, digits, "INGREDIENT_COST", missing);
-    BigDecimal packaging = amount(validCosting ? costing.packagingCost() : null, digits, "PACKAGING_COST", missing);
-    BigDecimal labor = amount(validCosting ? costing.laborCost() : null, digits, "LABOR_COST", missing);
-    BigDecimal operation = amount(validCosting ? costing.operationCost() : null, digits, "OPERATION_COST", missing);
-    BigDecimal marketing = amount(validCosting ? costing.marketingFee() : null, digits, "MARKETING_FEE", missing);
+        && Objects.equals(costing.currency(), currency);
+    if (!valid) {
+      missing.add("COSTING_REFERENCE_OR_CURRENCY_INVALID");
+      return null;
+    }
+    return costing;
+  }
+
+  private record Costs(BigDecimal ingredient, BigDecimal packaging, BigDecimal labor,
+                       BigDecimal operation, BigDecimal marketing) {}
+
+  private Costs costs(InvoiceSnapshot.Costing costing, int digits, List<String> missing) {
+    return new Costs(
+        amount(costing == null ? null : costing.ingredientCost(), digits, "INGREDIENT_COST", missing),
+        amount(costing == null ? null : costing.packagingCost(), digits, "PACKAGING_COST", missing),
+        amount(costing == null ? null : costing.laborCost(), digits, "LABOR_COST", missing),
+        amount(costing == null ? null : costing.operationCost(), digits, "OPERATION_COST", missing),
+        amount(costing == null ? null : costing.marketingFee(), digits, "MARKETING_FEE", missing));
+  }
+
+  private BigDecimal netRevenue(InvoiceSnapshot snapshot, int digits, List<String> missing) {
     // totalAmount and approved Plan prices do NOT prove the transaction's net revenue.
-    BigDecimal net = amount(trusted && !snapshot.missingData().contains("NET_REVENUE_UNVERIFIED")
-        ? snapshot.netRevenue() : null, digits, "NET_REVENUE", missing);
-    var shares = trusted ? snapshot.profitShare() : null;
+    BigDecimal net = snapshot != null && !snapshot.missingData().contains("NET_REVENUE_UNVERIFIED")
+        ? snapshot.netRevenue() : null;
+    return amount(net, digits, "NET_REVENUE", missing);
+  }
+
+  private BigDecimal platformRate(InvoiceSnapshot snapshot, List<String> missing) {
+    var shares = snapshot == null ? null : snapshot.profitShare();
     BigDecimal rate = shares == null ? null : shares.platformProfitShare();
     if (rate == null || rate.signum() < 0 || rate.compareTo(new BigDecimal("100")) > 0) {
       missing.add("PLATFORM_PROFIT_SHARE_INVALID");
-      rate = null;
+      return null;
     }
-    BigDecimal platform = net == null || rate == null ? null
-        : net.multiply(rate).divide(new BigDecimal("100"), digits, RoundingMode.HALF_UP);
-    BigDecimal profit = net == null || ingredient == null || packaging == null || labor == null
-        || operation == null || marketing == null || platform == null ? null
-        : net.subtract(ingredient).subtract(packaging).subtract(labor).subtract(operation)
-            .subtract(marketing).subtract(platform).setScale(digits, RoundingMode.HALF_UP);
-    return new KpiContribution(invoice.getId(), key, VERSION, fingerprint(invoice), 1,
-        ingredient, platform, profit, missing);
+    return rate;
+  }
+
+  private BigDecimal platformCost(BigDecimal net, BigDecimal rate, int digits) {
+    if (net == null || rate == null) return null;
+    return net.multiply(rate).divide(new BigDecimal("100"), digits, RoundingMode.HALF_UP);
+  }
+
+  private BigDecimal profit(BigDecimal net, Costs costs, BigDecimal platform, int digits) {
+    if (net == null || costs.ingredient() == null || costs.packaging() == null || costs.labor() == null
+        || costs.operation() == null || costs.marketing() == null || platform == null) return null;
+    return net.subtract(costs.ingredient()).subtract(costs.packaging()).subtract(costs.labor())
+        .subtract(costs.operation()).subtract(costs.marketing()).subtract(platform)
+        .setScale(digits, RoundingMode.HALF_UP);
   }
 
   private BigDecimal amount(BigDecimal value, int digits, String name, List<String> missing) {

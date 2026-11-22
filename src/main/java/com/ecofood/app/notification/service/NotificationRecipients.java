@@ -36,8 +36,11 @@ public class NotificationRecipients {
     for (List<String> values : List.of(safe(recipients.userIds()), safe(recipients.roles()), safe(recipients.permissions()), safe(recipients.emails())))
       if (values.size() > 100 || values.stream().anyMatch(v -> v == null || v.isBlank() || v.length() > 254)) throw NotificationTemplate.bad("Danh sách người nhận không hợp lệ");
     for (String id : safe(recipients.userIds())) if (directory.user(id, tenant) == null) throw NotificationTemplate.bad("Người nhận không thuộc Tenant");
-    for (String email : safe(recipients.emails())) if (!NotificationSettings.validEmail(email) || !settings.approved(tenant).contains(NotificationSettings.canonical(email)))
-      throw NotificationTemplate.bad("Email chưa được phê duyệt cho Tenant");
+    for (String email : safe(recipients.emails())) {
+      if (!NotificationSettings.validEmail(email) || !settings.approved(tenant).contains(NotificationSettings.canonical(email))) {
+        throw NotificationTemplate.bad("Email chưa được phê duyệt cho Tenant");
+      }
+    }
     if (!recipients.invoiceCustomer() && !Boolean.TRUE.equals(recipients.complaintCustomer()) && safe(recipients.userIds()).isEmpty() && safe(recipients.roles()).isEmpty()
         && safe(recipients.permissions()).isEmpty() && safe(recipients.emails()).isEmpty()) throw NotificationTemplate.bad("Cần ít nhất một nguồn người nhận");
   }

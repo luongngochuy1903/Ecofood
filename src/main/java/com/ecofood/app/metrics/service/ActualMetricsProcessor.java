@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class ActualMetricsProcessor {
   private static final String NEXT_RETRY_AT = "actualMetrics.nextRetryAt";
+  private static final String METRICS_STATE = "actualMetrics.state";
   private final ActualMetricsStore store;
   private final MongoTemplate mongo;
 
@@ -30,7 +31,7 @@ public class ActualMetricsProcessor {
         // Never overwrite a committed marker after an ambiguous commit/late failure.
         var query = Query.query(Criteria.where("_id").is(submissionId).and("tenantId").is(tenantId)
             .and("actualMetrics.projectedAt").exists(false));
-        var update = new Update().set("actualMetrics.state", retryable ? "RETRY" : "BLOCKED")
+        var update = new Update().set(METRICS_STATE, retryable ? "RETRY" : "BLOCKED")
             .set("actualMetrics.lastErrorCode", code).inc("actualMetrics.attempts", 1);
         if (retryable) update.set(NEXT_RETRY_AT, Instant.now().plusSeconds(60));
         else update.unset(NEXT_RETRY_AT);
@@ -47,8 +48,8 @@ public class ActualMetricsProcessor {
   public void recover() {
     try {
       var due = new Criteria().orOperator(
-          Criteria.where("actualMetrics.state").exists(false),
-          new Criteria().andOperator(Criteria.where("actualMetrics.state").is("RETRY"),
+          Criteria.where(METRICS_STATE).exists(false),
+          new Criteria().andOperator(Criteria.where(METRICS_STATE).is("RETRY"),
               Criteria.where(NEXT_RETRY_AT).lte(Instant.now())));
       var query = Query.query(new Criteria().andOperator(
           Criteria.where("event").is(Submission.INVOICE_PAID), Criteria.where("sourceType").in("INVOICE","INVOICE_BATCH"), due))

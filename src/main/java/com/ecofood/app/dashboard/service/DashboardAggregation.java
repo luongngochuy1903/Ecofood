@@ -61,7 +61,8 @@ public class DashboardAggregation {
   private BigDecimal percent(BigDecimal numerator, BigDecimal denominator) { return numerator.multiply(BigDecimal.valueOf(100)).divide(denominator, 2, RoundingMode.HALF_UP); }
   private Value expected(List<Target> targets, Selection selection, String name) {
     if (targets.isEmpty()) return new Value(null, "NOT_CONFIGURED");
-    BigDecimal total = BigDecimal.ZERO; boolean missing = false;
+    BigDecimal total = BigDecimal.ZERO;
+    boolean missing = false;
     for (var target : targets) {
       var value = expectedTarget(target, selection, name);
       if (value.status().equals("CURRENCY_UNVERIFIED") || value.status().equals("CURRENCY_MISMATCH")) return value;
@@ -84,7 +85,8 @@ public class DashboardAggregation {
       if (matching.size() > 1 || (!matching.isEmpty() && rows.stream().anyMatch(r -> Objects.equals(r.quarter(), (selection.month() - 1) / 3 + 1)))) return new Value(null, "OVERLAPPING_PERIODS");
       return matching.isEmpty() || expected(matching.get(0), name) == null ? new Value(null, "NOT_CONFIGURED") : new Value(expected(matching.get(0), name), "CONFIGURED");
     }
-    BigDecimal sum = BigDecimal.ZERO; boolean missing = false;
+    BigDecimal sum = BigDecimal.ZERO;
+    boolean missing = false;
     int start = selection.period() == DashboardPeriodEnum.YEARLY ? 1 : selection.quarter(), end = selection.period() == DashboardPeriodEnum.YEARLY ? 4 : start;
     for (int q = start; q <= end; q++) {
       final int quarter = q;

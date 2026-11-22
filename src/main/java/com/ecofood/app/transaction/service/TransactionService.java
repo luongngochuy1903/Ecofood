@@ -33,6 +33,26 @@ public class TransactionService {
     if (blank(tenant) || blank(subject))
       throw new ForbiddenException("Verified Tenant and caller identity required");
     var prepared = runtime.prepare(tenant, subject, orchestrator, payload);
+    validateBinding(tenant, subject, orchestrator, prepared);
+    var request = prepared.transaction();
+    validateRequest(prepared.binding(), request);
+    validateTotals(request);
+    if (invoices.existsByTenantIdAndPosIdAndInvoiceNumber(tenant, subject, request.invoiceNumber()))
+      throw duplicate();
+    var invoice = createInvoice(tenant, subject, prepared);
+    handoff.prepare(invoice);
+    try {
+      invoice = invoices.insert(invoice);
+    } catch (DuplicateKeyException ex) {
+      throw duplicate();
+    }
+    handoff.deliver(invoice);
+    return new SubmitTransactionResponse(
+        invoice.getId(), invoice.getInvoiceNumber(), invoice.getStatus(), invoice.getReceivedAt());
+  }
+
+  private void validateBinding(String tenant, String subject, String orchestrator,
+      PreparedSaleTransaction prepared) {
     var binding = prepared.binding();
     if (!tenant.equals(binding.tenantId())
         || !subject.equals(binding.posId())
@@ -46,13 +66,18 @@ public class TransactionService {
         || blank(binding.distributionPartnerId())
         || prepared.orchestratorVersion() < 1)
       throw new IllegalStateException("Sale configuration, Plan or Proposition unavailable");
-    var request = prepared.transaction();
+  }
+
+  private void validateRequest(SaleOrchestratorConfig binding, SubmitTransactionRequest request) {
     if (request == null || !validator.validate(request).isEmpty())
       throw new BadRequestException("Invalid transaction payload");
     if (binding.currencies() == null
         || !binding.currencies().contains(request.currency())
         || request.items().size() > binding.maxItems())
       throw new BadRequestException("Payload violates Plan currency or item limit");
+  }
+
+  private void validateTotals(SubmitTransactionRequest request) {
     BigDecimal total = BigDecimal.ZERO;
     for (var item : request.items()) {
       if (item.quantity().multiply(item.unitPrice()).compareTo(item.amount()) != 0)
@@ -61,8 +86,11 @@ public class TransactionService {
     }
     if (total.compareTo(request.totalAmount()) != 0)
       throw new BadRequestException("Invoice total does not match items");
-    if (invoices.existsByTenantIdAndPosIdAndInvoiceNumber(tenant, subject, request.invoiceNumber()))
-      throw duplicate();
+  }
+
+  private Invoice createInvoice(String tenant, String subject, PreparedSaleTransaction prepared) {
+    var binding = prepared.binding();
+    var request = prepared.transaction();
     var invoice = new Invoice();
     invoice.setId(new ObjectId().toHexString());
     invoice.setTenantId(tenant);
@@ -85,23 +113,20 @@ public class TransactionService {
     invoice.setTotalAmount(request.totalAmount());
     invoice.setItems(List.copyOf(request.items()));
     invoice.setOrchestratorPayload(prepared.payload());
+    invoice.setPostWorkflowResults(postWorkflows(prepared.postWorkflows()));
+    return invoice;
+  }
+
+  private Map<String, String> postWorkflows(Set<String> actions) {
     var workflows = new LinkedHashMap<String, String>();
-    if (prepared.postWorkflows() != null)
-      for (String action : prepared.postWorkflows()) {
-        if (!Set.of("CREATE_OR_LINK_CUSTOMER", "SEND_EMAIL_NOTIFICATION").contains(action))
-          throw new BadRequestException("Unsupported post-workflow");
-        workflows.put(action, "PENDING");
+    if (actions == null) return workflows;
+    for (String action : actions) {
+      if (!Set.of("CREATE_OR_LINK_CUSTOMER", "SEND_EMAIL_NOTIFICATION").contains(action)) {
+        throw new BadRequestException("Unsupported post-workflow");
       }
-    invoice.setPostWorkflowResults(workflows);
-    handoff.prepare(invoice);
-    try {
-      invoice = invoices.insert(invoice);
-    } catch (DuplicateKeyException ex) {
-      throw duplicate();
+      workflows.put(action, "PENDING");
     }
-    handoff.deliver(invoice);
-    return new SubmitTransactionResponse(
-        invoice.getId(), invoice.getInvoiceNumber(), invoice.getStatus(), invoice.getReceivedAt());
+    return workflows;
   }
 
   public Invoice detail(String tenant, String id) {

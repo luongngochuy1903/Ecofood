@@ -15,6 +15,9 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class NotificationDelivery {
+  private static final String PROCESSING = "PROCESSING";
+  private static final String NEXT_ATTEMPT_AT = "nextAttemptAt";
+  private static final String DELIVERY_UNCERTAIN = "deliveryUncertain";
   private static final String LEASE_TOKEN = "leaseToken";
   private final MongoTemplate mongo;
   private final NotificationEmailSender sender;
@@ -25,24 +28,28 @@ public class NotificationDelivery {
     if (!settings.deliveryEnabled) return;
     try {
       // Never automatically resend an expired SMTP attempt with an unknown external outcome.
-      mongo.updateMulti(Query.query(Criteria.where("status").is("PROCESSING").and("leaseUntil").lte(Instant.now())),
-          new Update().set("status", "FAILED").set("deliveryUncertain", true).set("lastError", "SMTP_OUTCOME_UNCERTAIN")
+      mongo.updateMulti(Query.query(Criteria.where("status").is(PROCESSING).and("leaseUntil").lte(Instant.now())),
+          new Update().set("status", "FAILED").set(DELIVERY_UNCERTAIN, true).set("lastError", "SMTP_OUTCOME_UNCERTAIN")
             .unset(LEASE_TOKEN).unset("leaseUntil"), Notification.class);
       for (int i = 0; i < 20; i++) {
-        Notification work = claim(Instant.now()); if (work == null) return; deliver(work);
+        Notification work = claim(Instant.now());
+        if (work == null) {
+          return;
+        }
+        deliver(work);
       }
     } catch (RuntimeException unavailable) { /* Persisted queue survives outage; next poll resumes. */ }
   }
   public Notification claim(Instant now) {
     return mongo.findAndModify(Query.query(Criteria.where("status").in("PENDING", "RETRY_PENDING")
-        .and("nextAttemptAt").lte(now).and("retryCount").lt(settings.maxAttempts)),
-        new Update().set("status", "PROCESSING").set(LEASE_TOKEN, UUID.randomUUID().toString())
+        .and(NEXT_ATTEMPT_AT).lte(now).and("retryCount").lt(settings.maxAttempts)),
+        new Update().set("status", PROCESSING).set(LEASE_TOKEN, UUID.randomUUID().toString())
             .set("leaseUntil", now.plusSeconds(300)).inc("retryCount", 1).inc("totalAttempts", 1),
         FindAndModifyOptions.options().returnNew(true), Notification.class);
   }
   private Query owned(Notification work) {
     return Query.query(Criteria.where("_id").is(work.getId()).and("tenantId").is(work.getTenantId())
-        .and("status").is("PROCESSING").and(LEASE_TOKEN).is(work.getLeaseToken()).and("leaseUntil").gt(Instant.now()));
+        .and("status").is(PROCESSING).and(LEASE_TOKEN).is(work.getLeaseToken()).and("leaseUntil").gt(Instant.now()));
   }
   public void deliver(Notification work) {
     // Check fencing immediately before invoking the external provider.
@@ -54,13 +61,13 @@ public class NotificationDelivery {
     } catch (DeliveryFailure failure) {
       boolean retry = failure.retryable && !failure.uncertain && work.getRetryCount() < settings.maxAttempts;
       mongo.updateFirst(owned(work), new Update().set("status", retry ? "RETRY_PENDING" : "FAILED")
-          .set("nextAttemptAt", Instant.now().plusSeconds(backoff(work.getRetryCount())))
-          .set("deliveryUncertain", failure.uncertain).set("lastError", failure.code).unset(LEASE_TOKEN).unset("leaseUntil"), Notification.class);
+          .set(NEXT_ATTEMPT_AT, Instant.now().plusSeconds(backoff(work.getRetryCount())))
+          .set(DELIVERY_UNCERTAIN, failure.uncertain).set("lastError", failure.code).unset(LEASE_TOKEN).unset("leaseUntil"), Notification.class);
       return;
     }
     // If this write fails, retain PROCESSING; lease recovery marks the outcome uncertain, never blindly resends.
     mongo.updateFirst(owned(work), new Update().set("status", "SENT").set("sentAt", Instant.now())
-        .set("deliveryUncertain", false).unset("lastError").unset(LEASE_TOKEN).unset("leaseUntil").unset("nextAttemptAt"), Notification.class);
+        .set(DELIVERY_UNCERTAIN, false).unset("lastError").unset(LEASE_TOKEN).unset("leaseUntil").unset(NEXT_ATTEMPT_AT), Notification.class);
   }
   static long backoff(int attempt) { return Math.min(3600, 60L << Math.min(6, Math.max(0, attempt - 1))); }
 }

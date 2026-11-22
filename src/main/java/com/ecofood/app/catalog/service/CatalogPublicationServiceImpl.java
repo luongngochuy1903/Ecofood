@@ -48,7 +48,9 @@ page(page,size);
   }
   @Override
   public Page<View> list(CatalogTypeEnum type,String apiKey,int page,int size) {
-    var a=access.current(); page(page,size); var q=Query.query(Criteria.where("tenantId").is(a.tenant().id()));
+    var a=access.current();
+    page(page,size);
+    var q=Query.query(Criteria.where("tenantId").is(a.tenant().id()));
     if(type!=null) q.addCriteria(Criteria.where("catalogType").is(type)); if(apiKey!=null && !apiKey.isBlank()) q.addCriteria(Criteria.where("apiKey").is(apiKey));
     // Drafts have no pins yet; authorize their selections as well, before pagination.
     var rows=mongo.find(q.with(Sort.by(Sort.Direction.DESC,"createdAt","id")),ApiPublication.class);
@@ -83,7 +85,10 @@ page(page,size);
   }
   @Override
   public View validate(String id,Revision input) {
-    var a=access.current(); a.require(CatalogAccess.PUBLISH); var p=load(a,id); revision(p,input);
+    var a=access.current();
+    a.require(CatalogAccess.PUBLISH);
+    var p=load(a,id);
+    revision(p,input);
     if(p.getStatus()!=CatalogPublicationStatusEnum.DRAFT && p.getStatus()!=CatalogPublicationStatusEnum.VALIDATED) throw conflict();
     try {
       validatePolicy(p.getPolicy()); var sources=data.resolve(a,p);
@@ -99,7 +104,10 @@ page(page,size);
   }
   @Override
   public View publish(String id,Revision input) {
-    var a=access.current(); a.require(CatalogAccess.PUBLISH); var p=load(a,id); revision(p,input);
+    var a=access.current();
+    a.require(CatalogAccess.PUBLISH);
+    var p=load(a,id);
+    revision(p,input);
     if(p.getStatus()!=CatalogPublicationStatusEnum.VALIDATED) throw conflict(); validatePolicy(p.getPolicy());
     var current=data.resolve(a,p).stream().map(CatalogData.Resolved::pin).toList();
     if(!Objects.equals(p.getPins(),current)) throw CatalogData.invalid("Source changed since validation; validate again");
@@ -111,7 +119,10 @@ page(page,size);
   }
   @Override
   public View retire(String id,Revision input) {
-    var a=access.current(); a.require(CatalogAccess.PUBLISH); var p=load(a,id); revision(p,input);
+    var a=access.current();
+    a.require(CatalogAccess.PUBLISH);
+    var p=load(a,id);
+    revision(p,input);
     if(p.getStatus()!=CatalogPublicationStatusEnum.PUBLISHED) throw conflict();
     return view(write(p,a,new Update().set(STATUS,CatalogPublicationStatusEnum.RETIRED).set("retiredAt",now()),"RETIRE",SUCCESS,"New external requests disabled; historical configuration retained"));
   }
@@ -143,7 +154,10 @@ page(page,size);
   }
   @Override
   public View revoke(String id,String partnerId,Revision input) {
-    var a=access.current(); a.require(CatalogAccess.GRANT); var p=load(a,id); revision(p,input);
+    var a=access.current();
+    a.require(CatalogAccess.GRANT);
+    var p=load(a,id);
+    revision(p,input);
     if(!org.bson.types.ObjectId.isValid(partnerId)) throw bad("Invalid Partner ID");
     var grant=p.getGrants().get(partnerId); if(grant==null) throw CatalogData.unavailable();
     if(grant.revokedAt()!=null) return view(p);
@@ -151,7 +165,11 @@ page(page,size);
   }
   private ApiPublication load(CatalogAccess.Actor a,String id) {
     var p=mongo.findOne(Query.query(Criteria.where("_id").is(id).and("tenantId").is(a.tenant().id())),ApiPublication.class);
-    if(p==null) throw CatalogData.unavailable(); authorize(a,p); return p;
+    if(p==null) {
+      throw CatalogData.unavailable();
+    }
+    authorize(a,p);
+    return p;
   }
   private void authorize(CatalogAccess.Actor a,ApiPublication p) {
     if(!a.tenant().id().equals(p.getTenantId())) throw CatalogData.unavailable();
@@ -165,7 +183,10 @@ page(page,size);
     else update.push("audit",event(p,a,action,result,detail));
     var updated=mongo.findAndModify(Query.query(Criteria.where("_id").is(p.getId()).and("tenantId").is(a.tenant().id()).and("revision").is(p.getRevision()).and(STATUS).is(p.getStatus())),
         update.inc("revision",1).set("updatedAt",now()).set("updatedBy",a.userId()),FindAndModifyOptions.options().returnNew(true),ApiPublication.class);
-    if(updated==null) throw conflict(); return updated;
+    if(updated==null) {
+      throw conflict();
+    }
+    return updated;
   }
   private CatalogDtos.Audit event(ApiPublication p,CatalogAccess.Actor a,String action,String result,String detail) {
     return new CatalogDtos.Audit(UUID.randomUUID().toString(),a.userId(),p.getTenantId(),p.getApiKey(),p.getVersion(),now(),action,result,detail);
@@ -197,7 +218,8 @@ page(page,size);
   }
   private void revision(ApiPublication p,Revision request) { if(request==null || request.revision()!=p.getRevision()) throw conflict(); }
   public static void page(int page,int size) { if(page<0 || page>100000 || size<1 || size>100) throw bad("Invalid pagination"); }
-  private static <T> Page<T> slice(List<T> rows,int page,int size) { int from=(int)Math.min((long)page*size,rows.size()),to=Math.min(from+size,rows.size()); return new Page<>(rows.subList(from,to),page,size,to<rows.size()); }
+  private static <T> Page<T> slice(List<T> rows,int page,int size) { int from=(int)Math.min((long)page*size,rows.size());
+    int to=Math.min(from+size,rows.size()); return new Page<>(rows.subList(from,to),page,size,to<rows.size()); }
   public static Instant now() { return Instant.now().truncatedTo(ChronoUnit.MILLIS); }
   static ResponseStatusException conflict() { return new ResponseStatusException(HttpStatus.CONFLICT,"Publication changed or lifecycle action is not allowed; reload"); }
   public static ResponseStatusException bad(String text) { return new ResponseStatusException(HttpStatus.BAD_REQUEST,text); }

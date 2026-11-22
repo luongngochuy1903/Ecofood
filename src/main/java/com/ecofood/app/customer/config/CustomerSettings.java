@@ -22,7 +22,9 @@ public class CustomerSettings {
   public boolean registrationAllowed(String tenant) { return Arrays.stream(registrationTenants.split(",")).map(String::trim).anyMatch(tenant::equals); }
   public byte[] receiptKey() {
     try { byte[] key = Base64.getDecoder().decode(receiptSecret); if (key.length >= 32) return key; }
-    catch (IllegalArgumentException ignored) { }
+    catch (IllegalArgumentException ignored) {
+      // Invalid deployment configuration is rejected by the explicit error below.
+    }
 throw unavailable("Configure CUSTOMER_RECEIPT_SECRET with at least 32 random bytes encoded as Base64");
   }
   public String base() {
@@ -32,7 +34,9 @@ throw unavailable("Configure CUSTOMER_RECEIPT_SECRET with at least 32 random byt
       if (uri.getHost() != null && uri.getUserInfo() == null && uri.getQuery() == null && uri.getFragment() == null && publicBase.length() <= 500
           && (uri.getPath() == null || uri.getPath().isEmpty() || uri.getPath().equals("/"))
           && ("https".equals(uri.getScheme()) || (local && "http".equals(uri.getScheme())))) return stripTrailingSlashes(publicBase);
-    } catch (IllegalArgumentException ignored) { }
+    } catch (IllegalArgumentException ignored) {
+      // Invalid deployment configuration is rejected by the explicit error below.
+    }
 throw unavailable("Configure CUSTOMER_PUBLIC_BASE_URL with the trusted frontend origin");
   }
   private String stripTrailingSlashes(String value) {

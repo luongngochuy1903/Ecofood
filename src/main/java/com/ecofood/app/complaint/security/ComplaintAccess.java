@@ -40,7 +40,8 @@ public class ComplaintAccess {
       String id=AuthenticationContext.getUserId().toHexString(), tenant=AuthenticationContext.getTenantId().toHexString();
       var user=directory.user(id,tenant); if(user==null) throw denied();
       var live=directory.claims(user,tenant);
-      Set<String> roles=new HashSet<>(live.roles()), permissions=new HashSet<>(live.permissions());
+      Set<String> roles=new HashSet<>(live.roles());
+      Set<String> permissions=new HashSet<>(live.permissions());
       roles.retainAll(Optional.ofNullable(AuthenticationContext.getRoles()).orElse(List.of()));
       permissions.retainAll(Optional.ofNullable(AuthenticationContext.getPermissions()).orElse(List.of()));
       var reference=tenants.propositionReference(tenant); if(reference.deleted() || !permissions.contains(READ)) throw denied();

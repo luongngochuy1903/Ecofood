@@ -22,6 +22,8 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @RequiredArgsConstructor
 public class NotificationManagementImpl implements NotificationManagementService {
+  private static final String TENANT_ID = "tenantId";
+  private static final String STATUS = "status";
   private final MongoTemplate mongo;
   private final NotificationAccess access;
   private final NotificationRecipients recipients;
@@ -37,7 +39,8 @@ public class NotificationManagementImpl implements NotificationManagementService
   public Map<String, Object> options() {
     var scope = access.current(); scope.requireManage();
     var users = directory.users(scope.tenant());
-    Set<String> roles = new TreeSet<>(), permissions = new TreeSet<>();
+    Set<String> roles = new TreeSet<>();
+    Set<String> permissions = new TreeSet<>();
     var people = users.stream().limit(500).map(user -> {
       var claims = directory.claims(user, scope.tenant()); roles.addAll(claims.roles()); permissions.addAll(claims.permissions());
       return Map.of("id", user.getIdAsString(), "email", Optional.ofNullable(user.getEmail()).orElse(""));
@@ -48,12 +51,12 @@ public class NotificationManagementImpl implements NotificationManagementService
   @Override
   public List<NotificationRule> rules() {
     var scope = access.current(); scope.requireManage();
-    return mongo.find(Query.query(Criteria.where("tenantId").is(scope.tenant())).with(Sort.by(Sort.Direction.DESC, "updatedAt")).limit(100), NotificationRule.class);
+    return mongo.find(Query.query(Criteria.where(TENANT_ID).is(scope.tenant())).with(Sort.by(Sort.Direction.DESC, "updatedAt")).limit(100), NotificationRule.class);
   }
   @Override
   public NotificationRule rule(String id) { var s = access.current(); s.requireManage(); return findRule(id, s.tenant()); }
   private NotificationRule findRule(String id, String tenant) {
-    var rule = mongo.findOne(Query.query(Criteria.where("_id").is(id).and("tenantId").is(tenant)), NotificationRule.class);
+    var rule = mongo.findOne(Query.query(Criteria.where("_id").is(id).and(TENANT_ID).is(tenant)), NotificationRule.class);
     if (rule == null) throw missing(); return rule;
   }
   @Override
@@ -87,7 +90,7 @@ public class NotificationManagementImpl implements NotificationManagementService
   }
   private NotificationRule updateRule(String id, long revision, NotificationAccess.Scope scope, Update update, String action) {
     Instant now = Instant.now();
-    var result = mongo.findAndModify(Query.query(Criteria.where("_id").is(id).and("tenantId").is(scope.tenant()).and("revision").is(revision)),
+    var result = mongo.findAndModify(Query.query(Criteria.where("_id").is(id).and(TENANT_ID).is(scope.tenant()).and("revision").is(revision)),
         update.inc("revision", 1).set("updatedAt", now).set("updatedBy", scope.actor())
           .push("audit", new NotificationDtos.Change(revision + 1, now, scope.actor(), action)), FindAndModifyOptions.options().returnNew(true), NotificationRule.class);
     if (result == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "Rule đã thay đổi; tải lại trước khi lưu"); return result;
@@ -96,17 +99,24 @@ public class NotificationManagementImpl implements NotificationManagementService
   public NotificationDtos.Page<Notification> history(String event, String status, Instant from, Instant to, int page, int size) {
     var scope = access.current(); scope.requireRead();
     if (page < 0 || page > 100000 || size < 1 || size > 100) throw NotificationTemplate.bad("Phân trang không hợp lệ");
-    Query query = Query.query(Criteria.where("tenantId").is(scope.tenant()));
+    Query query = Query.query(Criteria.where(TENANT_ID).is(scope.tenant()));
     if (event != null && !event.isBlank()) query.addCriteria(Criteria.where("type").is(event));
-    if (status != null && !status.isBlank()) query.addCriteria(Criteria.where("status").is(status));
-    if (from != null || to != null) { var period = Criteria.where("createdAt"); if (from != null) period.gte(from); if (to != null) period.lte(to); query.addCriteria(period); }
+    if (status != null && !status.isBlank()) query.addCriteria(Criteria.where(STATUS).is(status));
+    if (from != null || to != null) { var period = Criteria.where("createdAt");
+      if (from != null) {
+        period.gte(from);
+      }
+      if (to != null) {
+        period.lte(to);
+      }
+      query.addCriteria(period); }
     var rows = mongo.find(query.with(Sort.by(Sort.Direction.DESC, "createdAt", "id")).skip((long) page * size).limit(size + 1), Notification.class);
     return new NotificationDtos.Page<>(List.copyOf(rows.subList(0, Math.min(size, rows.size()))), page, size, rows.size() > size);
   }
   @Override
   public Notification detail(String id) {
     var scope = access.current(); scope.requireRead();
-    var result = mongo.findOne(Query.query(Criteria.where("_id").is(id).and("tenantId").is(scope.tenant())), Notification.class);
+    var result = mongo.findOne(Query.query(Criteria.where("_id").is(id).and(TENANT_ID).is(scope.tenant())), Notification.class);
     if (result == null) throw missing(); return result;
   }
   @Override
@@ -114,8 +124,8 @@ public class NotificationManagementImpl implements NotificationManagementService
     var scope = access.current(); scope.requireRetry(); var current = detail(id);
     if (!"FAILED".equals(current.getStatus())) throw new ResponseStatusException(HttpStatus.CONFLICT, "Chỉ retry Notification FAILED");
     if (current.isDeliveryUncertain() && (input == null || !input.acknowledgeDuplicateRisk())) throw NotificationTemplate.bad("Cần xác nhận nguy cơ gửi trùng vì kết quả SMTP trước đó chưa xác định");
-    var result = mongo.findAndModify(Query.query(Criteria.where("_id").is(id).and("tenantId").is(scope.tenant()).and("status").is("FAILED").and("totalAttempts").is(current.getTotalAttempts())),
-        new Update().set("status", "PENDING").set("retryCount", 0).set("nextAttemptAt", Instant.now()).set("deliveryUncertain", false)
+    var result = mongo.findAndModify(Query.query(Criteria.where("_id").is(id).and(TENANT_ID).is(scope.tenant()).and(STATUS).is("FAILED").and("totalAttempts").is(current.getTotalAttempts())),
+        new Update().set(STATUS, "PENDING").set("retryCount", 0).set("nextAttemptAt", Instant.now()).set("deliveryUncertain", false)
           .set("manualRetryBy", scope.actor()).set("manualRetryAt", Instant.now()), FindAndModifyOptions.options().returnNew(true), Notification.class);
     if (result == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "Notification đã thay đổi"); return result;
   }

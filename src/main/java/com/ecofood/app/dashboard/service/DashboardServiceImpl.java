@@ -97,7 +97,8 @@ public class DashboardServiceImpl implements DashboardQueryService {
   }
   @Override
   public Comparison comparison(Selection selection) {
-    var context = context(selection); var summary = summarize(context, selection);
+    var context = context(selection);
+    var summary = summarize(context, selection);
     List<Breakdown> byTenant = new ArrayList<>(), byProposition = new ArrayList<>();
     for (String tenant : context.tenantIds().stream().sorted().toList()) {
       var individual = new Selection(tenant, selection.propositionId(), selection.currency(), selection.year(), selection.period(), selection.month(), selection.quarter(), false);

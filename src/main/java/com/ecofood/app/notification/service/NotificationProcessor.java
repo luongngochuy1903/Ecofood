@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class NotificationProcessor {
+  private static final String NOTIFICATION_LEASE_UNTIL = "notification.leaseUntil";
   private final MongoTemplate mongo;
   private final List<NotificationEventSource> sources;
   private final NotificationRecipients recipients;
@@ -37,16 +38,16 @@ public class NotificationProcessor {
   public SubmissionNotificationState claim(Instant now) {
     Criteria due = new Criteria().orOperator(Criteria.where("notification.state").exists(false),
         new Criteria().andOperator(Criteria.where("notification.state").is("RETRY"), Criteria.where("notification.nextAttemptAt").lte(now)),
-        new Criteria().andOperator(Criteria.where("notification.state").is("PROCESSING"), Criteria.where("notification.leaseUntil").lte(now)));
+        new Criteria().andOperator(Criteria.where("notification.state").is("PROCESSING"), Criteria.where(NOTIFICATION_LEASE_UNTIL).lte(now)));
     return mongo.findAndModify(Query.query(new Criteria().andOperator(Criteria.where("event").in(sources.stream().map(NotificationEventSource::event).toList()), due)),
         new Update().set("notification.state", "PROCESSING").set("notification.leaseToken", UUID.randomUUID().toString())
-            .set("notification.leaseUntil", now.plusSeconds(120)).inc("notification.attempts", 1),
+            .set(NOTIFICATION_LEASE_UNTIL, now.plusSeconds(120)).inc("notification.attempts", 1),
         FindAndModifyOptions.options().returnNew(true), SubmissionNotificationState.class);
   }
   private Query owned(SubmissionNotificationState work) {
     return Query.query(Criteria.where("_id").is(work.getId()).and("tenantId").is(work.getTenantId())
         .and("notification.state").is("PROCESSING").and("notification.leaseToken").is(work.getNotification().getLeaseToken())
-        .and("notification.leaseUntil").gt(Instant.now()));
+        .and(NOTIFICATION_LEASE_UNTIL).gt(Instant.now()));
   }
   public void process(SubmissionNotificationState work) {
     try {
@@ -63,7 +64,8 @@ public class NotificationProcessor {
           for (NotificationRule rule : rules) {
             var targets = Submission.INVOICE_PAID.equals(event.event()) ? recipients.resolve(rule, context.invoice()) : recipients.resolve(rule, context.invoice(), event);
             if (targets.isEmpty()) continue;
-            String subject = template.render(rule.getSubject(), context.values(), true), body = template.render(rule.getContent(), context.values(), false);
+            String subject = template.render(rule.getSubject(), context.values(), true);
+            String body = template.render(rule.getContent(), context.values(), false);
             for (var recipient : targets) {
               Notification notification = new Notification();
               notification.setId(deliveryId(event.id(), rule.getId(), recipient.email()));
@@ -91,7 +93,7 @@ public class NotificationProcessor {
         }
       }
       mongo.updateFirst(owned(work), new Update().set("notification.state", "GENERATED".equals(result) ? "DONE" : "SKIPPED")
-          .set("notification.completedAt", Instant.now()).unset("notification.leaseToken").unset("notification.leaseUntil").unset("notification.lastError"), SubmissionNotificationState.class);
+          .set("notification.completedAt", Instant.now()).unset("notification.leaseToken").unset(NOTIFICATION_LEASE_UNTIL).unset("notification.lastError"), SubmissionNotificationState.class);
     } catch (RuntimeException failure) {
       try {
         boolean exhausted = work.getNotification().getAttempts() >= 10;
@@ -99,7 +101,7 @@ public class NotificationProcessor {
         String error = safeCodes.contains(String.valueOf(failure.getMessage())) ? failure.getMessage() : "GENERATION_FAILED";
         mongo.updateFirst(owned(work), new Update().set("notification.state", exhausted ? "BLOCKED" : "RETRY")
             .set("notification.nextAttemptAt", Instant.now().plusSeconds(60)).set("notification.lastError", error)
-            .unset("notification.leaseToken").unset("notification.leaseUntil"), SubmissionNotificationState.class);
+            .unset("notification.leaseToken").unset(NOTIFICATION_LEASE_UNTIL), SubmissionNotificationState.class);
       } catch (RuntimeException unavailable) { /* Expired lease is recoverable by another poll. */ }
     }
   }

@@ -13,12 +13,24 @@ import org.springframework.data.mongodb.core.mapping.Document;
 @Document("notification")
 public class Notification implements NotificationView {
   @Id private String id;
-  private String submissionId, tenantId, ruleId, type, channel = "EMAIL";
+  private String submissionId;
+  private String tenantId;
+  private String ruleId;
+  private String type;
+  private String channel = "EMAIL";
   private long ruleRevision;
-  private String content, subject, sendFrom, sendTo, recipientUserId;
+  private String content;
+  private String subject;
+  private String sendFrom;
+  private String sendTo;
+  private String recipientUserId;
   private String status = "PENDING";
-  private Instant createdAt, sentAt, nextAttemptAt, leaseUntil;
-  private int retryCount, totalAttempts;
+  private Instant createdAt;
+  private Instant sentAt;
+  private Instant nextAttemptAt;
+  private Instant leaseUntil;
+  private int retryCount;
+  private int totalAttempts;
   private String lastError;
   private boolean deliveryUncertain;
   private String manualRetryBy;

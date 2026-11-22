@@ -36,7 +36,9 @@ class CustomerIdentityTest {
     when(tenants.propositionReference(TENANT)).thenReturn(new PropositionTenantReference(TENANT, "Test", null, PartnerTypeEnum.BRAND, TenantTypeEnum.STANDALONE, List.of(TENANT), List.of(), false));
     var tenant = TenantResponse.builder().id(TENANT).realm("customer").clientId("customer-public").build();
     when(tenants.getById(TENANT)).thenReturn(tenant); when(tenants.getAllByRealm("customer")).thenReturn(List.of(tenant));
-    when(verifier.verify("kc-token")).thenReturn(claims(true, "kc-" + A)); when(mongo.indexOps(CustomerUser.class)).thenReturn(mock(IndexOperations.class));
+    when(verifier.verify("kc-token")).thenReturn(claims(true, "kc-" + A));
+    var indexes = mock(IndexOperations.class);
+    when(mongo.indexOps(CustomerUser.class)).thenReturn(indexes);
   }
   @Test void verifiedKeycloakRegistrationCreatesOnlyOneAppUserCustomerAndNoStaffRoles() {
     assertNotNull(service.bootstrap(new CustomerIdentityDtos.Bootstrap("kc-token", TENANT, true)));

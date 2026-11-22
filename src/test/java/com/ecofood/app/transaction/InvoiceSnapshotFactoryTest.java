@@ -115,7 +115,8 @@ class InvoiceSnapshotFactoryTest {
     proposition.setSourceProcess(null);
     assertEquals(bd("10"), snapshot.profitShare().platformProfitShare());
     assertEquals(bd("40"), snapshot.costing().ingredientCost());
-    assertThrows(UnsupportedOperationException.class, () -> snapshot.missingData().clear());
+    var missingData = snapshot.missingData();
+    assertThrows(UnsupportedOperationException.class, missingData::clear);
   }
 
   @Test

@@ -30,6 +30,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @RequiredArgsConstructor
 public class ComplaintServiceImpl implements ComplaintService {
+  private static final String QUEUE_TENANT_ID = "queue.tenantId";
   private final MongoTemplate mongo;
   private final CustomerAccess customers;
   private final CoreCustomerInvoiceClient invoices;
@@ -92,7 +93,7 @@ public class ComplaintServiceImpl implements ComplaintService {
   @Override
   public Page<Complaint> adminList(ComplaintTypeEnum type,ComplaintStatusEnum status,int page,int size) {
     var a=admins.current(); if(type!=null && !a.types().contains(type)) throw ComplaintAccess.denied();
-    return list(Criteria.where("queue.tenantId").is(a.tenantId()).and("complaintType").in(type==null?a.types():List.of(type)),status,page,size);
+    return list(Criteria.where(QUEUE_TENANT_ID).is(a.tenantId()).and("complaintType").in(type==null?a.types():List.of(type)),status,page,size);
   }
   @Override
   public Detail adminDetail(String id) {
@@ -105,12 +106,18 @@ public class ComplaintServiceImpl implements ComplaintService {
     return new Detail(c,name,i==null?null:i.getInvoiceNumber());
   }
   private Complaint adminFind(ComplaintAccess.Actor a,String id) {
-    var c=mongo.findOne(Query.query(Criteria.where("_id").is(id).and("queue.tenantId").is(a.tenantId()).and("complaintType").in(a.types())),Complaint.class);
-    if(c==null) throw ComplaintAccess.missing(); admins.requireScope(a,c); return c;
+    var c=mongo.findOne(Query.query(Criteria.where("_id").is(id).and(QUEUE_TENANT_ID).is(a.tenantId()).and("complaintType").in(a.types())),Complaint.class);
+    if(c==null) {
+      throw ComplaintAccess.missing();
+    }
+    admins.requireScope(a,c);
+    return c;
   }
   @Override
   public Complaint action(String id,String action,Action input) {
-    var a=admins.current(); a.requireManage(); var c=adminFind(a,id);
+    var a=admins.current();
+    a.requireManage();
+    var c=adminFind(a,id);
     check(input==null?null:input.revision(),input==null?null:input.note(),c);
     ComplaintStatusEnum next=c.getStatus(); Update update=new Update(); String event; String note=input.note();
     if(!"assign".equals(action) && blank(input.assignedTo())!=null) throw bad("Assignee only accepted by assign action");
@@ -156,8 +163,12 @@ public class ComplaintServiceImpl implements ComplaintService {
     if(next==ComplaintStatusEnum.CLOSED) update.set("closedAt",now);
     if(businessEvent!=null) update.push("handoffs",new Complaint.Handoff(submission(c,businessEvent,now),true));
     var result=mongo.findAndModify(Query.query(Criteria.where("_id").is(c.getId()).and("revision").is(c.getRevision()).and("status").is(c.getStatus())
-        .and("customerId").is(c.getCustomerId()).and("queue.tenantId").is(c.getQueue().tenantId())),update,FindAndModifyOptions.options().returnNew(true),Complaint.class);
-    if(result==null) throw conflict(); handoff.deliver(result); return result;
+        .and("customerId").is(c.getCustomerId()).and(QUEUE_TENANT_ID).is(c.getQueue().tenantId())),update,FindAndModifyOptions.options().returnNew(true),Complaint.class);
+    if(result==null) {
+      throw conflict();
+    }
+    handoff.deliver(result);
+    return result;
   }
   private Page<Complaint> list(Criteria scope,ComplaintStatusEnum status,int page,int size) {
     if(page<0 || page>100000 || size<1 || size>100) throw bad("Invalid pagination");

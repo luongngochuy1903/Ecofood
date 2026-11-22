@@ -27,6 +27,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @RequiredArgsConstructor
 public class CustomerIdentity implements CustomerIdentityService {
+  private static final String EMAIL = "email";
   private final MongoTemplate mongo;
   private final CoreTenantQueryClient tenants;
   private final KeycloakTokenVerifier verifier;
@@ -49,7 +50,7 @@ public class CustomerIdentity implements CustomerIdentityService {
     if (!config.realm().equals(KeycloakTokenVerifier.extractRealm(claims.getIssuer()))) throw unauthorized();
     verifyClaims(claims, config.clientId());
     String email = email(claims);
-    var existing = mongo.findOne(Query.query(Criteria.where("email").regex("^" + java.util.regex.Pattern.quote(email) + "$", "i").and("deleted").ne(true)), CustomerUser.class);
+    var existing = mongo.findOne(Query.query(Criteria.where(EMAIL).regex("^" + java.util.regex.Pattern.quote(email) + "$", "i").and("deleted").ne(true)), CustomerUser.class);
     if (existing == null) {
       if (!config.registrationEnabled()) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Customer registration is not enabled for this Tenant");
       ensureIdentityIndex();
@@ -68,8 +69,8 @@ public class CustomerIdentity implements CustomerIdentityService {
   }
   /** Existing staff exchange is unchanged; Customer exchanges additionally bind the verified Keycloak subject. */
   public ExchangeIdentity guardExchange(JWTClaimsSet claims) {
-    String email = String.valueOf(claims.getClaim("email")).trim();
-    var user = mongo.findOne(Query.query(Criteria.where("email").regex("^" + java.util.regex.Pattern.quote(email) + "$", "i")), CustomerUser.class);
+    String email = String.valueOf(claims.getClaim(EMAIL)).trim();
+    var user = mongo.findOne(Query.query(Criteria.where(EMAIL).regex("^" + java.util.regex.Pattern.quote(email) + "$", "i")), CustomerUser.class);
     if (user == null || user.getUserCategory() == null || !"CUSTOMER".equals(user.getUserCategory().getUserCategoryCode())) return null;
     var candidates = tenants.getAllByRealm(KeycloakTokenVerifier.extractRealm(claims.getIssuer()));
     var tenant = candidates.stream().filter(t -> belongs(user, t.getId())).findFirst().orElseThrow(CustomerIdentity::unauthorized);
@@ -80,9 +81,9 @@ public class CustomerIdentity implements CustomerIdentityService {
     if (identityIndexReady) return;
     try {
       mongo.indexOps(CustomerUser.class).createIndex(new org.springframework.data.mongodb.core.index.Index()
-          .on("email", org.springframework.data.domain.Sort.Direction.ASC).unique()
+          .on(EMAIL, org.springframework.data.domain.Sort.Direction.ASC).unique()
           .collation(org.springframework.data.mongodb.core.query.Collation.of("en").strength(2))
-          .partial(org.springframework.data.mongodb.core.index.PartialIndexFilter.of(Criteria.where("email").type(2)))
+          .partial(org.springframework.data.mongodb.core.index.PartialIndexFilter.of(Criteria.where(EMAIL).type(2)))
           .named("ux_customer_identity_email_ci"));
       identityIndexReady = true;
     } catch (RuntimeException conflict) {
@@ -108,7 +109,8 @@ public class CustomerIdentity implements CustomerIdentityService {
   }
   public static boolean belongs(UserEntity user, String tenant) { return user.getPartyRelationships() != null && user.getPartyRelationships().stream().anyMatch(r -> "TENANT".equals(r.getRelationshipTypeCode()) && new ObjectId(tenant).equals(r.getToPartyId())); }
   private String email(JWTClaimsSet claims) {
-    Object raw = claims.getClaim("email"); String email = raw instanceof String s ? s.trim().toLowerCase(Locale.ROOT) : "";
+    Object raw = claims.getClaim(EMAIL);
+    String email = raw instanceof String s ? s.trim().toLowerCase(Locale.ROOT) : "";
     if (!com.ecofood.app.notification.config.NotificationSettings.validEmail(email)) throw unauthorized(); return email;
   }
   private String text(JWTClaimsSet claims, String key, int limit) { Object raw = claims.getClaim(key); String text = raw instanceof String s ? s.trim() : ""; if (text.length() > limit) throw unauthorized(); return text; }

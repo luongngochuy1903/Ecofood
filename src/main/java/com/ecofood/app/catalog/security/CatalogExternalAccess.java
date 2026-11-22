@@ -21,6 +21,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @RequiredArgsConstructor
 public class CatalogExternalAccess implements CatalogExternalService {
+  private static final String GRANTS_PREFIX = "grants.";
   private final MongoTemplate mongo;
   private final CatalogAccess access;
   private final CatalogData data;
@@ -62,7 +63,8 @@ public class CatalogExternalAccess implements CatalogExternalService {
     if(size>p.getPolicy().maxPageSize()) throw CatalogPublicationServiceImpl.bad("Page size exceeds publication policy");
     if(search!=null && search.length()>200) throw CatalogPublicationServiceImpl.bad("Search is too long");
     if(planId!=null && !grant.planIds().contains(planId)) throw CatalogData.unavailable();
-    var actor=access.publisher(p.getPublishedBy(),p.getTenantId()); List<Item> permitted=new ArrayList<>();
+    var actor=access.publisher(p.getPublishedBy(),p.getTenantId());
+    List<Item> permitted=new ArrayList<>();
     for(var pin:p.getPins()) {
       if(!grant.planIds().contains(pin.planId())) continue;
       CatalogData.Resolved source;
@@ -80,8 +82,8 @@ public class CatalogExternalAccess implements CatalogExternalService {
     int from=(int)Math.min((long)page*size,rows.size()),to=Math.min(from+size,rows.size()); Instant fence=CatalogPublicationServiceImpl.now();
     // Authorization fence: a completed revoke/rotation/retire wins over a read which was still resolving source data.
     var query=Query.query(Criteria.where("_id").is(p.getId()).and("status").is(CatalogPublicationStatusEnum.PUBLISHED)
-        .and("grants."+principal.partnerId()+".id").is(principal.grantId()).and("grants."+principal.partnerId()+".revokedAt").is(null)
-        .and("grants."+principal.partnerId()+".expiresAt").gt(fence).and("policy.startsAt").lte(fence).and("policy.expiresAt").gt(fence));
+        .and(GRANTS_PREFIX+principal.partnerId()+".id").is(principal.grantId()).and(GRANTS_PREFIX+principal.partnerId()+".revokedAt").is(null)
+        .and(GRANTS_PREFIX+principal.partnerId()+".expiresAt").gt(fence).and("policy.startsAt").lte(fence).and("policy.expiresAt").gt(fence));
     if(mongo.updateFirst(query,new Update().inc("accessCount",1).set("lastAccessAt",fence).set("lastAccessPartnerId",principal.partnerId()),ApiPublication.class).getModifiedCount()!=1)
       throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Catalog access changed; request denied");
     return new Catalog(p.getApiKey(),p.getVersion(),p.getContractVersion(),p.getCatalogType(),List.copyOf(rows.subList(from,to)),page,size,to<rows.size());
@@ -91,7 +93,7 @@ public class CatalogExternalAccess implements CatalogExternalService {
     return new ResponseStatusException(status,code);
   }
   private void recordDenied(ApiPublication p,ExternalPrincipal principal,String code) {
-    try { mongo.updateFirst(Query.query(Criteria.where("_id").is(p.getId()).and("grants."+principal.partnerId()+".id").is(principal.grantId())),
+    try { mongo.updateFirst(Query.query(Criteria.where("_id").is(p.getId()).and(GRANTS_PREFIX+principal.partnerId()+".id").is(principal.grantId())),
         new Update().inc("deniedCount",1).set("lastDeniedAt",CatalogPublicationServiceImpl.now()).set("lastDeniedCode",code).set("lastDeniedPartnerId",principal.partnerId()),ApiPublication.class); }
     catch(RuntimeException unavailable) { /* Deny remains fail-closed even if audit counters are unavailable. */ }
   }
