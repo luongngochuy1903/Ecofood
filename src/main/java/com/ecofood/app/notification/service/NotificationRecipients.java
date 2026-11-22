@@ -71,6 +71,14 @@ public class NotificationRecipients {
     }
   }
   public boolean stillAllowed(Notification notification) {
+    if (SaleConfirmationHandoff.TYPE.equals(notification.getType())) {
+      var source=directory.sourceBatch(notification);
+      var user=directory.user(notification.getRecipientUserId(),notification.getTenantId());
+      return source!=null && !source.invoiceIds().isEmpty()
+          && Objects.equals(source.submittedBy(),notification.getRecipientUserId())
+          && user!=null && user.getUserCategory()!=null && "PARTNER".equals(user.getUserCategory().getUserCategoryCode())
+          && NotificationSettings.validEmail(user.getEmail()) && NotificationSettings.canonical(user.getEmail()).equals(notification.getSendTo());
+    }
     var audience = audiences.stream().filter(a -> a.supports(notification.getType())).findFirst();
     if (audience.isPresent()) return audience.get().stillAllowed(notification);
     if ("COMPLAINT_CREATED".equals(notification.getType()) || "COMPLAINT_RESOLVED".equals(notification.getType())) return false;

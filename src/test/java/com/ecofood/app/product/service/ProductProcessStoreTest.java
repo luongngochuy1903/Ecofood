@@ -44,7 +44,7 @@ class ProductProcessStoreTest {
     ProductVersionEntity old=ProductVersionEntity.builder().productId(productId).version(3).revision(7L)
         .name("Existing product").ingredients(List.of()).pricing(new ProductPricingRequest(BigDecimal.TEN,BigDecimal.ONE,"VND")).build();old.setId(new ObjectId());
     // Persisted legacy records include audit fields populated by Mongo auditing.
-    String actorId=new ObjectId().toHexString();old.setCreatedBy(actorId);old.setUpdatedBy(actorId);
+    ObjectId actorId=new ObjectId();old.setCreatedBy(actorId);old.setUpdatedBy(actorId);
     when(processes.findByProductIdAndVersion(productId,3)).thenReturn(Optional.empty());
     when(legacy.findByProductIdAndVersion(productId,3)).thenReturn(Optional.of(old));
     var result=store.findByProductIdAndVersion(productId,3).orElseThrow();

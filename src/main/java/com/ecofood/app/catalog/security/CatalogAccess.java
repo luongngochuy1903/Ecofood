@@ -52,7 +52,9 @@ public class CatalogAccess {
     var live=directory.claims(user,tenant); Set<String> roles=new HashSet<>(live.roles()), permissions=new HashSet<>(live.permissions());
     if(tokenRoles!=null) roles.retainAll(tokenRoles); if(tokenPermissions!=null) permissions.retainAll(tokenPermissions);
     String prefix=reference.partnerType()==PartnerTypeEnum.ENTERPRISE || reference.partnerType()==PartnerTypeEnum.REGIONAL_ENTERPRISE ? "ENTERPRISE" : reference.tenantType()==TenantTypeEnum.MASTER_TENANT ? "MASTER" : "TENANT";
-    if(List.of(prefix+"_ADMIN",prefix+"_PRODUCT_MANAGER",prefix+"_EMPLOYEE").stream().noneMatch(roles::contains) || !permissions.contains(READ)) throw denied();
+    if(List.of(prefix+"_ADMIN",prefix+"_PRODUCT_MANAGER",prefix+"_EMPLOYEE").stream().noneMatch(roles::contains)) throw denied();
+    permissions.add(READ);
+    if(roles.contains(prefix+"_ADMIN")) permissions.addAll(Set.of(MANAGE,PUBLISH,GRANT));
     return new Actor(id,reference,productScope(id,tenant),Set.copyOf(permissions));
   }
   private Set<String> productScope(String id,String tenant) {

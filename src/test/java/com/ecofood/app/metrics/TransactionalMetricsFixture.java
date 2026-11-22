@@ -6,6 +6,7 @@ import static org.mockito.Mockito.*;
 import com.ecofood.app.metrics.entity.*;
 import com.ecofood.app.metrics.service.MongoMetricsTransactions;
 import com.ecofood.app.submission.entity.Submission;
+import com.ecofood.app.submission.entity.InvoiceBatchSubmission;
 import com.ecofood.app.transaction.entity.Invoice;
 import com.ecofood.core.enums.TransactionStatus;
 import com.mongodb.client.result.UpdateResult;
@@ -26,6 +27,7 @@ final class TransactionalMetricsFixture {
   final MongoOperations ops = mock(MongoOperations.class);
   final Map<String, Invoice> invoices = new HashMap<>();
   final Map<String, Submission> events = new HashMap<>();
+  final Map<String, InvoiceBatchSubmission> batches = new HashMap<>();
   final Map<String, ActualMetrics> metrics = new HashMap<>();
   final Map<String, SubmissionMetricsState.Processing> states = new HashMap<>();
   final ReentrantLock lock = new ReentrantLock();
@@ -63,6 +65,11 @@ final class TransactionalMetricsFixture {
       return event == null || !Objects.equals(query.getString("tenantId"), event.tenantId()) ? null
           : new SubmissionMetricsState(event.id(), states.get(event.id()));
     });
+    when(ops.findOne(any(Query.class),eq(InvoiceBatchSubmission.class))).thenAnswer(call->{
+      var query=((Query)call.getArgument(0)).getQueryObject();
+      var batch=batches.get(query.getString("_id"));
+      return batch!=null && batch.tenantId().equals(query.getString("tenantId"))?batch:null;
+    });
     when(ops.findById(anyString(), eq(ActualMetrics.class)))
         .thenAnswer(call -> metrics.get(call.getArgument(0)));
     when(ops.save(any(ActualMetrics.class))).thenAnswer(call -> {
@@ -96,7 +103,12 @@ final class TransactionalMetricsFixture {
       Instant start = (Instant) dates.get("$gte"), end = (Instant) dates.get("$lt");
       return invoices.values().stream()
           .filter(row -> Objects.equals(criteria.getString("tenantId"), row.getTenantId()))
-          .filter(row -> Objects.equals(criteria.getString("propositionId"), row.getPropositionId()))
+          .filter(row -> {
+            var alternatives=criteria.getList("$or",Document.class);
+            String proposition=alternatives==null?criteria.getString("propositionId"):alternatives.get(0).getString("propositionId");
+            return Objects.equals(proposition,row.getPropositionId()) || row.getPlanLines()!=null
+                && row.getPlanLines().stream().anyMatch(line->Objects.equals(proposition,line.snapshot().propositionId()));
+          })
           .filter(row -> Objects.equals(criteria.getString("currency"), row.getCurrency()))
           .filter(row -> row.getStatus() == TransactionStatus.ACCEPTED && "PAID".equals(row.getPaymentStatus()))
           .filter(row -> !row.getReceivedAt().isBefore(start) && row.getReceivedAt().isBefore(end))

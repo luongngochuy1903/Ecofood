@@ -84,4 +84,26 @@ class MetricsMongoMappingTest {
         index.getValue().getIndexKeys().keySet().stream().toList());
     assertEquals(true, index.getValue().getIndexOptions().getBoolean("unique"));
   }
+  @Test
+  void sharedBatchEnvelopeAndMultiContributionMarkerRoundTripWithoutParallelCollection() throws Exception {
+    var converter=converter(); var now=Instant.parse("2026-11-20T03:00:00Z");
+    var result=new com.ecofood.app.transaction.dto.BatchTransactionDtos.ReceiptResult("INV-1",
+        List.of(new com.ecofood.app.transaction.dto.BatchTransactionDtos.Item("1","orch","plan",2,bd("50"),bd("100"))),"ACCEPTED",null);
+    var batch=com.ecofood.app.submission.entity.InvoiceBatchSubmission.create("batch",now,"tenant",List.of("i1","i2"),"hash","seller",List.of(result));
+    var bson=new Document(); converter.write(batch,bson);
+    assertEquals(batch,converter.read(com.ecofood.app.submission.entity.InvoiceBatchSubmission.class,bson));
+    assertEquals(batch.envelope(),converter.read(Submission.class,bson));
+    var calculator=new KpiCalculator();
+    var entries=List.of(calculator.calculate(invoice("i1","tenant","p1","USD","100")),calculator.calculate(invoice("i2","tenant","p2","USD",null)));
+    var state=new SubmissionMetricsState.Processing("PARTIAL",null,now,1,1,null,null,entries);
+    bson.put("actualMetrics",converter.convertToMongoType(state));
+    assertEquals(state,converter.read(SubmissionMetricsState.class,bson).actualMetrics());
+    var invoice=invoice("i1","tenant","p1","USD",null);
+    invoice.setType("PLAN_SALE_BATCH");
+    invoice.setPlanLines(List.of(new com.ecofood.app.transaction.entity.InvoicePlanLine("1","orch","plan","Plan",2,bd("50"),bd("100"),invoice.getSnapshot(),false)));
+    var row=new Document(); converter.write(invoice,row);
+    var line=row.getList("planLines",Document.class).get(0);
+    assertInstanceOf(Decimal128.class,line.get("unitPrice"));assertInstanceOf(Decimal128.class,line.get("amount"));
+    assertEquals(invoice.getPlanLines(),converter.read(Invoice.class,row).getPlanLines());
+  }
 }

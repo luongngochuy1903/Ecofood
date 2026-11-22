@@ -15,6 +15,9 @@ public class InvoiceNotificationSource implements NotificationEventSource {
   private final MongoTemplate mongo;
   public String event() { return Submission.INVOICE_PAID; }
   public Context resolve(Submission event) {
+    // Batch acknowledgements have one seller-only delivery; do not run legacy Invoice rules again.
+    if (Submission.INVOICE_PAID.equals(event.event()) && "INVOICE_BATCH".equals(event.sourceType()))
+      return new Context(null,false,Map.of());
     if (!Submission.INVOICE_PAID.equals(event.event()) || !"INVOICE".equals(event.sourceType())) throw new IllegalStateException("INVALID_EVENT_SOURCE");
     Invoice invoice = mongo.findOne(Query.query(Criteria.where("_id").is(event.sourceId()).and("tenantId").is(event.tenantId())), Invoice.class);
     if (invoice == null || invoice.getStatus() != TransactionStatus.ACCEPTED || !"PAID".equals(invoice.getPaymentStatus())

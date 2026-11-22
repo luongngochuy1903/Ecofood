@@ -39,9 +39,24 @@ class CatalogAccessTest {
       token.when(AuthenticationContext::getUserId).thenReturn(new ObjectId(USER)); token.when(AuthenticationContext::getTenantId).thenReturn(new ObjectId(A));
       token.when(AuthenticationContext::getRoles).thenReturn(List.of("TENANT_EMPLOYEE")); token.when(AuthenticationContext::getPermissions).thenReturn(List.of(CatalogAccess.READ,CatalogAccess.MANAGE,CatalogAccess.PUBLISH));
       var actor=access.current(); assertTrue(actor.permissions().contains(CatalogAccess.MANAGE)); assertFalse(actor.permissions().contains(CatalogAccess.PUBLISH));
-      token.when(AuthenticationContext::getPermissions).thenReturn(List.of()); assertThrows(ResponseStatusException.class,access::current);
+      token.when(AuthenticationContext::getPermissions).thenReturn(List.of());
+      assertEquals(Set.of(CatalogAccess.READ),access.current().permissions());
+      assertThrows(ResponseStatusException.class,()->access.current().require(CatalogAccess.MANAGE));
       token.when(AuthenticationContext::getPermissions).thenReturn(List.of(CatalogAccess.READ)); user.setUserCategory(UserCategory.builder().userCategoryCode("CUSTOMER").build()); assertThrows(ResponseStatusException.class,access::current);
       user.setUserCategory(UserCategory.builder().userCategoryCode("PARTNER").build()); when(directory.user(USER,A)).thenReturn(null); assertThrows(ResponseStatusException.class,access::current);
+    }
+  }
+  @Test void tenantAdminHasAllCatalogPermissionsButRequiresMatchingLiveRole() {
+    var directory=mock(NotificationDirectory.class); var tenants=mock(CoreTenantQueryClient.class); var mongo=mock(MongoTemplate.class); var access=new CatalogAccess(directory,tenants,mongo);
+    var user=new UserEntity(); user.setId(new ObjectId(USER)); user.setUserCategory(UserCategory.builder().userCategoryCode("PARTNER").build());
+    when(directory.user(USER,A)).thenReturn(user); when(tenants.propositionReference(A)).thenReturn(tenant(A,PartnerTypeEnum.ECOSYSTEM_PARTNER));
+    when(directory.claims(user,A)).thenReturn(new UserAccessClaims(List.of("TENANT_ADMIN"),List.of(),List.of()));
+    try(var token=mockStatic(AuthenticationContext.class)) {
+      token.when(AuthenticationContext::getUserId).thenReturn(new ObjectId(USER)); token.when(AuthenticationContext::getTenantId).thenReturn(new ObjectId(A));
+      token.when(AuthenticationContext::getRoles).thenReturn(List.of("TENANT_ADMIN")); token.when(AuthenticationContext::getPermissions).thenReturn(List.of());
+      assertEquals(Set.of(CatalogAccess.READ,CatalogAccess.MANAGE,CatalogAccess.PUBLISH,CatalogAccess.GRANT),access.current().permissions());
+      when(directory.claims(user,A)).thenReturn(new UserAccessClaims(List.of("TENANT_EMPLOYEE"),List.of(),List.of()));
+      assertThrows(ResponseStatusException.class,access::current);
     }
   }
   @Test void publisherAuthorityIsRecheckedFromLiveDataWithoutReusingAnEmployeeJwt() {

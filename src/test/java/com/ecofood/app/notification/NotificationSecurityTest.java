@@ -27,6 +27,22 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.web.server.ResponseStatusException;
 
 class NotificationSecurityTest {
+  @Test void allAdminRolesCanUseNotificationWithMatchingLiveRoleAndTenantPermissions() {
+    var directory=mock(NotificationDirectory.class); var user=user();
+    when(directory.user(USER,TENANT)).thenReturn(user);
+    var permissions=List.of(NotificationAccess.READ,NotificationAccess.MANAGE,NotificationAccess.RETRY);
+    try(var token=mockStatic(AuthenticationContext.class)) {
+      token.when(AuthenticationContext::getTenantId).thenReturn(new ObjectId(TENANT));
+      token.when(AuthenticationContext::getUserId).thenReturn(new ObjectId(USER));
+      token.when(AuthenticationContext::getPermissions).thenReturn(permissions);
+      for(String role:List.of("TENANT_ADMIN","MASTER_ADMIN","ENTERPRISE_ADMIN","ECO_ADMIN")) {
+        when(directory.claims(user,TENANT)).thenReturn(new UserAccessClaims(List.of(role),permissions,List.of()));
+        token.when(AuthenticationContext::getRoles).thenReturn(List.of(role));
+        var scope=new NotificationAccess(directory).current();
+        assertTrue(scope.read()); assertTrue(scope.manage()); assertTrue(scope.retry()); assertEquals(TENANT,scope.tenant());
+      }
+    }
+  }
   @Test void customerEmailIsOnlyEligibleAfterInvoiceOwnershipAndRevalidatedOnDelivery() {
     var directory = mock(NotificationDirectory.class); var user = user(); user.setUserCategory(UserCategory.builder().userCategoryCode("CUSTOMER").build());
     when(directory.user(USER, TENANT)).thenReturn(user); var resolver = new NotificationRecipients(directory, settings()); var invoice = invoice();

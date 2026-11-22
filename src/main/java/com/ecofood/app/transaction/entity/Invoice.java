@@ -35,6 +35,10 @@ public class Invoice implements CustomerInvoiceReference {
   private String invoiceDocumentId;
   private InvoiceHolder invoiceHolder;
   private InvoiceSnapshot snapshot;
+  /** Null for legacy one-Plan Invoices. Batch Invoices have no representative top-level Plan. */
+  private List<InvoicePlanLine> planLines;
+  private String sourcePayloadFingerprint;
+  private String transactionTimeSource;
 
   public record InvoiceHolder(String customerId, String userId) {}
 

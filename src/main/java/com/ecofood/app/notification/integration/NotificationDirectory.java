@@ -43,4 +43,9 @@ public class NotificationDirectory {
     if (event == null || !"INVOICE".equals(event.sourceType())) return null;
     return mongo.findOne(Query.query(Criteria.where("_id").is(event.sourceId()).and("tenantId").is(notice.getTenantId())), com.ecofood.app.transaction.entity.Invoice.class);
   }
+  public com.ecofood.app.submission.entity.InvoiceBatchSubmission sourceBatch(Notification notice) {
+    return mongo.findOne(Query.query(Criteria.where("_id").is(notice.getSubmissionId())
+        .and("tenantId").is(notice.getTenantId()).and("sourceType").is("INVOICE_BATCH")
+        .and("event").is("INVOICE_PAID")),com.ecofood.app.submission.entity.InvoiceBatchSubmission.class);
+  }
 }

@@ -9,7 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-/** UC-016 only: Tenant/Eco Admin and explicit permission, with live tenant membership. */
+/** UC-016 only: Admin roles and effective permissions, with live tenant membership. */
 @Service
 @RequiredArgsConstructor
 public class NotificationAccess {
@@ -28,7 +28,7 @@ public class NotificationAccess {
       if (user == null) throw denied();
       var live = directory.claims(user, tenant);
       var tokenRoles = Optional.ofNullable(AuthenticationContext.getRoles()).orElse(List.of());
-      boolean admin = List.of("TENANT_ADMIN", "ECO_ADMIN").stream()
+      boolean admin = List.of("TENANT_ADMIN", "MASTER_ADMIN", "ENTERPRISE_ADMIN", "ECO_ADMIN").stream()
           .anyMatch(role -> live.roles().contains(role) && tokenRoles.contains(role));
       if (!admin) throw denied();
       Set<String> permissions = new HashSet<>(live.permissions());
@@ -37,5 +37,5 @@ public class NotificationAccess {
     } catch (ResponseStatusException e) { throw e; }
     catch (RuntimeException e) { throw denied(); }
   }
-  static ResponseStatusException denied() { return new ResponseStatusException(HttpStatus.FORBIDDEN, "Cần Tenant Admin hoặc Eco Admin và permission Notification trong Tenant hiện tại"); }
+  static ResponseStatusException denied() { return new ResponseStatusException(HttpStatus.FORBIDDEN, "Cần role Admin và permission Notification trong Tenant hiện tại"); }
 }

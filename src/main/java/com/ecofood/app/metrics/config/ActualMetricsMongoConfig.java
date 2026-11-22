@@ -22,6 +22,9 @@ public class ActualMetricsMongoConfig {
       mongo.indexOps(Submission.class).ensureIndex(new Index().on("event", Sort.Direction.ASC)
           .on("sourceType", Sort.Direction.ASC).on("actualMetrics.state", Sort.Direction.ASC)
           .on("actualMetrics.nextRetryAt", Sort.Direction.ASC).named("ix_submission_metrics_retry"));
+      mongo.indexOps(Submission.class).ensureIndex(new Index().on("sourceType",Sort.Direction.ASC)
+          .on("sellerConfirmation.pending",Sort.Direction.ASC).on("sellerConfirmation.nextRetryAt",Sort.Direction.ASC)
+          .named("ix_submission_seller_confirmation_retry"));
       mongo.indexOps(Invoice.class).ensureIndex(new Index().on("propositionId", Sort.Direction.ASC)
           .on("tenantId", Sort.Direction.ASC).on("currency", Sort.Direction.ASC)
           .on("receivedAt", Sort.Direction.ASC).named("ix_invoice_metrics_reconciliation"));

@@ -25,12 +25,13 @@ public record ActualMetrics(
     long revision,
     Instant updatedAt) {
 
-  /** Partial sums are explicitly named; a top-level KPI is null unless all Invoices are covered. */
+  /** Partial sums are explicitly named; a top-level KPI is null unless all sold Plan units are covered. */
   public record KnownTotals(
       @Field(targetType = FieldType.DECIMAL128) BigDecimal ingredientCost,
       @Field(targetType = FieldType.DECIMAL128) BigDecimal platformCost,
       @Field(targetType = FieldType.DECIMAL128) BigDecimal profit) {}
 
+  /** Legacy field names retained. Coverage counts Plan units (one per legacy Invoice). */
   public record Coverage(long ingredientCostInvoices, long platformCostInvoices,
                          long profitInvoices, long incompleteInvoices) {}
 
@@ -45,18 +46,19 @@ public record ActualMetrics(
 
   /** Must only be persisted together with the corresponding Submission marker in a transaction. */
   public ActualMetrics add(KpiContribution contribution, Instant now) {
-    if (!key().equals(contribution.key()) || contribution.totalSalesVolume() != 1
+    if (!key().equals(contribution.key()) || contribution.totalSalesVolume() < 1
         || !calculatorVersion.equals(contribution.calculatorVersion()))
       throw new IllegalStateException("Contribution key or calculator version mismatch");
-    long volume = Math.addExact(totalSalesVolume, 1);
+    long units = contribution.totalSalesVolume();
+    long volume = Math.addExact(totalSalesVolume, units);
     var sums = new KnownTotals(addKnown(knownTotals.ingredientCost(), contribution.ingredientCost()),
         addKnown(knownTotals.platformCost(), contribution.platformCost()),
         addKnown(knownTotals.profit(), contribution.profit()));
     var counts = new Coverage(
-        Math.addExact(coverage.ingredientCostInvoices(), contribution.ingredientCost() == null ? 0 : 1),
-        Math.addExact(coverage.platformCostInvoices(), contribution.platformCost() == null ? 0 : 1),
-        Math.addExact(coverage.profitInvoices(), contribution.profit() == null ? 0 : 1),
-        Math.addExact(coverage.incompleteInvoices(), contribution.complete() ? 0 : 1));
+        Math.addExact(coverage.ingredientCostInvoices(), contribution.ingredientCost() == null ? 0 : units),
+        Math.addExact(coverage.platformCostInvoices(), contribution.platformCost() == null ? 0 : units),
+        Math.addExact(coverage.profitInvoices(), contribution.profit() == null ? 0 : units),
+        Math.addExact(coverage.incompleteInvoices(), contribution.complete() ? 0 : units));
     return new ActualMetrics(id, propositionId, tenantId, year, month, currency, volume,
         counts.ingredientCostInvoices() == volume ? sums.ingredientCost() : null,
         counts.platformCostInvoices() == volume ? sums.platformCost() : null,

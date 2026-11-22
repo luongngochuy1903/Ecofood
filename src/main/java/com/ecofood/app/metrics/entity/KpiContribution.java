@@ -5,7 +5,7 @@ import java.util.List;
 import org.springframework.data.mongodb.core.mapping.Field;
 import org.springframework.data.mongodb.core.mapping.FieldType;
 
-/** Immutable audit of one Invoice, embedded in its existing Submission, not a separate ledger. */
+/** Immutable legacy Invoice or batch Plan-line contribution, embedded in the existing Submission. */
 public record KpiContribution(
     String invoiceId,
     MetricsKey key,

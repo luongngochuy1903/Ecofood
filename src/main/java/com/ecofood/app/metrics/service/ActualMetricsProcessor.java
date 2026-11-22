@@ -51,7 +51,7 @@ public class ActualMetricsProcessor {
           new Criteria().andOperator(Criteria.where("actualMetrics.state").is("RETRY"),
               Criteria.where(NEXT_RETRY_AT).lte(Instant.now())));
       var query = Query.query(new Criteria().andOperator(
-          Criteria.where("event").is(Submission.INVOICE_PAID), Criteria.where("sourceType").is("INVOICE"), due))
+          Criteria.where("event").is(Submission.INVOICE_PAID), Criteria.where("sourceType").in("INVOICE","INVOICE_BATCH"), due))
           .with(Sort.by("createdAt", "id")).limit(100);
       for (var event : mongo.find(query, Submission.class)) process(event.id(), event.tenantId());
     } catch (RuntimeException ex) {

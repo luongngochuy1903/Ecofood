@@ -20,7 +20,36 @@ public class KpiCalculator {
   public static final ZoneId ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
   private final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
+  /** Legacy Invoices keep their original one-Plan contribution; batch lines carry explicit quantity. */
+  public List<KpiContribution> calculateAll(Invoice invoice) {
+    if (!"PLAN_SALE_BATCH".equals(invoice.getType())) return List.of(calculate(invoice));
+    if (invoice.getPlanLines()==null || invoice.getPlanLines().isEmpty())
+      throw new KpiProcessingException("BATCH_PLAN_LINES_MISSING",false);
+    var results=new ArrayList<KpiContribution>(); var ids=new HashSet<String>();
+    for(var line:invoice.getPlanLines().stream().sorted(Comparator.comparing(com.ecofood.app.transaction.entity.InvoicePlanLine::lineId)).toList()) {
+      if(line.quantity()<1 || line.quantity()>1000000 || blank(line.lineId()) || !ids.add(line.lineId()) || line.snapshot()==null)
+        throw new KpiProcessingException("BATCH_PLAN_LINE_INVALID",false);
+      var unit=new Invoice(); unit.setId(invoice.getId()); unit.setTenantId(invoice.getTenantId());
+      unit.setDistributionPartnerId(invoice.getDistributionPartnerId()); unit.setPropositionId(line.snapshot().propositionId());
+      unit.setPlanId(line.planId()); unit.setOrchestratorId(line.orchestratorId()); unit.setOrchestratorVersion(line.snapshot().orchestratorVersion());
+      unit.setReceivedAt(invoice.getReceivedAt()); unit.setCurrency(invoice.getCurrency()); unit.setStatus(invoice.getStatus());
+      unit.setPaymentStatus(invoice.getPaymentStatus()); unit.setSnapshot(line.snapshot());
+      var contribution=calculate(unit); var missing=new ArrayList<>(contribution.missingData());
+      if(!line.saleConfigurationVerified()) missing.add("SALE_CONFIGURATION_TIME_UNVERIFIED");
+      String fingerprint;
+      try { fingerprint=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(mapper.writeValueAsBytes(List.of(contribution.inputFingerprint(),line)))); }
+      catch(Exception failure) { throw new IllegalStateException("Cannot fingerprint batch line",failure); }
+      results.add(new KpiContribution(invoice.getId(),contribution.key(),VERSION,fingerprint,line.quantity(),
+          line.saleConfigurationVerified()?scale(contribution.ingredientCost(),line.quantity()):null,
+          line.saleConfigurationVerified()?scale(contribution.platformCost(),line.quantity()):null,
+          line.saleConfigurationVerified()?scale(contribution.profit(),line.quantity()):null,missing));
+    }
+    return List.copyOf(results);
+  }
+  private BigDecimal scale(BigDecimal amount,long quantity) { return amount==null?null:amount.multiply(BigDecimal.valueOf(quantity)); }
+
   public KpiContribution calculate(Invoice invoice) {
+    if ("PLAN_SALE_BATCH".equals(invoice.getType())) throw new KpiProcessingException("USE_BATCH_CONTRIBUTIONS",false);
     if (invoice.getStatus() != TransactionStatus.ACCEPTED || !"PAID".equals(invoice.getPaymentStatus()))
       throw new KpiProcessingException("INVOICE_NOT_ACCEPTED_PAID", false);
     if (blank(invoice.getId()) || invoice.getReceivedAt() == null)

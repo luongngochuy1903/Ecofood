@@ -32,6 +32,9 @@ public class TransactionMongoConfig {
           .on("submissionPending", Sort.Direction.ASC)
           .on("submissionRetryAt", Sort.Direction.ASC)
           .named("ix_invoice_submission_pending"));
+      mongo.indexOps(Invoice.class).ensureIndex(new Index().on("tenantId",Sort.Direction.ASC)
+          .on("planLines.snapshot.propositionId",Sort.Direction.ASC).on("currency",Sort.Direction.ASC)
+          .on("receivedAt",Sort.Direction.ASC).named("ix_invoice_plan_lines_metrics"));
     };
   }
 }
