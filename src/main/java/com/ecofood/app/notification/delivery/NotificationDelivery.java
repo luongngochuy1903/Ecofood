@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class NotificationDelivery {
+  private static final String LAST_ERROR = "lastError";
   private static final String LEASE_UNTIL = "leaseUntil";
   private static final String STATUS = "status";
   private static final String PROCESSING = "PROCESSING";
@@ -31,7 +32,7 @@ public class NotificationDelivery {
     try {
       // Never automatically resend an expired SMTP attempt with an unknown external outcome.
       mongo.updateMulti(Query.query(Criteria.where(STATUS).is(PROCESSING).and(LEASE_UNTIL).lte(Instant.now())),
-          new Update().set(STATUS, "FAILED").set(DELIVERY_UNCERTAIN, true).set("lastError", "SMTP_OUTCOME_UNCERTAIN")
+          new Update().set(STATUS, "FAILED").set(DELIVERY_UNCERTAIN, true).set(LAST_ERROR, "SMTP_OUTCOME_UNCERTAIN")
             .unset(LEASE_TOKEN).unset(LEASE_UNTIL), Notification.class);
       for (int i = 0; i < 20; i++) {
         Notification work = claim(Instant.now());
@@ -64,12 +65,12 @@ public class NotificationDelivery {
       boolean retry = failure.retryable && !failure.uncertain && work.getRetryCount() < settings.maxAttempts;
       mongo.updateFirst(owned(work), new Update().set(STATUS, retry ? "RETRY_PENDING" : "FAILED")
           .set(NEXT_ATTEMPT_AT, Instant.now().plusSeconds(backoff(work.getRetryCount())))
-          .set(DELIVERY_UNCERTAIN, failure.uncertain).set("lastError", failure.code).unset(LEASE_TOKEN).unset(LEASE_UNTIL), Notification.class);
+          .set(DELIVERY_UNCERTAIN, failure.uncertain).set(LAST_ERROR, failure.code).unset(LEASE_TOKEN).unset(LEASE_UNTIL), Notification.class);
       return;
     }
     // If this write fails, retain PROCESSING; lease recovery marks the outcome uncertain, never blindly resends.
     mongo.updateFirst(owned(work), new Update().set(STATUS, "SENT").set("sentAt", Instant.now())
-        .set(DELIVERY_UNCERTAIN, false).unset("lastError").unset(LEASE_TOKEN).unset(LEASE_UNTIL).unset(NEXT_ATTEMPT_AT), Notification.class);
+        .set(DELIVERY_UNCERTAIN, false).unset(LAST_ERROR).unset(LEASE_TOKEN).unset(LEASE_UNTIL).unset(NEXT_ATTEMPT_AT), Notification.class);
   }
   static long backoff(int attempt) { return Math.min(3600, 60L << Math.min(6, Math.max(0, attempt - 1))); }
 }
