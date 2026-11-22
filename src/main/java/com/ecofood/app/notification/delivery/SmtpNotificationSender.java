@@ -8,6 +8,7 @@ import jakarta.mail.internet.MimeMessage;
 import java.net.ConnectException;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.eclipse.angus.mail.util.MailConnectException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mail.*;
 import org.springframework.mail.javamail.*;
@@ -32,7 +33,7 @@ public class SmtpNotificationSender implements NotificationEmailSender {
     catch (MessagingException | MailPreparationException e) { throw new DeliveryFailure("EMAIL_INVALID", false, false); }
     catch (MailException e) {
       for (Throwable cause = e; cause != null; cause = cause.getCause()) {
-        if (cause instanceof ConnectException || cause.getClass().getSimpleName().equals("MailConnectException"))
+        if (cause instanceof ConnectException || cause instanceof MailConnectException)
           throw new DeliveryFailure("SMTP_CONNECT_FAILED", true, false);
       }
       Integer rejection = rejectionCode(e);

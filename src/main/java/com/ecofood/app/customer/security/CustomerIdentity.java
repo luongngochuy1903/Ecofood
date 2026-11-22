@@ -111,7 +111,10 @@ public class CustomerIdentity implements CustomerIdentityService {
   private String email(JWTClaimsSet claims) {
     Object raw = claims.getClaim(EMAIL);
     String email = raw instanceof String s ? s.trim().toLowerCase(Locale.ROOT) : "";
-    if (!com.ecofood.app.notification.config.NotificationSettings.validEmail(email)) throw unauthorized(); return email;
+    if (!com.ecofood.app.notification.config.NotificationSettings.validEmail(email)) {
+      throw unauthorized();
+    }
+    return email;
   }
   private String text(JWTClaimsSet claims, String key, int limit) { Object raw = claims.getClaim(key); String text = raw instanceof String s ? s.trim() : ""; if (text.length() > limit) throw unauthorized(); return text; }
   private ObjectId idForEmail(String email) {

@@ -27,6 +27,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @RequiredArgsConstructor
 public class CustomerReceiptServiceImpl implements CustomerReceiptService {
+  private static final String INVOICE_HOLDER_USER_ID = "invoiceHolder.userId";
   private static final String INVOICE_HOLDER_CUSTOMER_ID = "invoiceHolder.customerId";
   private static final String RECEIPT_REVOKED_AT = "customerReceipt.revokedAt";
   private static final String TENANT_ID = "tenantId";
@@ -58,7 +59,7 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
     return Query.query(Criteria.where("_id").is(id).and(TENANT_ID).is(seller.tenant()).and("submittedBy").is(seller.user())
         .and("posId").is(seller.user()).and("status").is(TransactionStatus.ACCEPTED).and("paymentStatus").is("PAID"));
   }
-  private Criteria unowned() { return Criteria.where("invoiceHolder.userId").is(null).and(INVOICE_HOLDER_CUSTOMER_ID).is(null); }
+  private Criteria unowned() { return Criteria.where(INVOICE_HOLDER_USER_ID).is(null).and(INVOICE_HOLDER_CUSTOMER_ID).is(null); }
   @Override
   public CustomerReceiptDtos.Issued issue(String invoiceId, CustomerReceiptDtos.IssueRequest request) {
     var seller = seller(); String requestId;
@@ -70,11 +71,15 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
     var old = invoice.getCustomerReceipt();
     CustomerInvoice.Receipt receipt;
     if (old != null && old.requestId().equals(requestId)) {
-      if (old.revokedAt() != null || !old.expiresAt().isAfter(now)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Receipt expired or revoked; use a new requestId"); receipt = old;
+      if (old.revokedAt() != null || !old.expiresAt().isAfter(now)) {
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "Receipt expired or revoked; use a new requestId");
+      }
+      receipt = old;
     } else {
       if (old != null && old.revokedAt() == null && old.expiresAt().isAfter(now)) throw new ResponseStatusException(HttpStatus.CONFLICT, "An active receipt already exists");
       // A new generation cannot revive an old revoked capability, even if request IDs/timestamps repeat.
-      String id = tokens.id(seller.tenant(), seller.user(), invoiceId, requestId + "\n" + UUID.randomUUID()), token = tokens.token(id, now);
+      String id = tokens.id(seller.tenant(), seller.user(), invoiceId, requestId + "\n" + UUID.randomUUID());
+      String token = tokens.token(id, now);
       receipt = new CustomerInvoice.Receipt(id, requestId, CustomerReceiptTokens.hash(token), seller.user(), now, now.plus(Duration.ofHours(settings.receiptHours)), null);
       // Validate trusted origin/QR before persisting the new capability.
       tokens.qr(tokens.url(token));
@@ -96,7 +101,8 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
   }
   @Override
   public void revoke(String invoiceId) {
-    var seller = seller(); var query = source(invoiceId, seller);
+    var seller = seller();
+    var query = source(invoiceId, seller);
     query.addCriteria(Criteria.where("customerReceipt.id").exists(true));
     if (!mongo.exists(query, CustomerInvoice.class)) throw CustomerServiceImpl.unavailable();
     query.addCriteria(Criteria.where(RECEIPT_REVOKED_AT).is(null));
@@ -119,7 +125,7 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
     var actor = access.current(); CustomerReceiptTokens.validate(token);
     String hash = CustomerReceiptTokens.hash(token);
     var prior = mongo.findOne(Query.query(Criteria.where("customerReceipt.tokenHash").is(hash).and(TENANT_ID).is(actor.tenantId())
-        .and("invoiceHolder.userId").is(actor.userId()).and(INVOICE_HOLDER_CUSTOMER_ID).is(actor.userId())), CustomerInvoice.class);
+        .and(INVOICE_HOLDER_USER_ID).is(actor.userId()).and(INVOICE_HOLDER_CUSTOMER_ID).is(actor.userId())), CustomerInvoice.class);
     if (prior != null) { handoff.deliver(prior); return result(prior); }
     Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
     Query query = Query.query(new Criteria().andOperator(valid(token, now), unowned(), Criteria.where(TENANT_ID).is(actor.tenantId())));
@@ -136,7 +142,7 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
         .set("customerOwnership", new CustomerInvoice.Ownership(actor.userId(), now, "RECEIPT_TOKEN", invoice.getCustomerReceipt().id()))
         .set("customerClaimHandoff", new CustomerInvoice.Handoff(event, notice, true, now, 0)), FindAndModifyOptions.options().returnNew(true), CustomerInvoice.class);
     if (saved == null) {
-      saved = mongo.findOne(Query.query(Criteria.where("_id").is(invoice.getId()).and(TENANT_ID).is(actor.tenantId()).and("invoiceHolder.userId").is(actor.userId()).and(INVOICE_HOLDER_CUSTOMER_ID).is(actor.userId())), CustomerInvoice.class);
+      saved = mongo.findOne(Query.query(Criteria.where("_id").is(invoice.getId()).and(TENANT_ID).is(actor.tenantId()).and(INVOICE_HOLDER_USER_ID).is(actor.userId()).and(INVOICE_HOLDER_CUSTOMER_ID).is(actor.userId())), CustomerInvoice.class);
       if (saved == null) throw CustomerServiceImpl.unavailable();
     }
     handoff.deliver(saved); return result(saved);

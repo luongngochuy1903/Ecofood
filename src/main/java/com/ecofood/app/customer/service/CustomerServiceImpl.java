@@ -54,7 +54,11 @@ public class CustomerServiceImpl implements CustomerService, CustomerQueryServic
   @Override
   public Invoice requireOwned(CustomerIdentityScope actor, String id) {
     var query = owned(actor); query.addCriteria(Criteria.where("_id").is(id));
-    Invoice invoice = mongo.findOne(query, Invoice.class); if (invoice == null) throw unavailable(); return invoice;
+    Invoice invoice = mongo.findOne(query, Invoice.class);
+    if (invoice == null) {
+      throw unavailable();
+    }
+    return invoice;
   }
   Query owned(CustomerIdentityScope actor) {
     return Query.query(new Criteria().andOperator(Criteria.where("tenantId").is(actor.tenantId()).and("invoiceHolder.userId").is(actor.userId()),

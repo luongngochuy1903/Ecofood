@@ -39,7 +39,8 @@ public class CatalogExternalAccess implements CatalogExternalService {
     return mongo.findOne(Query.query(Criteria.where("_id").is(id)).withReadPreference(com.mongodb.ReadPreference.primary()),ApiPublication.class);
   }
   private ApiPublication.PartnerAccess active(ApiPublication p,ExternalPrincipal principal) {
-    var grant=p==null?null:p.getGrants().get(principal.partnerId()); Instant now=CatalogPublicationServiceImpl.now();
+    var grant=p==null?null:p.getGrants().get(principal.partnerId());
+    Instant now=CatalogPublicationServiceImpl.now();
     if(grant==null || !grant.id().equals(principal.grantId())) throw unauthorized();
     if(grant.revokedAt()!=null) throw denied(p,principal,"PARTNER_REVOKED",HttpStatus.FORBIDDEN);
     if(!now.isBefore(grant.expiresAt())) throw denied(p,principal,"CREDENTIAL_EXPIRED",HttpStatus.UNAUTHORIZED);
@@ -51,14 +52,16 @@ public class CatalogExternalAccess implements CatalogExternalService {
   }
   @Override
   public Session session(ExternalPrincipal principal) {
-    var p=find(principal.publicationId()); var grant=active(p,principal);
+    var p=find(principal.publicationId());
+    var grant=active(p,principal);
     return new Session(p.getId(),grant.partnerId(),p.getApiKey(),p.getVersion(),grant.expiresAt());
   }
   @Override
   public Catalog read(ExternalPrincipal principal,String id,int version,String planId,String search,int page,int size) {
     CatalogPublicationServiceImpl.page(page,size);
     if(!principal.publicationId().equals(id)) throw CatalogData.unavailable();
-    var p=find(id); var grant=active(p,principal);
+    var p=find(id);
+    var grant=active(p,principal);
     if(p.getVersion()!=version) throw CatalogData.unavailable();
     if(size>p.getPolicy().maxPageSize()) throw CatalogPublicationServiceImpl.bad("Page size exceeds publication policy");
     if(search!=null && search.length()>200) throw CatalogPublicationServiceImpl.bad("Search is too long");

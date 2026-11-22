@@ -12,6 +12,7 @@ import jakarta.mail.internet.MimeMessage;
 import java.net.ConnectException;
 import java.util.Properties;
 import org.junit.jupiter.api.Test;
+import org.eclipse.angus.mail.util.MailConnectException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mail.*;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -44,4 +45,20 @@ class NotificationSmtpTest {
     var ambiguous = assertThrows(DeliveryFailure.class, () -> smtp.send(ambiguousNotice));
     assertFalse(ambiguous.retryable); assertTrue(ambiguous.uncertain);
   }
+  @Test void providerConnectionFailureIsRetryableWithoutUncertainDelivery() {
+    var sender = mock(JavaMailSender.class);
+    var message = new MimeMessage(Session.getInstance(new Properties()));
+    when(sender.createMimeMessage()).thenReturn(message);
+    var cause = mock(MailConnectException.class);
+    doThrow(new MailSendException("connection failed", cause)).when(sender).send(message);
+    var smtp = new SmtpNotificationSender(provider(sender));
+    var notification = delivery();
+
+    var failure = assertThrows(DeliveryFailure.class, () -> smtp.send(notification));
+
+    assertEquals("SMTP_CONNECT_FAILED", failure.code);
+    assertTrue(failure.retryable);
+    assertFalse(failure.uncertain);
+  }
+
 }

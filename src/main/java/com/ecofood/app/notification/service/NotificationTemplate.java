@@ -35,7 +35,8 @@ public class NotificationTemplate {
     }
   }
   public String render(String text, Map<String, String> values, boolean header) {
-    Matcher matcher = TOKEN.matcher(text); StringBuffer result = new StringBuffer();
+    Matcher matcher = TOKEN.matcher(text);
+    StringBuffer result = new StringBuffer();
     while (matcher.find()) {
       String value = values.get(matcher.group(1));
       if (value == null || value.isBlank()) throw new IllegalStateException("TEMPLATE_DATA_MISSING");

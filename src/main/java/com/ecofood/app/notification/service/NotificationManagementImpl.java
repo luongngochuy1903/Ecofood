@@ -93,7 +93,10 @@ public class NotificationManagementImpl implements NotificationManagementService
     var result = mongo.findAndModify(Query.query(Criteria.where("_id").is(id).and(TENANT_ID).is(scope.tenant()).and("revision").is(revision)),
         update.inc("revision", 1).set("updatedAt", now).set("updatedBy", scope.actor())
           .push("audit", new NotificationDtos.Change(revision + 1, now, scope.actor(), action)), FindAndModifyOptions.options().returnNew(true), NotificationRule.class);
-    if (result == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "Rule đã thay đổi; tải lại trước khi lưu"); return result;
+    if (result == null) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Rule đã thay đổi; tải lại trước khi lưu");
+    }
+    return result;
   }
   @Override
   public NotificationDtos.Page<Notification> history(String event, String status, Instant from, Instant to, int page, int size) {
@@ -117,7 +120,10 @@ public class NotificationManagementImpl implements NotificationManagementService
   public Notification detail(String id) {
     var scope = access.current(); scope.requireRead();
     var result = mongo.findOne(Query.query(Criteria.where("_id").is(id).and(TENANT_ID).is(scope.tenant())), Notification.class);
-    if (result == null) throw missing(); return result;
+    if (result == null) {
+      throw missing();
+    }
+    return result;
   }
   @Override
   public Notification retry(String id, NotificationDtos.RetryRequest input) {
@@ -127,7 +133,10 @@ public class NotificationManagementImpl implements NotificationManagementService
     var result = mongo.findAndModify(Query.query(Criteria.where("_id").is(id).and(TENANT_ID).is(scope.tenant()).and(STATUS).is("FAILED").and("totalAttempts").is(current.getTotalAttempts())),
         new Update().set(STATUS, "PENDING").set("retryCount", 0).set("nextAttemptAt", Instant.now()).set("deliveryUncertain", false)
           .set("manualRetryBy", scope.actor()).set("manualRetryAt", Instant.now()), FindAndModifyOptions.options().returnNew(true), Notification.class);
-    if (result == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "Notification đã thay đổi"); return result;
+    if (result == null) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "Notification đã thay đổi");
+    }
+    return result;
   }
   private static ResponseStatusException missing() { return new ResponseStatusException(HttpStatus.NOT_FOUND, "Không tìm thấy dữ liệu trong Tenant hiện tại"); }
 }

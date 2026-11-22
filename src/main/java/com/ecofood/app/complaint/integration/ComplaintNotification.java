@@ -85,7 +85,8 @@ public class ComplaintNotification implements NotificationAudience {
   }
   @Override public boolean stillAllowed(Notification notification) {
     try {
-      var event=mongo.findById(notification.getSubmissionId(),Submission.class); var c=require(event);
+      var event=mongo.findById(notification.getSubmissionId(),Submission.class);
+    var c=require(event);
       if(!Objects.equals(event.tenantId(),notification.getTenantId()) || !Objects.equals(event.event(),notification.getType())) return false;
       if("COMPLAINT_RESOLVED".equals(event.event())) {
         var reporter=verifiedReporter(c); return reporter!=null && reporter.getIdAsString().equals(notification.getRecipientUserId()) && canonical(reporter.getEmail()).equals(notification.getSendTo());

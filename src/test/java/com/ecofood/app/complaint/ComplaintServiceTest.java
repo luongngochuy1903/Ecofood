@@ -27,7 +27,7 @@ import org.springframework.web.server.ResponseStatusException;
 class ComplaintServiceTest {
   static final String TENANT="111111111111111111111111", ECO="222222222222222222222222", USER="333333333333333333333333", ADMIN="444444444444444444444444", OTHER="555555555555555555555555";
   AtomicComplaintMongo db; CustomerAccess customers; CoreCustomerInvoiceClient invoices; ComplaintAccess admins; ComplaintHandoff handoff; ComplaintServiceImpl service;
-  @BeforeEach void setup() throws Exception {
+  @BeforeEach void setup() {
     db=new AtomicComplaintMongo(); customers=mock(CustomerAccess.class); invoices=mock(CoreCustomerInvoiceClient.class); admins=mock(ComplaintAccess.class);
     handoff=new ComplaintHandoff(db.mongo); service=new ComplaintServiceImpl(db.mongo,customers,invoices,admins,handoff,mock(NotificationDirectory.class));
     when(customers.current()).thenReturn(new CustomerAccess.Actor(USER,TENANT,null));
@@ -109,6 +109,24 @@ class ComplaintServiceTest {
     assertEquals(2,db.rows(Submission.class).size());
     assertEquals(Set.of("COMPLAINT_CREATED","COMPLAINT_RESOLVED"),db.find(new org.springframework.data.mongodb.core.query.Query(),Submission.class).stream().map(Submission::event).collect(java.util.stream.Collectors.toSet()));
     var closed=c; assertThrows(ResponseStatusException.class,()->action(closed,"respond",null));
+  }
+  @Test void nullActionAndReplyRejectWithoutChangingComplaintOrSubmissions() {
+    var complaint = submit();
+    String id = complaint.getId();
+    long revision = complaint.getRevision();
+    int eventCount = complaint.getEvents().size();
+    int submissionCount = db.rows(Submission.class).size();
+
+    var actionError = assertThrows(ResponseStatusException.class, () -> service.action(id, "accept", null));
+    assertEquals(HttpStatus.BAD_REQUEST, actionError.getStatusCode());
+    var replyError = assertThrows(ResponseStatusException.class, () -> service.reply(id, null));
+    assertEquals(HttpStatus.BAD_REQUEST, replyError.getStatusCode());
+
+    var saved = db.findByIdForTest(id);
+    assertEquals(revision, saved.getRevision());
+    assertEquals(ComplaintStatusEnum.SUBMITTED, saved.getStatus());
+    assertEquals(eventCount, saved.getEvents().size());
+    assertEquals(submissionCount, db.rows(Submission.class).size());
   }
   @Test void invalidTransitionsCustomerRepliesAndEscalationAreRejected() {
     var c=submit();

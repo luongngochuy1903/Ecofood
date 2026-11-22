@@ -19,7 +19,8 @@ public class CustomerAccess {
   public record Actor(String userId, String tenantId, CustomerUser user)
       implements CustomerIdentityScope {}
   public Actor current() {
-    String id, tenant;
+    String id;
+    String tenant;
     try { id = AuthenticationContext.getUserId().toHexString(); tenant = AuthenticationContext.getTenantId().toHexString(); }
     catch (RuntimeException invalid) { throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Customer authentication required"); }
     CustomerUser user = mongo.findById(new ObjectId(id), CustomerUser.class);

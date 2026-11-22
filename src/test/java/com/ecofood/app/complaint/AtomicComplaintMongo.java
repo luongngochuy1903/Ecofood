@@ -20,7 +20,7 @@ class AtomicComplaintMongo {
   final MappingMongoConverter converter;
   private final MongoMappingContext context;
   final Map<String, Map<Object, Document>> collections = new HashMap<>();
-  AtomicComplaintMongo() throws Exception {
+  AtomicComplaintMongo() {
     var conversions = new com.ecofood.app.proposition.service.PropositionMongoConfiguration().propositionMongoConversions();
     context = new MongoMappingContext(); context.setSimpleTypeHolder(conversions.getSimpleTypeHolder()); context.afterPropertiesSet();
     converter = new MappingMongoConverter(NoOpDbRefResolver.INSTANCE, context); converter.setCustomConversions(conversions); converter.afterPropertiesSet();

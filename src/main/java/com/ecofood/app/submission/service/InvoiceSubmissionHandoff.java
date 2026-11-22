@@ -44,27 +44,36 @@ public class InvoiceSubmissionHandoff {
     try {
       var event = invoice.getSubmissionHandoff();
       validate(invoice, event);
-      try {
-        submissions.insert(event);
-      } catch (DuplicateKeyException ex) {
-        var existing = submissions.findByIdAndTenantId(event.id(), invoice.getTenantId());
-        if (existing.isEmpty() || !event.equals(existing.get()))
-          throw new IllegalStateException("Submission source conflict");
-      }
+      insertEvent(invoice, event);
       mongo.updateFirst(pending(invoice), new Update().set("submissionPending", false)
           .unset("submissionRetryAt").inc("submissionAttempts", 1), Invoice.class);
     } catch (RuntimeException ex) {
       log.warn("Invoice Submission deferred for {} ({})", invoice.getId(), ex.getClass().getSimpleName());
-      try {
-        // Conditional update cannot reopen a handoff acknowledged by a concurrent delivery.
-        mongo.updateFirst(pending(invoice), new Update()
-            .set("submissionRetryAt", Instant.now().plusSeconds(60))
-            .inc("submissionAttempts", 1), Invoice.class);
-      } catch (RuntimeException retryFailure) {
-        // The original pending event remains on the Invoice even when this bookkeeping write fails.
-        log.warn("Submission retry bookkeeping deferred for {} ({})", invoice.getId(),
-            retryFailure.getClass().getSimpleName());
+      defer(invoice);
+    }
+  }
+
+  private void insertEvent(Invoice invoice, Submission event) {
+    try {
+      submissions.insert(event);
+    } catch (DuplicateKeyException ex) {
+      var existing = submissions.findByIdAndTenantId(event.id(), invoice.getTenantId());
+      if (existing.isEmpty() || !event.equals(existing.get())) {
+        throw new IllegalStateException("Submission source conflict");
       }
+    }
+  }
+
+  private void defer(Invoice invoice) {
+    try {
+      // Conditional update cannot reopen a handoff acknowledged by a concurrent delivery.
+      mongo.updateFirst(pending(invoice), new Update()
+          .set("submissionRetryAt", Instant.now().plusSeconds(60))
+          .inc("submissionAttempts", 1), Invoice.class);
+    } catch (RuntimeException retryFailure) {
+      // The original pending event remains on the Invoice even when this bookkeeping write fails.
+      log.warn("Submission retry bookkeeping deferred for {} ({})", invoice.getId(),
+          retryFailure.getClass().getSimpleName());
     }
   }
 

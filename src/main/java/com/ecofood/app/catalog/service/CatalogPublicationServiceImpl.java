@@ -128,7 +128,9 @@ page(page,size);
   }
   @Override
   public Credential grant(String id,Grant input) {
-    var a=access.current(); a.require(CatalogAccess.GRANT); var p=load(a,id);
+    var a=access.current();
+    a.require(CatalogAccess.GRANT);
+    var p=load(a,id);
     if(input==null || input.revision()!=p.getRevision() || p.getStatus()!=CatalogPublicationStatusEnum.PUBLISHED) throw conflict();
     validatePolicy(p.getPolicy());
     if(input.expiresAt()==null || !input.expiresAt().isAfter(now()) || !input.expiresAt().isAfter(p.getPolicy().startsAt()) || input.expiresAt().isAfter(p.getPolicy().expiresAt())) throw bad("Credential expiry must overlap and remain within publication validity");
@@ -146,7 +148,9 @@ page(page,size);
   }
   @Override
   public List<PartnerScope> partnerOptions(String id) {
-    var a=access.current(); a.require(CatalogAccess.GRANT); var p=load(a,id);
+    var a=access.current();
+    a.require(CatalogAccess.GRANT);
+    var p=load(a,id);
     if(p.getStatus()!=CatalogPublicationStatusEnum.PUBLISHED) throw conflict();
     var sources=data.resolve(a,p); if(!sources.stream().map(CatalogData.Resolved::pin).toList().equals(p.getPins())) throw CatalogData.invalid("Published source changed; create a new publication version");
     Set<String> ids=new TreeSet<>(); sources.forEach(s->ids.addAll(s.partnerIds()));

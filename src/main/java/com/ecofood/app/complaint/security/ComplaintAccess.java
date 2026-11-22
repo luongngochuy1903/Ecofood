@@ -70,7 +70,8 @@ public class ComplaintAccess {
   }
   public boolean eligible(String id,String tenant,ComplaintTypeEnum type) {
     var user=directory.user(id,tenant); if(user==null) return false;
-    var claims=directory.claims(user,tenant); String role=type==ComplaintTypeEnum.TENANT?"TENANT_ADMIN":"ECO_ADMIN";
+    var claims=directory.claims(user,tenant);
+    String role=type==ComplaintTypeEnum.TENANT?"TENANT_ADMIN":"ECO_ADMIN";
     if(!claims.roles().contains(role) || !claims.permissions().containsAll(List.of(READ,MANAGE))) return false;
     try { requireFullRelatedDataAccess(id,tenant); return type!=ComplaintTypeEnum.ECOSYSTEM || tenants.propositionReference(tenant).partnerType()==PartnerTypeEnum.ECO; }
     catch(RuntimeException denied) { return false; }

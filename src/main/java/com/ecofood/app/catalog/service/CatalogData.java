@@ -109,15 +109,24 @@ public class CatalogData {
         ?propositions.findByEnterpriseIdAndDeletedFalse(new ObjectId(actor.tenant().enterpriseId()))
         :propositions.findByDefinitionDistributionPartnerIdsInOrDefinitionBrandIdInOrPlansTenantIdsIn(List.of(actor.tenant().id()),List.of(actor.tenant().id()),List.of(actor.tenant().id()));
     List<CatalogDtos.PlanOption> result=new ArrayList<>();
-    for(var p:candidates) if(p.getPlans()!=null) for(var plan:p.getPlans()) {
-      try {
-        var selected=resolve(actor,new CatalogDtos.Selection(p.getIdAsString(),plan.getIdAsString()),type);
-        if(selected.partnerIds().isEmpty()) continue;
-        result.add(new CatalogDtos.PlanOption(p.getIdAsString(),p.getDefinition().name(),plan.getIdAsString(),plan.getName(),plan.getVersion(),
-            selected.pin().productId(),selected.pin().productVersion(),plan.getMarketConfiguration()==null?null:plan.getMarketConfiguration().currency(),selected.partnerIds()));
-      } catch(ResponseStatusException unavailable) { /* Only eligible, scoped options are exposed. */ }
+    for (var proposition : candidates) {
+      addPlanOptions(actor, type, proposition, result);
     }
     return result.stream().sorted(Comparator.comparing(CatalogDtos.PlanOption::planId)).toList();
+  }
+  private void addPlanOptions(CatalogAccess.Actor actor, CatalogTypeEnum type, PropositionEntity proposition,
+      List<CatalogDtos.PlanOption> result) {
+    if (proposition.getPlans() == null) return;
+    for (var plan : proposition.getPlans()) {
+      try {
+        var selected = resolve(actor, new CatalogDtos.Selection(proposition.getIdAsString(), plan.getIdAsString()), type);
+        if (selected.partnerIds().isEmpty()) continue;
+        result.add(new CatalogDtos.PlanOption(proposition.getIdAsString(), proposition.getDefinition().name(),
+            plan.getIdAsString(), plan.getName(), plan.getVersion(), selected.pin().productId(),
+            selected.pin().productVersion(), plan.getMarketConfiguration() == null ? null : plan.getMarketConfiguration().currency(),
+            selected.partnerIds()));
+      } catch (ResponseStatusException unavailable) { /* Only eligible, scoped options are exposed. */ }
+    }
   }
   public CatalogDtos.Options options(CatalogAccess.Actor actor,CatalogTypeEnum type) {
     Set<String> ids=new TreeSet<>(); plans(actor,type).forEach(p->ids.addAll(p.eligiblePartnerIds()));

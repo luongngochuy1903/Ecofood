@@ -46,8 +46,7 @@ class TransactionServiceTest {
     when(repo.insert(any(Invoice.class)))
         .thenAnswer(
             inv -> {
-              Invoice row = inv.getArgument(0);
-              return row;
+              return inv.getArgument(0);
             });
   }
 

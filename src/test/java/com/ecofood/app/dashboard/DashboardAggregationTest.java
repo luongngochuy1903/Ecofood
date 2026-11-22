@@ -86,4 +86,22 @@ class DashboardAggregationTest {
     assertNull(incomplete.expected()); assertEquals("NOT_FULLY_CONFIGURED", incomplete.expectedStatus());
     assertNull(mismatch.expected()); assertEquals("CURRENCY_MISMATCH", mismatch.expectedStatus());
   }
+  @Test void missingEarlyQuarterDoesNotHideOverlapInLaterQuarter() {
+    var targets = List.of(target(List.of(quarter(2, "90"), month(4, "30"))));
+    var metric = calculator.summarize(selection(DashboardPeriodEnum.YEARLY), Set.of(A), targets, List.of()).metrics().get("profit");
+    assertNull(metric.expected());
+    assertEquals("OVERLAPPING_PERIODS", metric.expectedStatus());
+  }
+  @Test void duplicateMonthsAreRejectedAndIncompleteQuarterIsNotReportedAsComplete() {
+    var selected = selection(DashboardPeriodEnum.QUARTERLY);
+    var duplicates = List.of(target(List.of(month(1, "10"), month(1, "20"), month(2, "30"))));
+    var incomplete = List.of(target(List.of(month(1, "10"), month(2, "20"))));
+    var overlap = calculator.summarize(selected, Set.of(A), duplicates, List.of()).metrics().get("profit");
+    var missing = calculator.summarize(selected, Set.of(A), incomplete, List.of()).metrics().get("profit");
+    assertNull(overlap.expected());
+    assertEquals("OVERLAPPING_PERIODS", overlap.expectedStatus());
+    assertNull(missing.expected());
+    assertEquals("NOT_FULLY_CONFIGURED", missing.expectedStatus());
+  }
+
 }

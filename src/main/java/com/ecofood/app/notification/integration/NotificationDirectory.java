@@ -14,12 +14,13 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class NotificationDirectory {
+  private static final String TENANT_RELATION = "TENANT";
   private static final String TENANT_ID = "tenantId";
   private final MongoTemplate mongo;
   private final UserAccessService access;
   public static boolean belongs(UserEntity user, String tenant) {
     return user != null && !Boolean.TRUE.equals(user.getDeleted()) && user.getPartyRelationships() != null
-        && user.getPartyRelationships().stream().anyMatch(r -> "TENANT".equals(r.getRelationshipTypeCode())
+        && user.getPartyRelationships().stream().anyMatch(r -> TENANT_RELATION.equals(r.getRelationshipTypeCode())
         && r.getToPartyId() != null && r.getToPartyId().toHexString().equals(tenant));
   }
   public UserEntity user(String id, String tenant) {
@@ -29,14 +30,14 @@ public class NotificationDirectory {
   }
   public List<UserEntity> users(String tenant) {
     return mongo.find(Query.query(Criteria.where("deleted").ne(true).and("partyRelationships").elemMatch(
-        Criteria.where("relationshipTypeCode").is("TENANT").and("toPartyId").is(new ObjectId(tenant)))), UserEntity.class);
+        Criteria.where("relationshipTypeCode").is(TENANT_RELATION).and("toPartyId").is(new ObjectId(tenant)))), UserEntity.class);
   }
   public UserAccessService.UserAccessClaims claims(UserEntity user, String tenant) {
     return access.resolveAccess(user.getId(), new ObjectId(tenant));
   }
   public UserEntity userByEmail(String email, String tenant) {
     var query = Query.query(Criteria.where("deleted").ne(true).and("email").regex("^" + java.util.regex.Pattern.quote(email) + "$", "i")
-        .and("partyRelationships").elemMatch(Criteria.where("relationshipTypeCode").is("TENANT").and("toPartyId").is(new ObjectId(tenant))));
+        .and("partyRelationships").elemMatch(Criteria.where("relationshipTypeCode").is(TENANT_RELATION).and("toPartyId").is(new ObjectId(tenant))));
     return mongo.findOne(query, UserEntity.class);
   }
   public com.ecofood.app.transaction.entity.Invoice sourceInvoice(Notification notice) {

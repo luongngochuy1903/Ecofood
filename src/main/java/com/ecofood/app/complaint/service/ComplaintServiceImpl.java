@@ -30,6 +30,8 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 @RequiredArgsConstructor
 public class ComplaintServiceImpl implements ComplaintService {
+  private static final String REQUIRED_REVISION_AND_NOTE = "Current revision and note are required";
+  private static final String CUSTOMER_ID = "customerId";
   private static final String QUEUE_TENANT_ID = "queue.tenantId";
   private final MongoTemplate mongo;
   private final CustomerAccess customers;
@@ -72,17 +74,23 @@ public class ComplaintServiceImpl implements ComplaintService {
   }
   @Override
   public Page<Complaint> customerList(ComplaintStatusEnum status,int page,int size) {
-    var actor=customers.current(); return list(Criteria.where("customerId").is(actor.userId()).and("customerTenantId").is(actor.tenantId()),status,page,size);
+    var actor=customers.current(); return list(Criteria.where(CUSTOMER_ID).is(actor.userId()).and("customerTenantId").is(actor.tenantId()),status,page,size);
   }
   @Override
   public Complaint customerDetail(String id) { return customerFind(customers.current(),id); }
   private Complaint customerFind(CustomerAccess.Actor actor,String id) {
-    var c=mongo.findOne(Query.query(Criteria.where("_id").is(id).and("customerId").is(actor.userId()).and("customerTenantId").is(actor.tenantId())),Complaint.class);
-    if(c==null) throw ComplaintAccess.missing(); return c;
+    var c=mongo.findOne(Query.query(Criteria.where("_id").is(id).and(CUSTOMER_ID).is(actor.userId()).and("customerTenantId").is(actor.tenantId())),Complaint.class);
+    if(c==null) {
+      throw ComplaintAccess.missing();
+    }
+    return c;
   }
   @Override
   public Complaint reply(String id,Reply input) {
-    var actor=customers.current(); var c=customerFind(actor,id); check(input==null?null:input.revision(),input==null?null:input.note(),c);
+    var actor=customers.current();
+    var c=customerFind(actor,id);
+    if (input == null) throw bad(REQUIRED_REVISION_AND_NOTE);
+    check(input.revision(),input.note(),c);
     if(c.getStatus()!=ComplaintStatusEnum.WAITING_REPORTER) throw conflict();
     return write(c,actor.userId(),"REPORTER_REPLIED",ComplaintStatusEnum.IN_PROGRESS,input.note(),new Update(),null);
   }
@@ -118,7 +126,8 @@ public class ComplaintServiceImpl implements ComplaintService {
     var a=admins.current();
     a.requireManage();
     var c=adminFind(a,id);
-    check(input==null?null:input.revision(),input==null?null:input.note(),c);
+    if (input == null) throw bad(REQUIRED_REVISION_AND_NOTE);
+    check(input.revision(),input.note(),c);
     ComplaintStatusEnum next=c.getStatus(); Update update=new Update(); String event; String note=input.note();
     if(!"assign".equals(action) && blank(input.assignedTo())!=null) throw bad("Assignee only accepted by assign action");
     if(!"transition".equals(action) && input.status()!=null) throw bad("Status only accepted by transition action");
@@ -163,7 +172,7 @@ public class ComplaintServiceImpl implements ComplaintService {
     if(next==ComplaintStatusEnum.CLOSED) update.set("closedAt",now);
     if(businessEvent!=null) update.push("handoffs",new Complaint.Handoff(submission(c,businessEvent,now),true));
     var result=mongo.findAndModify(Query.query(Criteria.where("_id").is(c.getId()).and("revision").is(c.getRevision()).and("status").is(c.getStatus())
-        .and("customerId").is(c.getCustomerId()).and(QUEUE_TENANT_ID).is(c.getQueue().tenantId())),update,FindAndModifyOptions.options().returnNew(true),Complaint.class);
+        .and(CUSTOMER_ID).is(c.getCustomerId()).and(QUEUE_TENANT_ID).is(c.getQueue().tenantId())),update,FindAndModifyOptions.options().returnNew(true),Complaint.class);
     if(result==null) {
       throw conflict();
     }
@@ -185,7 +194,7 @@ public class ComplaintServiceImpl implements ComplaintService {
     if(input.invoiceId()!=null && input.invoiceId().length()>100) throw bad("Invalid Invoice reference");
   }
   private void check(Long revision,String note,Complaint c) {
-    if(revision==null || note==null || note.isBlank() || note.length()>4000) throw bad("Current revision and note are required");
+    if(revision==null || note==null || note.isBlank() || note.length()>4000) throw bad(REQUIRED_REVISION_AND_NOTE);
     if(revision!=c.getRevision()) throw conflict();
     if(c.getEvents()!=null && c.getEvents().size()>=1000) throw new ResponseStatusException(HttpStatus.CONFLICT,"Complaint audit limit reached; contact support");
   }

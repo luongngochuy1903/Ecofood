@@ -99,7 +99,8 @@ public class DashboardServiceImpl implements DashboardQueryService {
   public Comparison comparison(Selection selection) {
     var context = context(selection);
     var summary = summarize(context, selection);
-    List<Breakdown> byTenant = new ArrayList<>(), byProposition = new ArrayList<>();
+    List<Breakdown> byTenant = new ArrayList<>();
+    List<Breakdown> byProposition = new ArrayList<>();
     for (String tenant : context.tenantIds().stream().sorted().toList()) {
       var individual = new Selection(tenant, selection.propositionId(), selection.currency(), selection.year(), selection.period(), selection.month(), selection.quarter(), false);
       byTenant.add(new Breakdown(tenant, selection.propositionId(), summarize(new Context(context.actor(), context.propositions(), Set.of(tenant), context.actual()), individual)));
@@ -112,22 +113,45 @@ public class DashboardServiceImpl implements DashboardQueryService {
   }
   @Override
   public Filters filters() {
-    var actor = access.current(); var props = data.propositions(actor);
-    var options = props.stream().filter(p -> !Collections.disjoint(participants(p), actor.tenantScope())).map(p -> new PropositionOption(p.getIdAsString(), p.getDefinition().name(), participants(p).stream().filter(actor.tenantScope()::contains).sorted().toList(), p.getDefinition().currency(), actor.partners() && p.getEnterpriseId() != null && p.getEnterpriseId().toHexString().equals(actor.tenant().enterpriseId()))).toList();
-    Set<String> propIds = new HashSet<>(); options.forEach(p -> propIds.add(p.id()));
-    var participantsByProp = new HashMap<String, Set<String>>(); props.forEach(p -> participantsByProp.put(p.getIdAsString(), participants(p)));
-    var rows = data.actual(actor.tenantScope(), propIds, null, null).stream()
-        .filter(r -> participantsByProp.getOrDefault(r.propositionId(), Set.of()).contains(r.tenantId())).toList();
-    Set<String> currencies = new TreeSet<>(); Set<Integer> years = new TreeSet<>();
+    var actor = access.current();
+    var props = data.propositions(actor);
+    var options = propositionOptions(actor, props);
+    var rows = filterRows(actor, props, options);
+    Set<String> currencies = new TreeSet<>();
+    Set<Integer> years = new TreeSet<>();
     years.add(LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).getYear());
     rows.forEach(r -> { currencies.add(r.currency()); years.add(r.year()); });
-    for (var prop : props) {
-      if (prop.getDefinition().currency() != null && !prop.getDefinition().currency().isBlank()) currencies.add(prop.getDefinition().currency());
-      if (prop.getDefinition().expectMetrics() != null) prop.getDefinition().expectMetrics().forEach(m -> { if (m.year() != null) years.add(m.year()); });
-      if (prop.getDefinition().partnerMetrics() != null) prop.getDefinition().partnerMetrics().stream().filter(m -> actor.tenantScope().contains(m.tenantId())).forEach(m -> { if (m.expectMetrics() != null) m.expectMetrics().forEach(period -> { if (period.year() != null) years.add(period.year()); }); });
-    }
-    var tenantOptions = actor.tenantScope().stream().sorted().map(tenants::propositionReference).filter(t -> !t.deleted()).map(t -> new Option(t.id(), t.name())).toList();
+    for (var prop : props) collectPeriods(actor, prop, currencies, years);
+    var tenantOptions = actor.tenantScope().stream().sorted().map(tenants::propositionReference)
+        .filter(t -> !t.deleted()).map(t -> new Option(t.id(), t.name())).toList();
     return new Filters(actor.tenant().id(), tenantOptions, options, List.copyOf(currencies), List.copyOf(years), false, actor.partners());
+  }
+  private List<PropositionOption> propositionOptions(DashboardAccess.Actor actor, List<PropositionEntity> props) {
+    return props.stream().filter(p -> !Collections.disjoint(participants(p), actor.tenantScope()))
+        .map(p -> new PropositionOption(p.getIdAsString(), p.getDefinition().name(),
+            participants(p).stream().filter(actor.tenantScope()::contains).sorted().toList(),
+            p.getDefinition().currency(), actor.partners() && p.getEnterpriseId() != null
+                && p.getEnterpriseId().toHexString().equals(actor.tenant().enterpriseId()))).toList();
+  }
+  private List<ActualMetrics> filterRows(DashboardAccess.Actor actor, List<PropositionEntity> props, List<PropositionOption> options) {
+    Set<String> propIds = new HashSet<>();
+    options.forEach(p -> propIds.add(p.id()));
+    var participantsByProp = new HashMap<String, Set<String>>();
+    props.forEach(p -> participantsByProp.put(p.getIdAsString(), participants(p)));
+    return data.actual(actor.tenantScope(), propIds, null, null).stream()
+        .filter(r -> participantsByProp.getOrDefault(r.propositionId(), Set.of()).contains(r.tenantId())).toList();
+  }
+  private void collectPeriods(DashboardAccess.Actor actor, PropositionEntity prop, Set<String> currencies, Set<Integer> years) {
+    var definition = prop.getDefinition();
+    if (definition.currency() != null && !definition.currency().isBlank()) currencies.add(definition.currency());
+    collectYears(definition.expectMetrics(), years);
+    if (definition.partnerMetrics() == null) return;
+    definition.partnerMetrics().stream().filter(m -> actor.tenantScope().contains(m.tenantId()))
+        .forEach(m -> collectYears(m.expectMetrics(), years));
+  }
+  private void collectYears(List<com.ecofood.core.dto.EconomicMetricsRequest> metrics, Set<Integer> years) {
+    if (metrics == null) return;
+    metrics.stream().map(com.ecofood.core.dto.EconomicMetricsRequest::year).filter(Objects::nonNull).forEach(years::add);
   }
   private static org.springframework.web.server.ResponseStatusException bad(String message) { return DashboardAccess.error(HttpStatus.BAD_REQUEST, message); }
 }

@@ -45,23 +45,44 @@ public class NotificationRecipients {
         && safe(recipients.permissions()).isEmpty() && safe(recipients.emails()).isEmpty()) throw NotificationTemplate.bad("Cần ít nhất một nguồn người nhận");
   }
   public List<Recipient> resolve(NotificationRule rule, Invoice invoice) {
-    var config = rule.getRecipients(); Map<String, Recipient> recipients = new TreeMap<>();
-    for (String id : safe(config.userIds())) add(recipients, directory.user(id, rule.getTenantId()), invoice);
-    if (!safe(config.roles()).isEmpty() || !safe(config.permissions()).isEmpty()) for (UserEntity user : directory.users(rule.getTenantId())) {
-      var claims = directory.claims(user, rule.getTenantId());
-      if (!Collections.disjoint(claims.roles(), safe(config.roles())) || !Collections.disjoint(claims.permissions(), safe(config.permissions()))) add(recipients, user, invoice);
-    }
-    if (config.invoiceCustomer() && invoice != null && invoice.getInvoiceHolder() != null && invoice.getInvoiceHolder().userId() != null) {
-      UserEntity user = directory.user(invoice.getInvoiceHolder().userId(), rule.getTenantId());
-      if (user != null && user.getUserCategory() != null && "CUSTOMER".equals(user.getUserCategory().getUserCategoryCode())) add(recipients, user, invoice);
-    }
-    for (String email : safe(config.emails())) if (settings.approved(rule.getTenantId()).contains(NotificationSettings.canonical(email))) {
-      var user = directory.userByEmail(email, rule.getTenantId());
-      if (customer(user)) add(recipients, user, invoice);
-      else recipients.putIfAbsent(NotificationSettings.canonical(email), new Recipient(NotificationSettings.canonical(email), null));
-    }
+    Map<String, Recipient> recipients = new TreeMap<>();
+    addExplicitUsers(rule, invoice, recipients);
+    addUsersByAuthority(rule, invoice, recipients);
+    addInvoiceCustomer(rule, invoice, recipients);
+    addApprovedEmails(rule, invoice, recipients);
     if (recipients.size() > 200) throw new IllegalStateException("RECIPIENT_LIMIT_EXCEEDED");
     return List.copyOf(recipients.values());
+  }
+  private void addExplicitUsers(NotificationRule rule, Invoice invoice, Map<String, Recipient> result) {
+    for (String id : safe(rule.getRecipients().userIds())) {
+      add(result, directory.user(id, rule.getTenantId()), invoice);
+    }
+  }
+  private void addUsersByAuthority(NotificationRule rule, Invoice invoice, Map<String, Recipient> result) {
+    var config = rule.getRecipients();
+    if (safe(config.roles()).isEmpty() && safe(config.permissions()).isEmpty()) return;
+    for (UserEntity user : directory.users(rule.getTenantId())) {
+      var claims = directory.claims(user, rule.getTenantId());
+      if (!Collections.disjoint(claims.roles(), safe(config.roles()))
+          || !Collections.disjoint(claims.permissions(), safe(config.permissions()))) {
+        add(result, user, invoice);
+      }
+    }
+  }
+  private void addInvoiceCustomer(NotificationRule rule, Invoice invoice, Map<String, Recipient> result) {
+    if (!rule.getRecipients().invoiceCustomer() || invoice == null
+        || invoice.getInvoiceHolder() == null || invoice.getInvoiceHolder().userId() == null) return;
+    UserEntity user = directory.user(invoice.getInvoiceHolder().userId(), rule.getTenantId());
+    if (customer(user)) add(result, user, invoice);
+  }
+  private void addApprovedEmails(NotificationRule rule, Invoice invoice, Map<String, Recipient> result) {
+    for (String email : safe(rule.getRecipients().emails())) {
+      String canonical = NotificationSettings.canonical(email);
+      if (!settings.approved(rule.getTenantId()).contains(canonical)) continue;
+      var user = directory.userByEmail(email, rule.getTenantId());
+      if (customer(user)) add(result, user, invoice);
+      else result.putIfAbsent(canonical, new Recipient(canonical, null));
+    }
   }
   private boolean customer(UserEntity user) { return user != null && user.getUserCategory() != null && "CUSTOMER".equals(user.getUserCategory().getUserCategoryCode()); }
   private boolean owns(UserEntity user, Invoice invoice) {

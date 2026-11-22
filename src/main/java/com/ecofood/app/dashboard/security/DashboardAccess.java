@@ -68,7 +68,8 @@ public class DashboardAccess {
     for (var link : membership.getGroups()) {
       var group = scopedGroup(tenant, link.getTenantIdentifier(), link.getGroupIdentifier());
       if (group == null) continue;
-      var type = group.getAccessEntityType(); var old = result.get(type);
+      var type = group.getAccessEntityType();
+      var old = result.get(type);
       Set<String> ids = new HashSet<>(old == null ? Set.of() : old.ids());
       boolean full = (old != null && old.full()) || group.getAccessLevel() == AccessLevelEnum.FULL_ACCESS;
       if (group.getAccessLevel() == AccessLevelEnum.LIMITED_ACCESS)

@@ -1,7 +1,6 @@
 package com.ecofood.app.complaint.exception;
 
 import com.ecofood.app.complaint.controller.ComplaintController;
-import com.ecofood.app.complaint.entity.Complaint;
 import java.util.Map;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
