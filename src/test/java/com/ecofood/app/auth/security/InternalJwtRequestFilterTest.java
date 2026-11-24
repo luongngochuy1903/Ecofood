@@ -73,16 +73,26 @@ class InternalJwtRequestFilterTest {
     when(claims.get("aud")).thenReturn(new LinkedHashSet<>(java.util.List.of("app-api")));
     when(claims.get("permissions", java.util.List.class)).thenReturn(java.util.List.of("tenants.read.any"));
     when(claims.getSubject()).thenReturn("user-1");
+    when(claims.get("tenantId")).thenReturn("tenant-1");
     when(internalTokenService.verifyToken("good-token")).thenReturn(claims);
 
     MockHttpServletRequest request = requestWithBearerToken("good-token");
     MockHttpServletResponse response = new MockHttpServletResponse();
+    org.mockito.Mockito.doAnswer(call -> {
+      assertThat(org.slf4j.MDC.get("requestId")).isEqualTo(response.getHeader("X-Request-Id")).isNotBlank();
+      assertThat(org.slf4j.MDC.get("actorId")).isEqualTo("user-1");
+      assertThat(org.slf4j.MDC.get("tenantId")).isEqualTo("tenant-1");
+      return null;
+    }).when(filterChain).doFilter(request, response);
 
     filter.doFilter(request, response, filterChain);
 
     verify(filterChain).doFilter(request, response);
     assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
     assertThat(SecurityContextHolder.getContext().getAuthentication().getName()).isEqualTo("user-1");
+    assertThat(org.slf4j.MDC.get("tenantId")).isNull();
+    assertThat(org.slf4j.MDC.get("actorId")).isNull();
+    assertThat(org.slf4j.MDC.get("requestId")).isNull();
   }
 
   @Test

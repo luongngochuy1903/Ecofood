@@ -1,5 +1,8 @@
 package com.ecofood.app.userACL.controller;
 
+import com.ecofood.app.config.Audited;
+import com.ecofood.core.enums.AuditAction;
+
 import com.ecofood.core.dto.AssignTenantRolesRequest;
 import com.ecofood.core.dto.AssignTenantRolesResponse;
 import com.ecofood.core.dto.EligibleTenantResponse;
@@ -31,6 +34,7 @@ public class UserController {
 
   private final UserService userService;
 
+  @Audited(AuditAction.CREATE)
   @PostMapping
   public ResponseEntity<UserResponse> createUser(@Valid @RequestBody UserCreateRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED).body(userService.createUser(request));
@@ -42,6 +46,7 @@ public class UserController {
     return ResponseEntity.ok(userService.getById(userId));
   }
 
+  @Audited(AuditAction.UPDATE)
   @PostMapping("/{userId}/tenant-assignments")
   public ResponseEntity<AssignTenantRolesResponse> assignTenantRoles(
       @PathVariable String userId, @Valid @RequestBody AssignTenantRolesRequest request) {

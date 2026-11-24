@@ -91,7 +91,7 @@ class UserAccessServiceImplTest {
     assertThat(claims.roles()).containsExactlyInAnyOrder("TENANT_ADMIN", "VIEWER");
     assertThat(claims.permissions()).containsExactlyInAnyOrder("tenants.write.any", "tenants.read.any",
         "CATALOG_API_READ", "CATALOG_API_MANAGE", "CATALOG_API_PUBLISH", "CATALOG_API_GRANT", "TRANSACTION_SUBMIT", "DASHBOARD_READ",
-        "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY");
+        "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY", "AUDIT_LOG_READ");
     assertThat(claims.roleGroups()).containsExactly("TENANT");
   }
 
@@ -116,7 +116,7 @@ class UserAccessServiceImplTest {
 
     assertThat(claims.permissions()).containsExactlyInAnyOrder(
         "CATALOG_API_READ", "CATALOG_API_MANAGE", "CATALOG_API_PUBLISH", "CATALOG_API_GRANT", "TRANSACTION_SUBMIT", "DASHBOARD_READ",
-        "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY");
+        "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY", "AUDIT_LOG_READ");
     assertThat(claims.roleGroups()).isEmpty();
   }
 
@@ -131,8 +131,8 @@ class UserAccessServiceImplTest {
       when(userRoleRepository.findByUserIdAndTenantId(user, tenant)).thenReturn(Optional.of(assignment));
       when(rolePermissionRepository.findByRoleId(role)).thenReturn(Optional.empty());
       var permissions = service.resolveAccess(user, tenant).permissions();
-      if (code.endsWith("_ADMIN")) assertThat(permissions).contains("DASHBOARD_READ", "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY");
-      else assertThat(permissions).doesNotContain("DASHBOARD_READ", "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY");
+      if (code.endsWith("_ADMIN")) assertThat(permissions).contains("DASHBOARD_READ", "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY", "AUDIT_LOG_READ");
+      else assertThat(permissions).doesNotContain("DASHBOARD_READ", "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY", "AUDIT_LOG_READ");
       if (code.equals("ENTERPRISE_ADMIN")) assertThat(permissions).contains("DASHBOARD_READ_PARTNERS");
       else assertThat(permissions).doesNotContain("DASHBOARD_READ_PARTNERS");
     }

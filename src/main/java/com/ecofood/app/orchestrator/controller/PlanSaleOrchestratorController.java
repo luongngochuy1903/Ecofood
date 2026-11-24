@@ -1,5 +1,8 @@
 package com.ecofood.app.orchestrator.controller;
 
+import com.ecofood.app.config.Audited;
+import com.ecofood.core.enums.AuditAction;
+
 import com.ecofood.core.dto.PlanSaleOrchestratorDtos;
 import com.ecofood.core.dto.PlanSaleOrchestratorView;
 import com.ecofood.core.service.PlanSaleOrchestratorService;
@@ -23,18 +26,21 @@ public class PlanSaleOrchestratorController {
         .orElseGet(() -> ResponseEntity.noContent().build());
   }
 
+  @Audited(AuditAction.CREATE)
   @PostMapping
   public ResponseEntity<? extends PlanSaleOrchestratorView> create(
       @PathVariable String propositionId, @PathVariable String planId, @RequestBody PlanSaleOrchestratorDtos.Save r) {
     return ResponseEntity.status(HttpStatus.CREATED).body(service.create(propositionId, planId, r));
   }
 
+  @Audited(AuditAction.UPDATE)
   @PutMapping("/draft")
   public PlanSaleOrchestratorView edit(
       @PathVariable String propositionId, @PathVariable String planId, @RequestBody PlanSaleOrchestratorDtos.Save r) {
     return service.edit(propositionId, planId, r);
   }
 
+  @Audited(AuditAction.CREATE)
   @PostMapping("/versions")
   public PlanSaleOrchestratorView version(
       @PathVariable String propositionId, @PathVariable String planId, @RequestBody PlanSaleOrchestratorDtos.Revision r) {
@@ -56,6 +62,7 @@ public class PlanSaleOrchestratorController {
     return service.validate(propositionId, planId, r);
   }
 
+  @Audited(AuditAction.UPDATE)
   @PostMapping("/activate")
   public PlanSaleOrchestratorView activate(
       @PathVariable String propositionId, @PathVariable String planId, @RequestBody PlanSaleOrchestratorDtos.Revision r) {
