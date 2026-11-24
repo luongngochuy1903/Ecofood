@@ -78,7 +78,7 @@ public class UserAccessServiceImpl implements UserAccessService {
     if (roleCodes.stream().anyMatch(code -> Set.of("TENANT_ADMIN", "MASTER_ADMIN", ENTERPRISE_ADMIN, "ECO_ADMIN").contains(code))) {
       Set<String> effectivePermissions = new LinkedHashSet<>(permissionCodes);
       effectivePermissions.add("DASHBOARD_READ");
-      effectivePermissions.addAll(List.of("NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY"));
+      effectivePermissions.addAll(List.of("NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY", "AUDIT_LOG_READ"));
       if (roleCodes.contains(ENTERPRISE_ADMIN)) effectivePermissions.add("DASHBOARD_READ_PARTNERS");
       permissionCodes = List.copyOf(effectivePermissions);
     }

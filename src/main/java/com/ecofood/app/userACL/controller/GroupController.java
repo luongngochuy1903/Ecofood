@@ -1,5 +1,8 @@
 package com.ecofood.app.userACL.controller;
 
+import com.ecofood.app.config.Audited;
+import com.ecofood.core.enums.AuditAction;
+
 import com.ecofood.app.userACL.dto.GroupSummary;
 import com.ecofood.app.userACL.dto.GroupWithRolesRequest;
 import com.ecofood.app.userACL.dto.GroupWithRolesResponse;
@@ -28,6 +31,7 @@ public class GroupController {
 
   private final GroupService groupService;
 
+  @Audited(AuditAction.CREATE)
   @PostMapping
   public ResponseEntity<GroupWithRolesResponse> createGroup(@Valid @RequestBody GroupWithRolesRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED).body(groupService.createGroupWithRoles(request));

@@ -12,9 +12,11 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
@@ -62,6 +64,9 @@ public class InternalJwtRequestFilter extends OncePerRequestFilter {
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
       throws ServletException, IOException {
 
+    String requestId = UUID.randomUUID().toString();
+    MDC.put("requestId", requestId);
+    response.setHeader("X-Request-Id", requestId);
     final String requestTokenHeader = request.getHeader("Authorization");
 
     try {
@@ -107,6 +112,8 @@ public class InternalJwtRequestFilter extends OncePerRequestFilter {
             return;
           }
 
+          if (claims.getSubject() != null) MDC.put("actorId", claims.getSubject());
+          if (claims.get("tenantId") instanceof String tenant) MDC.put("tenantId", tenant);
           if (SecurityContextHolder.getContext().getAuthentication() == null) {
             @SuppressWarnings("unchecked")
             List<String> permissions = claims.get(CLAIM_PERMISSIONS, List.class);
@@ -130,6 +137,9 @@ public class InternalJwtRequestFilter extends OncePerRequestFilter {
     } finally {
       // ThreadLocals — must always be cleared, or they leak across pooled
       // threads onto an unrelated later request.
+      MDC.remove("requestId");
+      MDC.remove("actorId");
+      MDC.remove("tenantId");
       AuthenticationContext.unload();
     }
   }

@@ -1,5 +1,8 @@
 package com.ecofood.app.proposition.controller;
 
+import com.ecofood.app.config.Audited;
+import com.ecofood.core.enums.AuditAction;
+
 import com.ecofood.core.dto.*;
 import com.ecofood.core.service.*;
 import jakarta.validation.Valid;
@@ -37,6 +40,7 @@ public class PropositionController {
         return query.currencySettings();
     }
 
+    @Audited(AuditAction.UPDATE)
     @PutMapping("/settings")
     public PropositionCurrencySettingsResponse settings(
             @Valid @RequestBody PropositionCurrencySettingsRequest r) {
@@ -48,30 +52,35 @@ public class PropositionController {
         return query.getById(id);
     }
 
+    @Audited(AuditAction.CREATE)
     @PostMapping
     public ResponseEntity<PropositionResponse> create(
             @Valid @RequestBody PropositionCreateRequest r) {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.create(r));
     }
 
+    @Audited(AuditAction.UPDATE)
     @PutMapping("/{id}")
     public PropositionResponse update(
             @PathVariable String id, @Valid @RequestBody PropositionUpdateRequest r) {
         return service.update(id, r);
     }
 
+    @Audited(AuditAction.UPDATE)
     @PostMapping("/{id}/submit")
     public PropositionResponse submit(
             @PathVariable String id, @Valid @RequestBody RevisionRequest r) {
         return service.submit(id, r);
     }
 
+    @Audited(AuditAction.UPDATE)
     @PostMapping("/{id}/approve")
     public PropositionResponse approve(
             @PathVariable String id, @Valid @RequestBody RevisionRequest r) {
         return service.approve(id, r);
     }
 
+    @Audited(AuditAction.CREATE)
     @PostMapping("/{id}/plans")
     public ResponseEntity<PropositionResponse> addPlan(
             @PathVariable String id, @Valid @RequestBody PlanRequest r) {
@@ -83,6 +92,7 @@ public class PropositionController {
         return query.getPlan(id, planId);
     }
 
+    @Audited(AuditAction.UPDATE)
     @PutMapping("/{id}/plans/{planId}")
     public PropositionResponse plan(
             @PathVariable String id,
@@ -91,6 +101,7 @@ public class PropositionController {
         return service.updatePlan(id, planId, r);
     }
 
+    @Audited(AuditAction.DELETE)
     @DeleteMapping("/{id}/plans/{planId}")
     public PropositionResponse remove(
             @PathVariable String id,
@@ -99,6 +110,7 @@ public class PropositionController {
         return service.removePlan(id, planId, r);
     }
 
+    @Audited(AuditAction.UPDATE)
     @PostMapping("/{id}/plans/{planId}/approve")
     public PropositionResponse approve(
             @PathVariable String id,
@@ -107,6 +119,7 @@ public class PropositionController {
         return service.approvePlan(id, planId, r);
     }
 
+    @Audited(AuditAction.UPDATE)
     @PostMapping("/{id}/plans/{planId}/submit")
     public PropositionResponse submitPlan(
             @PathVariable String id,
@@ -115,6 +128,7 @@ public class PropositionController {
         return service.submitPlan(id, planId, r);
     }
 
+    @Audited(AuditAction.CREATE)
     @PostMapping("/{id}/plans/{planId}/versions")
     public ResponseEntity<PropositionResponse> version(
             @PathVariable String id,

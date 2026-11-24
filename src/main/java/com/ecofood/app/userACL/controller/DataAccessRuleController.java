@@ -1,5 +1,8 @@
 package com.ecofood.app.userACL.controller;
 
+import com.ecofood.app.config.Audited;
+import com.ecofood.core.enums.AuditAction;
+
 import com.ecofood.core.dto.CreateDataAccessRuleRequest;
 import com.ecofood.core.dto.DataAccessRuleDetailResponse;
 import com.ecofood.core.dto.DataAccessRuleDirectoryResponse;
@@ -27,6 +30,7 @@ public class DataAccessRuleController {
 
   private final DataAccessRuleService dataAccessRuleService;
 
+  @Audited(AuditAction.CREATE)
   @PostMapping
   public ResponseEntity<DataAccessRuleResponse> create(@Valid @RequestBody CreateDataAccessRuleRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED).body(dataAccessRuleService.create(request));
@@ -54,6 +58,7 @@ public class DataAccessRuleController {
   }
 
   /** Only the rule's own creator may call this — see DataAccessRuleServiceImpl.update's ownership check. */
+  @Audited(AuditAction.UPDATE)
   @PutMapping("/{id}")
   public ResponseEntity<DataAccessRuleDetailResponse> update(
       @PathVariable String id, @Valid @RequestBody UpdateDataAccessRuleRequest request) {
