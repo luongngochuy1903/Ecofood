@@ -145,8 +145,7 @@ class PlanSaleOrchestratorServiceTest {
   @Test
   void getThrowsNotFoundWhenMissing() {
     when(access.currentForProposition(PROP)).thenReturn(scope(List.of()));
-    when(repo.findByIdAndTenantIdAndPropositionId("missing", TENANT, PROP))
-        .thenReturn(Optional.empty());
+    when(repo.findByIdAndPropositionId("missing", PROP)).thenReturn(Optional.empty());
     assertThrows(ResponseStatusException.class, () -> service.get(PROP, "missing"));
   }
 
@@ -167,7 +166,7 @@ class PlanSaleOrchestratorServiceTest {
     rowB.setName("Sale B");
     rowB.setPlanIds(List.of(OTHER_PLAN));
     rowB.setUpdatedAt(Instant.now());
-    when(repo.findByTenantIdAndPropositionId(TENANT, PROP)).thenReturn(List.of(rowA, rowB));
+    when(repo.findByPropositionId(PROP)).thenReturn(List.of(rowA, rowB));
     var page = service.directory(PROP, 0, 20, null, null);
     assertEquals(2, page.getContent().size());
     var filtered = service.directory(PROP, 0, 20, null, "chicken");
@@ -212,12 +211,35 @@ class PlanSaleOrchestratorServiceTest {
   }
 
   @Test
-  void tenantActorCannotLoadAnotherTenantsOrchestratorAndNeverQueriesAcrossTheProposition() {
+  void tenantActorCanViewButNotEditAnotherTenantsOrchestratorOnTheSameProposition() {
+    // "Same Proposition" is the only scope for viewing — a Tenant that
+    // didn't create this Orchestrator can still see it, just not edit it.
     when(access.currentForProposition(PROP)).thenReturn(scope(List.of()));
+    var ownedByOther = new PlanSaleOrchestrator();
+    ownedByOther.setId("orch-a");
+    ownedByOther.setTenantId("someone-else");
+    ownedByOther.setPropositionId(PROP);
+    ownedByOther.setName("Someone Else's Orchestrator");
+    ownedByOther.setPlanIds(List.of());
+    when(repo.findByIdAndPropositionId("orch-a", PROP)).thenReturn(Optional.of(ownedByOther));
+    var detail = service.get(PROP, "orch-a");
+    assertEquals("Someone Else's Orchestrator", detail.name());
+    assertFalse(detail.canEdit());
+
     when(repo.findByIdAndTenantIdAndPropositionId("orch-a", TENANT, PROP))
         .thenReturn(Optional.empty());
-    assertThrows(ResponseStatusException.class, () -> service.get(PROP, "orch-a"));
-    verify(repo, never()).findByIdAndPropositionId(any(), any());
+    assertThrows(
+        ResponseStatusException.class,
+        () -> service.update(PROP, "orch-a", request(0L, "Hijacked", List.of())));
+  }
+
+  @Test
+  void aTenantsOwnOrchestratorReportsCanEditTrue() {
+    var planA = plan(PLAN, "PL00001", PlanStatusEnum.APPROVED);
+    when(access.currentForProposition(PROP)).thenReturn(scope(List.of(planA)));
+    when(productProcesses.get(PLAN)).thenReturn(processNamed(PLAN, "Chicken Plan"));
+    var response = service.create(PROP, request(null, "Sale A", List.of(PLAN)));
+    assertTrue(response.canEdit());
   }
 
   @Test

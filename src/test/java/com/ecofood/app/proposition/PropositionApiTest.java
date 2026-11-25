@@ -822,6 +822,27 @@ class PropositionApiTest {
     }
 
     @Test
+    void aDistributionPartnerSeesEveryPlanEvenOnesNotListingItDirectly() throws Exception {
+        // `partner` is a distributionPartnerId on every createBody() Proposition
+        // (see definition()), but every Plan added below is scoped to `child`
+        // only — `partner` never appears in any individual Plan's tenantIds.
+        String id = create(), path = "/api/v1/propositions/" + id;
+        mvc.perform(
+                        post(path + "/plans")
+                                .header("Authorization", "Bearer " + ownerToken)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(plan(0, "TH", child, "null")))
+                .andExpect(status().isCreated());
+        String partnerToken = token(partner, "TENANT_ADMIN", "TENANT");
+        mvc.perform(get(path).header("Authorization", "Bearer " + partnerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plans.length()").value(1));
+        mvc.perform(get(path + "/plans/directory").header("Authorization", "Bearer " + partnerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
     void actualMetricsAreZeroSeededAtCreationMatchingExpectMetricsPeriods() throws Exception {
         var body =
                 createBody()
