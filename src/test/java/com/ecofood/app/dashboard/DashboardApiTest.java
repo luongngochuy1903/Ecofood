@@ -35,10 +35,26 @@ class DashboardApiTest {
     mvc.perform(get("/api/v1/dashboard/summary").param("currency", "USD").header("X-Tenant-Id", B)).andExpect(status().isForbidden());
     verify(service).summary(argThat(s -> s.tenantId() == null));
   }
-  @Test void projectionReadsActualMetricsClassWithAllBusinessDimensionsAndNeverWrites() {
-    var mongo = mock(MongoTemplate.class); when(mongo.find(any(Query.class), eq(ActualMetrics.class))).thenReturn(List.of(actual(A, 1, "USD", 1, "0")));
-    var data = new DashboardData(mongo, mock(PropositionAccess.class)); assertEquals(1, data.actual(Set.of(A), Set.of(PROP), 2026, "USD").size());
-    verify(mongo).find(argThat((Query q) -> q.getQueryObject().containsKey("tenantId") && q.getQueryObject().containsKey("propositionId") && q.getQueryObject().getInteger("year") == 2026 && "USD".equals(q.getQueryObject().getString("currency"))), eq(ActualMetrics.class));
+  @Test void projectionReadsPropositionActualsWithAllBusinessDimensionsAndNeverWrites() {
+    var mongo = mock(MongoTemplate.class);
+    var p = proposition();
+    p.setActualMetrics(List.of(
+        new com.ecofood.core.dto.EconomicMetricsRequest(1, 2026, bd("2"), bd("0"), bd("0"), bd("50"), null, bd("100"), A, "USD"),
+        new com.ecofood.core.dto.EconomicMetricsRequest(1, 2026, bd("3"), bd("0"), bd("0"), bd("50"), null, bd("100"), B, "USD"),
+        new com.ecofood.core.dto.EconomicMetricsRequest(1, 2026, bd("4"), bd("0"), bd("0"), bd("50"), null, bd("100"), A, "VND"),
+        new com.ecofood.core.dto.EconomicMetricsRequest(1, 2025, bd("5"), bd("0"), bd("0"), bd("50"), null, bd("100"), A, "USD")));
+    when(mongo.find(any(Query.class), eq(PropositionEntity.class))).thenReturn(List.of(p));
+    var data = new DashboardData(mongo, mock(PropositionAccess.class));
+    var rows = data.actual(Set.of(A), Set.of(PROP), 2026, "USD");
+    assertEquals(1, rows.size());
+    assertEquals(A, rows.get(0).tenantId());
+    assertEquals("USD", rows.get(0).currency());
+    assertEquals(2026, rows.get(0).year());
+    assertEquals(1, rows.get(0).month());
+    assertEquals(2, rows.get(0).totalSalesVolume());
+    verify(mongo).find(argThat((Query q) -> q.getQueryObject().get("_id", org.bson.Document.class)
+        .getList("$in", org.bson.types.ObjectId.class).equals(List.of(new org.bson.types.ObjectId(PROP)))
+        && q.getQueryObject().get("deleted", org.bson.Document.class).getBoolean("$ne")), eq(PropositionEntity.class));
     verifyNoMoreInteractions(mongo);
   }
   @Test void productDarFiltersBeforeReturningPropositionsAndUsesExistingReadPolicy() {

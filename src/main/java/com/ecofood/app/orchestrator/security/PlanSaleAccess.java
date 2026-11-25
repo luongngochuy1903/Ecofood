@@ -140,6 +140,7 @@ public class PlanSaleAccess {
     String canonicalPlanId = new ObjectId(planId).toHexString();
     var plan =
         p.getPlans().stream()
+            .filter(v -> canonicalPlanId.equals(v.getIdAsString()))
             .filter(
                 v ->
                     !Boolean.TRUE.equals(v.getDeleted()))

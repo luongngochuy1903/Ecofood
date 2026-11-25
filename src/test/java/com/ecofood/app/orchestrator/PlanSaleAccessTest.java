@@ -197,7 +197,9 @@ class PlanSaleAccessTest {
     other.setId(new ObjectId(OTHER_PLAN));
     p.setPlans(List.of(plan, other));
     plan.setEndDate(Instant.now().minusSeconds(1));
-    access.active(access.require(TENANT, PROP, OTHER_PLAN));
+    var scope = access.require(TENANT, PROP, OTHER_PLAN);
+    assertSame(other, scope.plan());
+    access.active(scope);
   }
 
   @Test
