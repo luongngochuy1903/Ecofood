@@ -31,8 +31,8 @@ class ProductProcessStoreTest {
     store.save(p);
     verify(definitions).insert(p.getDefinitionAttribute());verify(costings).insert(p.getCostingAttribute());verify(overviews).insert(p.getOverviewAttribute());
     assertThat(p.getOverviewAttribute().getProductName()).isEqualTo("Chicken");
-    assertThat(p.getOverviewAttribute().getTotalCost()).isEqualByComparingTo("60000");
-    assertThat(p.getOverviewAttribute().getBasePrice()).isEqualByComparingTo("82500");
+    assertThat(p.getOverviewAttribute().getTotalCost()).isEqualByComparingTo("10000");
+    assertThat(p.getOverviewAttribute().getBasePrice()).isEqualByComparingTo("13750");
     when(processes.findByProductIdAndVersion(p.getProductId(),1)).thenReturn(Optional.of(p));
     when(definitions.findById(p.getDefinitionAttribute().getId())).thenReturn(Optional.of(p.getDefinitionAttribute()));
     when(costings.findById(p.getCostingAttribute().getId())).thenReturn(Optional.of(p.getCostingAttribute()));

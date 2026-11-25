@@ -13,6 +13,9 @@ public interface PlanSaleOrchestratorRepository
 
   Optional<PlanSaleOrchestrator> findByTenantIdAndPlanIdsContaining(String tenantId, String planId);
 
+  /** Runtime candidates; ownership and distribution must be checked before use. */
+  List<PlanSaleOrchestrator> findByPlanIdsContaining(String planId);
+
   /** Enterprise-wide reads only — an Enterprise actor owns the whole Proposition, so it sees every Tenant's own Orchestrators, not only ones under its own tenantId. */
   List<PlanSaleOrchestrator> findByPropositionId(String propositionId);
 

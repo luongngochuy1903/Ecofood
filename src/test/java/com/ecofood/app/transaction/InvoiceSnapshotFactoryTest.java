@@ -10,7 +10,6 @@ import com.ecofood.app.proposition.entity.Plan;
 import com.ecofood.app.proposition.entity.PropositionEntity;
 import com.ecofood.app.transaction.service.InvoiceSnapshotFactory;
 import com.ecofood.core.client.CoreProductProcessClient;
-import com.ecofood.core.client.CoreProductQueryClient;
 import com.ecofood.core.dto.*;
 import com.ecofood.core.dto.InvoiceItemDto;
 import com.ecofood.core.dto.PreparedSaleTransaction;
@@ -29,6 +28,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import org.bson.Document;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Query;
 
 class InvoiceSnapshotFactoryTest {
   private static final String TENANT = "111111111111111111111111";
@@ -38,8 +40,8 @@ class InvoiceSnapshotFactoryTest {
   private static final String PROCESS = "555555555555555555555555";
   private final PlanSaleAccess access = mock(PlanSaleAccess.class);
   private final CoreProductProcessClient productProcesses = mock(CoreProductProcessClient.class);
-  private final CoreProductQueryClient products = mock(CoreProductQueryClient.class);
-  private final InvoiceSnapshotFactory factory = new InvoiceSnapshotFactory(access, productProcesses, products);
+  private final MongoTemplate mongo = mock(MongoTemplate.class);
+  private final InvoiceSnapshotFactory factory = new InvoiceSnapshotFactory(access, productProcesses, mongo);
   private PropositionEntity proposition;
   private PreparedSaleTransaction prepared;
 
@@ -55,7 +57,8 @@ class InvoiceSnapshotFactoryTest {
     plan.setVersion(3);
     plan.setProductVersion(2);
     when(productProcesses.get(PLAN)).thenReturn(process("VND"));
-    when(products.processes(PRODUCT)).thenReturn(List.of(process("VND")));
+    when(mongo.findOne(any(Query.class), eq(Document.class), eq("product_process")))
+        .thenReturn(new Document("_id", new ObjectId(PROCESS)));
     when(access.require(TENANT, PROP, PLAN))
         .thenReturn(new PlanSaleAccess.Scope(TENANT, null, proposition, plan));
     prepared = new PreparedSaleTransaction("orch", 4,
@@ -138,9 +141,41 @@ class InvoiceSnapshotFactoryTest {
   }
 
   @Test
+  void sourceMetadataLookupUsesOnlyTheAuthorizedProductsBoundVersion() {
+    factory.capture(TENANT, prepared, Instant.now());
+    var query = org.mockito.ArgumentCaptor.forClass(Query.class);
+    verify(mongo).findOne(query.capture(), eq(Document.class), eq("product_process"));
+    assertEquals(new ObjectId(PRODUCT), query.getValue().getQueryObject().get("product_identifier"));
+    assertEquals(2, query.getValue().getQueryObject().get("version"));
+  }
+
+  @Test
+  void sourceMetadataSupportsLegacyProcessesAndMissingReferences() {
+    when(mongo.findOne(any(Query.class), eq(Document.class), eq("product_process")))
+        .thenReturn(null);
+    when(mongo.findOne(any(Query.class), eq(Document.class), eq("product_version")))
+        .thenReturn(new Document("_id", new ObjectId(PROCESS)));
+    assertEquals(PROCESS, factory.capture(TENANT, prepared, Instant.now()).productProcessId());
+    when(mongo.findOne(any(Query.class), eq(Document.class), eq("product_version")))
+        .thenReturn(null);
+    assertNull(factory.capture(TENANT, prepared, Instant.now()).productProcessId());
+  }
+
+  @Test
+  void rejectsUndistributedTenantBeforeReadingSnapshotData() {
+    when(access.require(TENANT, PROP, PLAN))
+        .thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "not distributed"));
+    assertThrows(ResponseStatusException.class,
+        () -> factory.capture(TENANT, prepared, Instant.now()));
+    verifyNoInteractions(mongo);
+    verify(productProcesses, never()).get(anyString());
+  }
+
+  @Test
   void rejectsOtherTenantBeforeLookingUpAnySource() {
     assertThrows(ForbiddenException.class, () -> factory.capture("other", prepared, Instant.now()));
     verify(access, never()).require(eq("other"), any(), any());
+    verifyNoInteractions(mongo);
   }
 
   private BigDecimal bd(String value) { return new BigDecimal(value); }

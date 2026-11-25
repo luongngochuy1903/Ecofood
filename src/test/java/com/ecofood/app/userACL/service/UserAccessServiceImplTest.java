@@ -2,13 +2,16 @@ package com.ecofood.app.userACL.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.ecofood.app.userACL.entity.GroupRole;
 import com.ecofood.app.userACL.entity.RolePermission;
 import com.ecofood.app.userACL.entity.UserRole;
+import com.ecofood.app.userACL.entity.Permission;
 import com.ecofood.app.userACL.repository.GroupRoleRepository;
 import com.ecofood.app.userACL.repository.RolePermissionRepository;
 import com.ecofood.app.userACL.repository.UserRoleRepository;
+import com.ecofood.app.userACL.repository.PermissionRepository;
 import com.ecofood.core.enums.RoleType;
 import com.ecofood.core.service.UserAccessService.UserAccessClaims;
 import java.util.List;
@@ -25,11 +28,12 @@ class UserAccessServiceImplTest {
   @Mock private UserRoleRepository userRoleRepository;
   @Mock private RolePermissionRepository rolePermissionRepository;
   @Mock private GroupRoleRepository groupRoleRepository;
+  @Mock private PermissionRepository permissionRepository;
 
   private UserAccessServiceImpl userAccessService;
 
   private UserAccessServiceImpl service() {
-    return new UserAccessServiceImpl(userRoleRepository, rolePermissionRepository, groupRoleRepository);
+    return new UserAccessServiceImpl(userRoleRepository, rolePermissionRepository, groupRoleRepository, permissionRepository);
   }
 
   @Test
@@ -44,6 +48,7 @@ class UserAccessServiceImplTest {
     assertThat(claims.roles()).isEmpty();
     assertThat(claims.permissions()).isEmpty();
     assertThat(claims.roleGroups()).isEmpty();
+    verifyNoInteractions(permissionRepository);
   }
 
   @Test
@@ -91,12 +96,13 @@ class UserAccessServiceImplTest {
     assertThat(claims.roles()).containsExactlyInAnyOrder("TENANT_ADMIN", "VIEWER");
     assertThat(claims.permissions()).containsExactlyInAnyOrder("tenants.write.any", "tenants.read.any",
         "CATALOG_API_READ", "CATALOG_API_MANAGE", "CATALOG_API_PUBLISH", "CATALOG_API_GRANT", "TRANSACTION_SUBMIT", "DASHBOARD_READ",
-        "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY", "AUDIT_LOG_READ");
+        "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY", "AUDIT_LOG_READ",
+        "TRANSACTION_READ", "CUSTOMER_RECEIPT_ISSUE", "COMPLAINT_READ", "COMPLAINT_MANAGE", "COMPLAINT_ASSIGN", "DASHBOARD_READ_PARTNERS");
     assertThat(claims.roleGroups()).containsExactly("TENANT");
   }
 
   @Test
-  void returnsDefaultCatalogAndSubmitPermissionsForAdminWithoutRolePermissionDocument() {
+  void returnsAllBuiltinPermissionsForAdminWithoutRolePermissionDocument() {
     userAccessService = service();
     ObjectId userId = new ObjectId();
     ObjectId tenantId = new ObjectId();
@@ -116,12 +122,13 @@ class UserAccessServiceImplTest {
 
     assertThat(claims.permissions()).containsExactlyInAnyOrder(
         "CATALOG_API_READ", "CATALOG_API_MANAGE", "CATALOG_API_PUBLISH", "CATALOG_API_GRANT", "TRANSACTION_SUBMIT", "DASHBOARD_READ",
-        "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY", "AUDIT_LOG_READ");
+        "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY", "AUDIT_LOG_READ",
+        "TRANSACTION_READ", "CUSTOMER_RECEIPT_ISSUE", "COMPLAINT_READ", "COMPLAINT_MANAGE", "COMPLAINT_ASSIGN", "DASHBOARD_READ_PARTNERS");
     assertThat(claims.roleGroups()).isEmpty();
   }
 
   @Test
-  void dashboardDefaultsCoverAllAdminRolesAndOnlyEnterpriseAdminReceivesPartnerPermission() {
+  void allSupportedAdminsReceiveFullPermissionsButEmployeesDoNot() {
     when(groupRoleRepository.findAll()).thenReturn(List.of());
     var service = service();
     for (String code : List.of("TENANT_ADMIN", "MASTER_ADMIN", "ENTERPRISE_ADMIN", "ECO_ADMIN", "TENANT_EMPLOYEE")) {
@@ -133,8 +140,48 @@ class UserAccessServiceImplTest {
       var permissions = service.resolveAccess(user, tenant).permissions();
       if (code.endsWith("_ADMIN")) assertThat(permissions).contains("DASHBOARD_READ", "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY", "AUDIT_LOG_READ");
       else assertThat(permissions).doesNotContain("DASHBOARD_READ", "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY", "AUDIT_LOG_READ");
-      if (code.equals("ENTERPRISE_ADMIN")) assertThat(permissions).contains("DASHBOARD_READ_PARTNERS");
-      else assertThat(permissions).doesNotContain("DASHBOARD_READ_PARTNERS");
+      if (code.endsWith("_ADMIN")) assertThat(permissions).contains("DASHBOARD_READ_PARTNERS",
+          "TRANSACTION_READ", "TRANSACTION_SUBMIT", "CUSTOMER_RECEIPT_ISSUE",
+          "COMPLAINT_READ", "COMPLAINT_MANAGE", "COMPLAINT_ASSIGN", "CATALOG_API_READ",
+          "CATALOG_API_MANAGE", "CATALOG_API_PUBLISH", "CATALOG_API_GRANT");
+      else assertThat(permissions).doesNotContain("DASHBOARD_READ_PARTNERS", "TRANSACTION_READ",
+          "TRANSACTION_SUBMIT", "CUSTOMER_RECEIPT_ISSUE", "COMPLAINT_MANAGE");
     }
+  }
+
+  @Test
+  void adminReceivesCustomCatalogPermissionsWithoutChangingRolesOrRoleGroups() {
+    var user = new ObjectId(); var tenant = new ObjectId(); var role = new ObjectId();
+    var assignment = UserRole.builder().userId(user).tenantId(tenant)
+        .roles(List.of(UserRole.EmbeddedRole.builder().id(role).code("TENANT_ADMIN").build())).build();
+    when(userRoleRepository.findByUserIdAndTenantId(user, tenant)).thenReturn(Optional.of(assignment));
+    when(rolePermissionRepository.findByRoleId(role)).thenReturn(Optional.empty());
+    when(groupRoleRepository.findAll()).thenReturn(List.of(GroupRole.builder().name("TENANT").roles(List.of(role)).build()));
+    var custom = Permission.builder().code("products.read.own").build();
+    var deleted = Permission.builder().code("retired.permission").build();
+    deleted.setDeleted(true);
+    when(permissionRepository.findAll()).thenReturn(List.of(custom, deleted,
+        Permission.builder().code("TRANSACTION_READ").build(), Permission.builder().code(" ").build(),
+        Permission.builder().build()));
+    var claims = service().resolveAccess(user, tenant);
+    assertThat(claims.permissions()).contains("products.read.own").doesNotContain("retired.permission", " ", null);
+    assertThat(claims.permissions()).doesNotHaveDuplicates();
+    assertThat(claims.roles()).containsExactly("TENANT_ADMIN");
+    assertThat(claims.roleGroups()).containsExactly("TENANT");
+  }
+
+  @Test
+  void nonAdminKeepsOnlyExplicitPermissionsAndAnUnknownAdminNameDoesNotElevateAccess() {
+    when(groupRoleRepository.findAll()).thenReturn(List.of());
+    for (String code : List.of("TENANT_EMPLOYEE", "CUSTOMER", "CUSTOM_ADMIN")) {
+      var user = new ObjectId(); var tenant = new ObjectId(); var role = new ObjectId();
+      when(userRoleRepository.findByUserIdAndTenantId(user, tenant)).thenReturn(Optional.of(
+          UserRole.builder().userId(user).tenantId(tenant)
+              .roles(List.of(UserRole.EmbeddedRole.builder().id(role).code(code).build())).build()));
+      when(rolePermissionRepository.findByRoleId(role)).thenReturn(Optional.of(RolePermission.builder()
+          .roleId(role).permissions(List.of(RolePermission.EmbeddedPermission.builder().code("TRANSACTION_READ").build())).build()));
+      assertThat(service().resolveAccess(user, tenant).permissions()).containsExactly("TRANSACTION_READ");
+    }
+    verifyNoInteractions(permissionRepository);
   }
 }

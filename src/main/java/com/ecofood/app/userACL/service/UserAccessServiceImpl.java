@@ -4,9 +4,11 @@ import com.ecofood.core.service.UserAccessService;
 import com.ecofood.app.userACL.entity.GroupRole;
 import com.ecofood.app.userACL.entity.RolePermission;
 import com.ecofood.app.userACL.entity.UserRole;
+import com.ecofood.app.userACL.entity.Permission;
 import com.ecofood.app.userACL.repository.GroupRoleRepository;
 import com.ecofood.app.userACL.repository.RolePermissionRepository;
 import com.ecofood.app.userACL.repository.UserRoleRepository;
+import com.ecofood.app.userACL.repository.PermissionRepository;
 import java.util.List;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -39,11 +41,19 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 public class UserAccessServiceImpl implements UserAccessService {
-  private static final String ENTERPRISE_ADMIN = "ENTERPRISE_ADMIN";
+  private static final Set<String> ADMIN_ROLES =
+      Set.of("ECO_ADMIN", "ENTERPRISE_ADMIN", "MASTER_ADMIN", "TENANT_ADMIN");
+  private static final List<String> ADMIN_PERMISSIONS = List.of(
+      "CATALOG_API_READ", "CATALOG_API_MANAGE", "CATALOG_API_PUBLISH", "CATALOG_API_GRANT",
+      "TRANSACTION_READ", "TRANSACTION_SUBMIT", "CUSTOMER_RECEIPT_ISSUE",
+      "COMPLAINT_READ", "COMPLAINT_MANAGE", "COMPLAINT_ASSIGN",
+      "DASHBOARD_READ", "DASHBOARD_READ_PARTNERS",
+      "NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY", "AUDIT_LOG_READ");
 
   private final UserRoleRepository userRoleRepository;
   private final RolePermissionRepository rolePermissionRepository;
   private final GroupRoleRepository groupRoleRepository;
+  private final PermissionRepository permissionRepository;
 
   @Override
   public UserAccessClaims resolveAccess(ObjectId userId, ObjectId tenantId) {
@@ -68,18 +78,17 @@ public class UserAccessServiceImpl implements UserAccessService {
             .distinct()
             .toList();
 
-    // Default Catalog and Submit authority for Tenant administrators; other permissions remain data-driven.
-    if (roleCodes.stream().anyMatch(code -> Set.of("TENANT_ADMIN", "MASTER_ADMIN", ENTERPRISE_ADMIN).contains(code))) {
+    // Admins receive all application permissions. Each module still enforces its own data scope,
+    // tenant membership, ownership and business-role requirements.
+    if (roleCodes.stream().anyMatch(ADMIN_ROLES::contains)) {
       Set<String> effectivePermissions = new LinkedHashSet<>(permissionCodes);
-      effectivePermissions.addAll(List.of("CATALOG_API_READ", "CATALOG_API_MANAGE", "CATALOG_API_PUBLISH", "CATALOG_API_GRANT", "TRANSACTION_SUBMIT"));
-      permissionCodes = List.copyOf(effectivePermissions);
-    }
-    // Dashboard access is available to every supported Admin; cross-Tenant reads still require Dashboard scope checks.
-    if (roleCodes.stream().anyMatch(code -> Set.of("TENANT_ADMIN", "MASTER_ADMIN", ENTERPRISE_ADMIN, "ECO_ADMIN").contains(code))) {
-      Set<String> effectivePermissions = new LinkedHashSet<>(permissionCodes);
-      effectivePermissions.add("DASHBOARD_READ");
-      effectivePermissions.addAll(List.of("NOTIFICATION_READ", "NOTIFICATION_RULE_MANAGE", "NOTIFICATION_RETRY", "AUDIT_LOG_READ"));
-      if (roleCodes.contains(ENTERPRISE_ADMIN)) effectivePermissions.add("DASHBOARD_READ_PARTNERS");
+      effectivePermissions.addAll(ADMIN_PERMISSIONS);
+      permissionRepository.findAll().stream()
+          .filter(permission -> !Boolean.TRUE.equals(permission.getDeleted()))
+          .map(Permission::getCode)
+          .filter(code -> code != null && !code.isBlank())
+          .sorted()
+          .forEach(effectivePermissions::add);
       permissionCodes = List.copyOf(effectivePermissions);
     }
 

@@ -12,7 +12,6 @@ import com.ecofood.app.proposition.entity.PropositionEntity;
 import com.ecofood.app.proposition.repository.PropositionRepository;
 import com.ecofood.app.proposition.service.PropositionAccess;
 import com.ecofood.core.client.CoreProductProcessClient;
-import com.ecofood.core.client.CoreProductQueryClient;
 import com.ecofood.core.dto.*;
 import com.ecofood.core.dto.PropositionDefinition;
 import com.ecofood.core.dto.PropositionTenantReference;
@@ -30,8 +29,7 @@ class PlanSaleAccessTest {
   private final PropositionAccess props = mock(PropositionAccess.class);
   private final PropositionRepository repo = mock(PropositionRepository.class);
   private final CoreProductProcessClient productProcesses = mock(CoreProductProcessClient.class);
-  private final CoreProductQueryClient products = mock(CoreProductQueryClient.class);
-  private final PlanSaleAccess access = new PlanSaleAccess(props, repo, productProcesses, products);
+  private final PlanSaleAccess access = new PlanSaleAccess(props, repo, productProcesses);
   private PropositionEntity p;
   private Plan plan;
 
@@ -55,15 +53,41 @@ class PlanSaleAccessTest {
             .build();
     p.setId(new ObjectId(PROP));
     when(repo.findById(new ObjectId(PROP))).thenReturn(Optional.of(p));
-    lenient().when(products.getApprovedVersion(PRODUCT, 1)).thenReturn(mock(ProductResponse.class));
   }
 
   @Test
-  void requiresPlanInCorrectPropositionAndExactTenant() {
+  void requiresPlanInCorrectPropositionAndDistributedTenant() {
     assertSame(plan, access.require(TENANT, PROP, PLAN).plan());
     assertThrows(ResponseStatusException.class, () -> access.require("other", PROP, PLAN));
     assertThrows(ResponseStatusException.class, () -> access.require(TENANT, PROP, OTHER_PLAN));
     assertThrows(ResponseStatusException.class, () -> access.require(TENANT, "invalid", PLAN));
+  }
+
+  @Test
+  void sharesOnlyTheOwningEnterprisesConfigurationWithPropositionDistributors() {
+    p.setEnterpriseId(new ObjectId(PRODUCT));
+    p.setOwningTenantId(new ObjectId(OTHER_PLAN));
+    assertTrue(access.canUseEnterpriseConfiguration(TENANT, PROP, PLAN, OTHER_PLAN));
+    assertFalse(access.canUseEnterpriseConfiguration(TENANT, PROP, PLAN, PRODUCT));
+    assertFalse(access.canUseEnterpriseConfiguration("other-tenant", PROP, PLAN, OTHER_PLAN));
+    assertFalse(access.canUseEnterpriseConfiguration(TENANT, PROP, OTHER_PLAN, OTHER_PLAN));
+
+    plan.setTenantIds(List.of());
+    assertTrue(access.canUseEnterpriseConfiguration(TENANT, PROP, PLAN, OTHER_PLAN));
+    assertSame(plan, access.require(TENANT, PROP, PLAN).plan());
+    plan.setTenantIds(List.of(TENANT));
+    plan.setDeleted(true);
+    assertFalse(access.canUseEnterpriseConfiguration(TENANT, PROP, PLAN, OTHER_PLAN));
+    plan.setDeleted(false);
+    when(p.getDefinition().distributionPartnerIds()).thenReturn(List.of());
+    assertFalse(access.canUseEnterpriseConfiguration(TENANT, PROP, PLAN, OTHER_PLAN));
+    when(p.getDefinition().distributionPartnerIds()).thenReturn(List.of(TENANT));
+    p.setDeleted(true);
+    assertFalse(access.canUseEnterpriseConfiguration(TENANT, PROP, PLAN, OTHER_PLAN));
+    p.setDeleted(false);
+    p.setEnterpriseId(null);
+    assertFalse(access.canUseEnterpriseConfiguration(TENANT, PROP, PLAN, OTHER_PLAN));
+    assertFalse(access.canUseEnterpriseConfiguration(TENANT, "invalid", PLAN, OTHER_PLAN));
   }
 
   @Test
@@ -152,17 +176,16 @@ class PlanSaleAccessTest {
   }
 
   @Test
-  void activeRejectsAPlanWhoseBoundProductVersionIsNoLongerApproved() {
-    when(products.getApprovedVersion(PRODUCT, 1))
-        .thenThrow(new ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "Product version is not approved"));
+  void activeSaleUsesPlanApprovalWithoutRequiringProductLibraryAccess() {
     var scope = access.require(TENANT, PROP, PLAN);
-    assertThrows(ResponseStatusException.class, () -> access.active(scope));
+    assertDoesNotThrow(() -> access.active(scope));
+    verifyNoInteractions(productProcesses, props);
   }
 
   @Test
-  void activeRejectsAPlanWithNoProductVersionToVerify() {
+  void activeSaleDoesNotRequireSourceProductVersionMetadata() {
     plan.setProductVersion(null);
     var scope = access.require(TENANT, PROP, PLAN);
-    assertThrows(ResponseStatusException.class, () -> access.active(scope));
+    assertDoesNotThrow(() -> access.active(scope));
   }
 }

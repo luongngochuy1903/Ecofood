@@ -19,14 +19,15 @@ class ProductCostCalculatorTest {
     var result=calculator.calculate(new ProductCostingRequest(new BigDecimal("50000"),new BigDecimal("5000"),
         new BigDecimal("10000"),new BigDecimal("3000"),new BigDecimal("2000"),new BigDecimal("30"),new BigDecimal("10")),
         new ProductPricingRequest(new BigDecimal("120000"),null,"VND"));
-    assertThat(result.getTotalCost()).isEqualByComparingTo("70000");
-    assertThat(result.getBasePrice()).isEqualByComparingTo("110000");
+    assertThat(result.getTotalCost()).isEqualByComparingTo("20000");
+    assertThat(result.getBasePrice()).isEqualByComparingTo("31428.57");
+    assertThat(result.getIngredientCost()).isEqualByComparingTo("0");
     assertThat(result.getSellingPrice()).isEqualByComparingTo("120000");
   }
-  @Test void preservesOldCostAsIngredientCostWhenBreakdownIsAbsent() {
+  @Test void doesNotTreatOldCostPriceAsConfigurableIngredientCost() {
     var result=calculator.calculate(null,new ProductPricingRequest(BigDecimal.TEN,BigDecimal.ONE,"VND"));
-    assertThat(result.getIngredientCost()).isEqualByComparingTo("1");
-    assertThat(result.getTotalCost()).isEqualByComparingTo("1");
+    assertThat(result.getIngredientCost()).isEqualByComparingTo("0");
+    assertThat(result.getTotalCost()).isEqualByComparingTo("0");
   }
   @Test void zeroCostIsValidButNegativeCostsAndMargin100AreRejected() {
     assertThat(calculator.calculate(null,null).getBasePrice()).isEqualByComparingTo("0");

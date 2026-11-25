@@ -8,14 +8,12 @@ import com.ecofood.app.notification.service.SaleConfirmationHandoff;
 import com.ecofood.app.submission.entity.InvoiceBatchSubmission;
 import com.ecofood.app.transaction.entity.*;
 import com.ecofood.core.enums.TransactionStatus;
-import com.ecofood.core.service.PropositionService;
+import com.ecofood.app.proposition.service.PropositionSalesMetrics;
 import jakarta.validation.Validator;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Instant;
 import java.security.MessageDigest;
 import java.util.*;
-import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.bson.types.ObjectId;
 import org.springframework.data.mongodb.core.MongoOperations;
@@ -31,7 +29,7 @@ public class BatchTransactionService {
   private final MongoMetricsTransactions transactions;
   private final BatchSalePlanResolver plans;
   private final SaleConfirmationHandoff confirmations;
-  private final PropositionService propositions;
+  private final PropositionSalesMetrics metrics;
   private final Validator validator;
 
   public Response submit(String tenant, String subject, Request request) {
@@ -42,57 +40,10 @@ public class BatchTransactionService {
     // replay rather than a brand-new submission — see fingerprint below.
     String fingerprint = hash(request.transaction().invoices().stream().map(this::canonical).toList());
     String submissionId = "sale-batch:" + hash(List.of(tenant, subject, fingerprint));
-    // Populated only by a FRESH batch (persistBatch returns early, before
-    // touching it, on an idempotent replay) — so recordActualMetrics below
-    // naturally never double-counts a retried submit.
-    var created = new ArrayList<Invoice>();
     var batch = transactions.execute(ops ->
-        persistBatch(ops, tenant, subject, request, submissionId, fingerprint, created));
+        persistBatch(ops, tenant, subject, request, submissionId, fingerprint));
     if (!batch.invoiceIds().isEmpty()) confirmations.deliver(batch);
-    recordActualMetrics(created);
     return new Response(new Result(batch.results()));
-  }
-
-  /**
-   * Accumulates each accepted Invoice's own sale amount into its
-   * Proposition's actualMetrics (see PropositionService.recordActualSale)
-   * — a denormalized reporting figure, not the source of truth (the
-   * Invoice itself, already committed, is), so a failure here is logged
-   * and swallowed rather than failing the submit-transaction response.
-   */
-  private void recordActualMetrics(List<Invoice> invoices) {
-    for (var invoice : invoices) {
-      if (invoice.getPlanLines() == null) continue;
-      for (var line : invoice.getPlanLines()) {
-        try {
-          recordLineMetrics(invoice, line);
-        } catch (RuntimeException ignored) {
-          // Best-effort; see method doc.
-        }
-      }
-    }
-  }
-
-  private void recordLineMetrics(Invoice invoice, InvoicePlanLine line) {
-    var snapshot = line.snapshot();
-    String propositionId = snapshot == null ? null : snapshot.propositionId();
-    if (propositionId == null) return;
-    var costing = snapshot.costing();
-    var profitShare = snapshot.profitShare();
-    BigDecimal quantity = BigDecimal.valueOf(line.quantity());
-    BigDecimal ingredientCost = costing == null || costing.ingredientCost() == null
-        ? BigDecimal.ZERO : costing.ingredientCost().multiply(quantity);
-    BigDecimal totalCost = costing == null ? BigDecimal.ZERO : Stream.of(
-            costing.ingredientCost(), costing.packagingCost(), costing.laborCost(),
-            costing.operationCost(), costing.marketingFee())
-        .filter(Objects::nonNull).map(c -> c.multiply(quantity)).reduce(BigDecimal.ZERO, BigDecimal::add);
-    BigDecimal platformRate = profitShare == null || profitShare.platformProfitShare() == null
-        ? BigDecimal.ZERO : profitShare.platformProfitShare();
-    BigDecimal platformCost = line.amount().multiply(platformRate)
-        .divide(new BigDecimal("100"), 8, RoundingMode.HALF_UP);
-    BigDecimal profit = line.amount().subtract(totalCost).subtract(platformCost);
-    propositions.recordActualSale(
-        propositionId, invoice.getReceivedAt(), line.amount(), ingredientCost, platformCost, profit);
   }
 
   private void validateRequest(String tenant, String subject, Request request) {
@@ -108,12 +59,7 @@ public class BatchTransactionService {
   }
 
   private InvoiceBatchSubmission persistBatch(MongoOperations ops, String tenant, String subject,
-      Request request, String submissionId, String fingerprint, List<Invoice> created) {
-    // The underlying Mongo transaction can retry this whole lambda body
-    // (TransientTransactionError, or a duplicate-key race) — reset `created`
-    // on every attempt so a retry can never leave it holding more than one
-    // attempt's worth of Invoices.
-    created.clear();
+      Request request, String submissionId, String fingerprint) {
     var query = Query.query(Criteria.where("_id").is(submissionId).and(TENANT_ID).is(tenant));
     var previous = ops.findOne(query, InvoiceBatchSubmission.class);
     if (previous != null) {
@@ -131,12 +77,12 @@ public class BatchTransactionService {
     var event = InvoiceBatchSubmission.create(submissionId, now, tenant,
         invoices.stream().map(Invoice::getId).toList(), fingerprint, subject, results);
     if (invoices.isEmpty()) return event;
-    // Accepted Invoices and ONE shared event still commit in the SAME transaction.
+    // Migrate historical rows before new invoices are inserted, then commit all three together.
+    metrics.record(ops, invoices);
     for (var invoice : invoices) {
       ops.insert(invoice);
     }
     ops.insert(event);
-    created.addAll(invoices);
     return event;
   }
 

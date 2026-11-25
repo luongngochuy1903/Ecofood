@@ -33,7 +33,7 @@ public class DashboardAggregation {
     for (String name : KPIS) metrics.put(name, metric(selection, targets, rows, volume, name));
     Instant latest = rows.stream().map(ActualMetrics::updatedAt).filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null);
     return new Summary(selection, tenants.stream().sorted().toList(), metrics, latest, "Asia/Ho_Chi_Minh",
-        List.of("ActualMetrics is asynchronous; no recorded aggregate does not prove that no Invoice is pending.",
+        List.of("Actuals are read from Proposition.actualMetrics and committed with accepted sales.",
                 "Expected is read from current Proposition configuration; no Expected configuration history is available."));
   }
   private List<ActualMetrics> matchingRows(Selection selection, Set<String> tenants, List<ActualMetrics> input) {

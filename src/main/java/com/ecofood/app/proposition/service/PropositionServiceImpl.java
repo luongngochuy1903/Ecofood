@@ -298,6 +298,7 @@ public class PropositionServiceImpl implements PropositionService {
     private static final java.time.ZoneId ACTUAL_METRICS_ZONE = java.time.ZoneId.of("Asia/Ho_Chi_Minh");
 
     @Override
+    @Deprecated
     public void recordActualSale(String propositionId, Instant occurredAt, BigDecimal totalSalesVolume,
             BigDecimal ingredientCost, BigDecimal platformCost, BigDecimal profit) {
         if (propositionId == null || !ObjectId.isValid(propositionId)) return;

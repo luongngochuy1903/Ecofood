@@ -9,7 +9,6 @@ import com.ecofood.app.proposition.service.*;
 import com.ecofood.app.proposition.service.PlanAvailability;
 import com.ecofood.app.proposition.service.PropositionAccess;
 import com.ecofood.core.client.CoreProductProcessClient;
-import com.ecofood.core.client.CoreProductQueryClient;
 import com.ecofood.core.security.AuthenticationContext;
 import java.time.Instant;
 import lombok.RequiredArgsConstructor;
@@ -24,7 +23,6 @@ public class PlanSaleAccess {
   private final PropositionAccess access;
   private final PropositionRepository propositions;
   private final CoreProductProcessClient productProcesses;
-  private final CoreProductQueryClient products;
 
   public record Scope(String tenantId, String actor, PropositionEntity proposition, Plan plan) {}
 
@@ -99,6 +97,28 @@ public class PlanSaleAccess {
             .findById(new ObjectId(propositionId))
             .filter(v -> !Boolean.TRUE.equals(v.getDeleted()))
             .orElseThrow(PlanSaleAccess::missing);
+    return require(tenantId, p, planId);
+  }
+
+  /** Enterprise-owned configuration is shared with the Proposition's distributors. */
+  public boolean canUseEnterpriseConfiguration(
+      String tenantId, String propositionId, String planId, String ownerTenantId) {
+    if (tenantId == null || ownerTenantId == null
+        || !ObjectId.isValid(propositionId) || !ObjectId.isValid(planId)) return false;
+    var p = propositions.findById(new ObjectId(propositionId)).orElse(null);
+    if (p == null || Boolean.TRUE.equals(p.getDeleted()) || p.getEnterpriseId() == null
+        || p.getOwningTenantId() == null
+        || !ownerTenantId.equals(p.getOwningTenantId().toHexString())) return false;
+    try {
+      require(tenantId, p, planId);
+      return true;
+    } catch (ResponseStatusException denied) {
+      if (denied.getStatusCode().value() == 404) return false;
+      throw denied;
+    }
+  }
+
+  private Scope require(String tenantId, PropositionEntity p, String planId) {
     if (p.getDefinition() == null
         || p.getDefinition().distributionPartnerIds() == null
         || !p.getDefinition().distributionPartnerIds().contains(tenantId)) throw missing();
@@ -108,9 +128,7 @@ public class PlanSaleAccess {
             .filter(v -> canonicalPlanId.equals(v.getIdAsString()))
             .filter(
                 v ->
-                    !Boolean.TRUE.equals(v.getDeleted())
-                        && v.getTenantIds() != null
-                        && v.getTenantIds().contains(tenantId))
+                    !Boolean.TRUE.equals(v.getDeleted()))
             .findFirst()
             .orElseThrow(PlanSaleAccess::missing);
     return new Scope(tenantId, null, p, plan);
@@ -121,27 +139,6 @@ public class PlanSaleAccess {
       throw new ResponseStatusException(
           HttpStatus.CONFLICT,
           "Proposition and Plan must be approved and effective before activation or sales");
-    requireApprovedProductVersion(scope);
-  }
-
-  /**
-   * A Plan's own status being APPROVED only proves it WAS approved at some
-   * point — it does not by itself prove the Product version it is still
-   * pinned to (plan.getProductVersion()) is CURRENTLY Approved. The
-   * demotion cascade (see ProductServiceImpl.demoteAnyOtherApprovedVersion
-   * -> PropositionService.demoteApprovedPlans) is supposed to always keep
-   * these in sync, but it writes the Product and the affected Propositions
-   * in separate, non-atomic steps, so this re-checks the Product version
-   * live rather than trusting the Plan's cached status alone.
-   */
-  private void requireApprovedProductVersion(Scope scope) {
-    var productId = scope.proposition().getProductId();
-    var version = scope.plan().getProductVersion();
-    if (productId == null || version == null)
-      throw new ResponseStatusException(
-          HttpStatus.CONFLICT,
-          "Plan's Product version is unavailable; cannot verify it is still Approved");
-    products.getApprovedVersion(productId.toHexString(), version);
   }
 
   public String currency(Scope scope) {

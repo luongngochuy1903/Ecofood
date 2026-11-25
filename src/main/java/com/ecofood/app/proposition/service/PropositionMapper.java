@@ -69,7 +69,10 @@ public class PropositionMapper {
                 p.getProductId().toHexString(),
                 d,
                 plans,
-                p.getActualMetrics(),
+                p.getActualMetrics() == null ? List.of() : p.getActualMetrics().stream()
+                    .filter(row -> owner || actor.platform()
+                        || row.tenantId() != null && actor.scope().contains(row.tenantId()))
+                    .toList(),
                 visible,
                 currencies.supportedCurrencies(),
                 p.getCreatedAt(),
