@@ -13,9 +13,9 @@ import org.springframework.data.mongodb.core.MongoOperations;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
-import org.springframework.stereotype.Service;
 
-@Service
+/** Legacy standalone projection store; runtime writes go to Proposition.actualMetrics. */
+@Deprecated
 public class ActualMetricsStore {
   private static final String TENANT_ID = "tenantId";
   private static final String REBUILD_LIMIT_EXCEEDED = "REBUILD_LIMIT_EXCEEDED_USE_CONTROLLED_MAINTENANCE";

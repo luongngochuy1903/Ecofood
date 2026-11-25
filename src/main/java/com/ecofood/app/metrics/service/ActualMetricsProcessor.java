@@ -9,10 +9,9 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Service;
 
-@Service
+/** Legacy projection processor, retained for compatibility tests; no longer registered or scheduled. */
+@Deprecated
 @RequiredArgsConstructor
 @Slf4j
 public class ActualMetricsProcessor {
@@ -43,8 +42,6 @@ public class ActualMetricsProcessor {
     }
   }
 
-  @Scheduled(fixedDelayString = "${ecofood.metrics.retry-ms:10000}",
-      initialDelayString = "${ecofood.metrics.initial-delay-ms:20000}")
   public void recover() {
     try {
       var due = new Criteria().orOperator(

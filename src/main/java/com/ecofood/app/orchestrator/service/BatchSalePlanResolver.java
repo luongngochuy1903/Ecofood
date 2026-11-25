@@ -1,6 +1,7 @@
 package com.ecofood.app.orchestrator.service;
 
 import com.ecofood.app.config.*;
+import com.ecofood.app.orchestrator.entity.PlanSaleOrchestrator;
 import com.ecofood.app.orchestrator.repository.PlanSaleOrchestratorRepository;
 import com.ecofood.app.orchestrator.security.PlanSaleAccess;
 import com.ecofood.app.transaction.dto.BatchTransactionDtos;
@@ -25,8 +26,7 @@ public class BatchSalePlanResolver {
 
   public InvoicePlanLine resolve(String tenant, String subject, int index,
       BatchTransactionDtos.Item item, Instant receivedAt) {
-    var row = orchestrators.findByTenantIdAndPlanIdsContaining(tenant, item.planId())
-        .orElseThrow(() -> new BadRequestException("Plan is not configured for sale: " + item.planId()));
+    var row = resolveOrchestrator(tenant, item.planId());
     var scope = access.require(tenant, row.getPropositionId(), item.planId());
     access.active(scope);
     String currency = access.currency(scope);
@@ -47,6 +47,30 @@ public class BatchSalePlanResolver {
     return new InvoicePlanLine(lineId, row.getId(), item.planId(), planName(item.planId()),
         item.quantity().longValueExact(), unitPrice, amount,
         snapshots.capture(tenant, prepared, receivedAt), item.actualPrice() != null, item.additionalInfo());
+  }
+
+  private PlanSaleOrchestrator resolveOrchestrator(String tenant, String planId) {
+    var candidates = new LinkedHashMap<String, PlanSaleOrchestrator>();
+    orchestrators.findByTenantIdAndPlanIdsContaining(tenant, planId)
+        .ifPresent(row -> candidates.put(row.getId(), row));
+    for (var row : orchestrators.findByPlanIdsContaining(planId)) {
+      if (candidates.containsKey(row.getId()) || tenant.equals(row.getTenantId())) continue;
+      if (access.canUseEnterpriseConfiguration(
+          tenant, row.getPropositionId(), planId, row.getTenantId())) {
+        candidates.put(row.getId(), row);
+      }
+    }
+    if (candidates.isEmpty())
+      throw new BadRequestException("Plan is not configured for sale: " + planId);
+    // The most recently changed authorized configuration wins, regardless of its owner.
+    // Stable tie-breakers keep selection independent of MongoDB result order.
+    return candidates.values().stream().max(
+        Comparator.comparing((PlanSaleOrchestrator row) ->
+                row.getUpdatedAt() != null ? row.getUpdatedAt()
+                    : row.getCreatedAt() != null ? row.getCreatedAt() : Instant.MIN)
+            .thenComparing(PlanSaleOrchestrator::getCreatedAt,
+                Comparator.nullsFirst(Comparator.naturalOrder()))
+            .thenComparing(PlanSaleOrchestrator::getId)).orElseThrow();
   }
 
   /**

@@ -177,6 +177,115 @@ class BatchSalePlanResolverTest {
   }
 
   @Test
+  void usesEnterpriseOrchestratorForAssignedPartnerWithoutChangingSaleTenant() {
+    var scope = stubScope();
+    when(repository.findByTenantIdAndPlanIdsContaining("tenant", "plan"))
+        .thenReturn(Optional.empty());
+    var enterprise = row();
+    enterprise.setTenantId("enterprise");
+    when(repository.findByPlanIdsContaining("plan")).thenReturn(List.of(enterprise));
+    when(access.canUseEnterpriseConfiguration("tenant", "prop", "plan", "enterprise"))
+        .thenReturn(true);
+    stubPlanName("Plan name");
+    when(snapshots.capture(eq("tenant"), any(), any())).thenReturn(mock(InvoiceSnapshot.class));
+
+    var line = resolver.resolve("tenant", "seller", 0,
+        new Item("plan", 2, BigDecimal.TEN), Instant.now());
+
+    assertEquals("orch", line.orchestratorId());
+    var captured = ArgumentCaptor.forClass(PreparedSaleTransaction.class);
+    verify(snapshots).capture(eq("tenant"), captured.capture(), any());
+    assertEquals("tenant", captured.getValue().binding().tenantId());
+    assertEquals("tenant", captured.getValue().binding().distributionPartnerId());
+    verify(access).active(scope);
+  }
+
+  @Test
+  void rejectsOrchestratorOwnedByAnotherPartnerOrUnassignedEnterprise() {
+    var foreign = row();
+    foreign.setTenantId("other-partner");
+    when(repository.findByPlanIdsContaining("plan")).thenReturn(List.of(foreign));
+    assertThrows(BadRequestException.class, () -> resolver.resolve("tenant", "seller", 0,
+        new Item("plan", 2, BigDecimal.TEN), Instant.now()));
+    verifyNoInteractions(snapshots, productProcesses);
+    verify(access, never()).active(any());
+  }
+
+  @Test
+  void enterpriseConfigurationStillEnforcesRequiredAdditionalInfo() {
+    var scope = stubScope();
+    when(repository.findByTenantIdAndPlanIdsContaining("tenant", "plan"))
+        .thenReturn(Optional.empty());
+    var enterprise = row(new SaleConfigurationField("note", "STRING", "", "", true));
+    enterprise.setTenantId("enterprise");
+    when(repository.findByPlanIdsContaining("plan")).thenReturn(List.of(enterprise));
+    when(access.canUseEnterpriseConfiguration("tenant", "prop", "plan", "enterprise"))
+        .thenReturn(true);
+    assertThrows(BadRequestException.class, () -> resolver.resolve("tenant", "seller", 0,
+        new Item("plan", 2, BigDecimal.TEN), Instant.now()));
+    verify(access).active(scope);
+    verifyNoInteractions(snapshots);
+  }
+
+  @Test
+  void selectsLatestAuthorizedConfigurationRegardlessOfOwnerAndRepositoryOrder() {
+    stubScope();
+    stubPlanName("Plan name");
+    when(repository.findByPlanIdsContaining("plan")).thenReturn(List.of(row()));
+    resolver.resolve("tenant", "seller", 0,
+        new Item("plan", 2, BigDecimal.TEN), Instant.now());
+
+    var enterprise = row();
+    enterprise.setId("enterprise-orch");
+    enterprise.setTenantId("enterprise");
+    enterprise.setCreatedAt(Instant.parse("2026-11-25T10:00:00Z"));
+    when(repository.findByPlanIdsContaining("plan")).thenReturn(List.of(enterprise, row()));
+    when(access.canUseEnterpriseConfiguration("tenant", "prop", "plan", "enterprise"))
+        .thenReturn(true);
+    assertEquals("enterprise-orch", resolver.resolve("tenant", "seller", 0,
+        new Item("plan", 2, BigDecimal.TEN), Instant.now()).orchestratorId());
+
+    var own = row();
+    own.setCreatedAt(Instant.parse("2026-11-24T10:00:00Z"));
+    own.setUpdatedAt(Instant.parse("2026-11-25T11:00:00Z"));
+    when(repository.findByTenantIdAndPlanIdsContaining("tenant", "plan"))
+        .thenReturn(Optional.of(own));
+    when(repository.findByPlanIdsContaining("plan")).thenReturn(List.of(own, enterprise));
+    assertEquals("orch", resolver.resolve("tenant", "seller", 0,
+        new Item("plan", 2, BigDecimal.TEN), Instant.now()).orchestratorId());
+
+    // A newer enterprise configuration must also supply the validation rules actually applied.
+    enterprise.setUpdatedAt(Instant.parse("2026-11-25T12:00:00Z"));
+    enterprise.setAdditionalInfoFields(List.of(
+        new SaleConfigurationField("note", "STRING", "", "", true)));
+    assertThrows(BadRequestException.class, () -> resolver.resolve("tenant", "seller", 0,
+        new Item("plan", 2, BigDecimal.TEN), Instant.now()));
+  }
+
+  @Test
+  void ignoresNewerUnauthorizedConfigurationAndBreaksTimestampTiesConsistently() {
+    stubScope();
+    stubPlanName("Plan name");
+    var enterprise = row();
+    enterprise.setId("z-enterprise-orch");
+    enterprise.setTenantId("enterprise");
+    enterprise.setUpdatedAt(Instant.parse("2026-11-25T12:00:00Z"));
+    when(repository.findByPlanIdsContaining("plan")).thenReturn(List.of(enterprise));
+    assertEquals("orch", resolver.resolve("tenant", "seller", 0,
+        new Item("plan", 2, BigDecimal.TEN), Instant.now()).orchestratorId());
+
+    enterprise.setUpdatedAt(null);
+    when(access.canUseEnterpriseConfiguration("tenant", "prop", "plan", "enterprise"))
+        .thenReturn(true);
+    when(repository.findByPlanIdsContaining("plan")).thenReturn(List.of(enterprise, row()));
+    assertEquals("z-enterprise-orch", resolver.resolve("tenant", "seller", 0,
+        new Item("plan", 2, BigDecimal.TEN), Instant.now()).orchestratorId());
+    when(repository.findByPlanIdsContaining("plan")).thenReturn(List.of(row(), enterprise));
+    assertEquals("z-enterprise-orch", resolver.resolve("tenant", "seller", 0,
+        new Item("plan", 2, BigDecimal.TEN), Instant.now()).orchestratorId());
+  }
+
+  @Test
   void planNotConfiguredForSaleIsRejected() {
     when(repository.findByTenantIdAndPlanIdsContaining("tenant", "plan")).thenReturn(Optional.empty());
     var item = new Item("plan", new BigDecimal("2"), BigDecimal.TEN, null);

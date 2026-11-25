@@ -12,7 +12,7 @@ import org.springframework.data.mongodb.core.query.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
-/** Read-only projection access. Never uses Proposition.actualMetrics or live Product Costing. */
+/** Reads actuals embedded in Propositions; never queries a separate metrics collection. */
 @Service
 @RequiredArgsConstructor
 public class DashboardData {
@@ -36,10 +36,31 @@ public class DashboardData {
   }
   public List<ActualMetrics> actual(Set<String> tenantIds, Set<String> propositions, Integer year, String currency) {
     if (tenantIds.isEmpty() || propositions.isEmpty()) return List.of();
-    Query query = Query.query(Criteria.where("tenantId").in(tenantIds).and("propositionId").in(propositions));
-    if (year != null) query.addCriteria(Criteria.where("year").is(year));
-    if (currency != null) query.addCriteria(Criteria.where("currency").is(currency));
-    var rows = mongo.find(query.limit(50001), ActualMetrics.class);
+    Query query = Query.query(Criteria.where("_id").in(propositions.stream()
+        .map(org.bson.types.ObjectId::new).toList()).and("deleted").ne(true));
+    var rows = new ArrayList<ActualMetrics>();
+    for (var p : mongo.find(query, PropositionEntity.class)) {
+      if (p.getActualMetrics() == null) continue;
+      for (var row : p.getActualMetrics()) {
+        // Legacy totals without tenant/month/currency cannot be assigned to an individual partner.
+        if (row.tenantId() == null || row.currency() == null || row.month() == null
+            || row.year() == null || !tenantIds.contains(row.tenantId())
+            || year != null && !year.equals(row.year())
+            || currency != null && !currency.equals(row.currency())) continue;
+        long units = row.totalSalesVolume() == null ? 0 : row.totalSalesVolume().longValueExact();
+        String key = p.getIdAsString() + "/" + row.tenantId() + "/" + row.year()
+            + "/" + row.month() + "/" + row.currency();
+        var zero = java.math.BigDecimal.ZERO;
+        rows.add(new ActualMetrics(key, p.getIdAsString(), row.tenantId(), row.year(), row.month(),
+            row.currency(), units, row.ingredientCost(), row.platformCost(), row.profit(),
+            new ActualMetrics.KnownTotals(row.ingredientCost() == null ? zero : row.ingredientCost(),
+                row.platformCost() == null ? zero : row.platformCost(), row.profit() == null ? zero : row.profit()),
+            new ActualMetrics.Coverage(row.ingredientCost() == null ? 0 : units,
+                row.platformCost() == null ? 0 : units, row.profit() == null ? 0 : units,
+                row.ingredientCost() == null || row.platformCost() == null || row.profit() == null ? units : 0),
+            "PROPOSITION_ACTUAL_V1", p.getRevision() == null ? 0 : p.getRevision(), p.getUpdatedAt()));
+      }
+    }
     if (rows.size() > 50000) throw DashboardAccess.error(HttpStatus.UNPROCESSABLE_ENTITY, "Narrow the Dashboard filter; projection row limit exceeded");
     return rows;
   }

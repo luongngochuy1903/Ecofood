@@ -14,7 +14,9 @@ public class ProductCostCalculator {
     if (request != null && request.currency() != null
         && !ProductCurrency.normalize(request.currency()).equals(currency))
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Costing and pricing must use the same currency");
-    BigDecimal ingredient=amount(request==null ? pricing==null?null:pricing.costPrice() : request.ingredientCost());
+    // Ingredient cost is no longer configurable. Retain the response field for compatibility.
+    if (request != null) amount(request.ingredientCost());
+    BigDecimal ingredient=BigDecimal.ZERO;
     BigDecimal packaging=amount(request==null?null:request.packagingCost());
     BigDecimal labor=amount(request==null?null:request.laborCost());
     BigDecimal operation=amount(request==null?null:request.operationCost());
