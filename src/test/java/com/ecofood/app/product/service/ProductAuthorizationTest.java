@@ -3,6 +3,7 @@ package com.ecofood.app.product.service;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import com.ecofood.app.proposition.repository.PropositionRepository;
 import com.ecofood.core.client.CoreTenantQueryClient;
 import com.ecofood.core.dto.PropositionTenantReference;
 import com.ecofood.core.dto.TenantResponse;
@@ -20,7 +21,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 class ProductAuthorizationTest {
   private final CoreTenantQueryClient tenants = mock(CoreTenantQueryClient.class);
-  private final ProductAuthorization authorization = new ProductAuthorization(new ACLService(), tenants);
+  private final PropositionRepository propositions = mock(PropositionRepository.class);
+  private final ProductAuthorization authorization =
+      new ProductAuthorization(new ACLService(), tenants, propositions);
   private final ObjectId tenant = new ObjectId();
 
   @AfterEach void cleanup() { AuthenticationContext.unload(); }
@@ -92,14 +95,31 @@ class ProductAuthorizationTest {
     assertThatThrownBy(authorization::currentRead).isInstanceOf(ResponseStatusException.class).hasMessageContaining("403");
   }
 
-  @Test void tenantProductManagerIsScopedAndOtherTenantRoleStringsAreRejected() {
-    authenticate("TENANT", "TENANT_ADMIN");
+  @Test void tenantAdminAndTenantProductManagerAreScopedAndOtherTenantRoleStringsAreRejected() {
+    authenticate("TENANT", "TENANT_PARTNERSHIP_MANAGER");
     assertThatThrownBy(authorization::currentRead).isInstanceOf(ResponseStatusException.class).hasMessageContaining("403");
-    authenticate("TENANT", "TENANT_PRODUCT_MANAGER");
     when(tenants.propositionReference(tenant.toHexString())).thenReturn(
         new PropositionTenantReference(tenant.toHexString(), "Sub-Tenant", null, null, null,
             List.of(), List.of(), false));
-    assertThat(authorization.currentRead().enterpriseScope()).containsExactly(tenant.toHexString());
+    for (String role : List.of("TENANT_ADMIN", "TENANT_PRODUCT_MANAGER")) {
+      authenticate("TENANT", role);
+      assertThat(authorization.currentRead().enterpriseScope()).containsExactly(tenant.toHexString());
+    }
+  }
+
+  @Test void tenantProductManagerAlsoSeesProductsBehindPropositionsItIsADistributionPartnerOn() {
+    authenticate("TENANT", "TENANT_PRODUCT_MANAGER");
+    when(tenants.propositionReference(tenant.toHexString())).thenReturn(
+        new PropositionTenantReference(tenant.toHexString(), "Partner", null, null, null,
+            List.of(), List.of(), false));
+    var proposition = new com.ecofood.app.proposition.entity.PropositionEntity();
+    var owner = new ObjectId();
+    proposition.setEnterpriseId(owner);
+    when(propositions.findByDefinitionDistributionPartnerIdsInAndDeletedFalse(List.of(tenant.toHexString())))
+        .thenReturn(List.of(proposition));
+    var actor = authorization.currentRead();
+    assertThat(authorization.canRead(actor, owner)).isTrue();
+    assertThat(authorization.canRead(actor, new ObjectId())).isFalse();
   }
 
   @Test void enterpriseActorCurrentReadIsScopedToItsOwnEnterpriseOnly() {

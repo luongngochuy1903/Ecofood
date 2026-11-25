@@ -94,7 +94,8 @@ class ProductApiTest {
     when(processRepository.findByProductIdOrderByVersionDesc(any())).thenAnswer(i -> versions.stream()
         .filter(v -> v.getProductId().equals(i.getArgument(0)))
         .sorted(Comparator.comparingInt(ProductProcessEntity::getVersion).reversed()).map(this::storedProcess).toList());
-    ProductAuthorization authorization = new ProductAuthorization(new ACLService(), tenants);
+    ProductAuthorization authorization = new ProductAuthorization(new ACLService(), tenants,
+        mock(com.ecofood.app.proposition.repository.PropositionRepository.class));
     com.ecofood.core.service.SequenceGeneratorService sequenceGeneratorService =
         mock(com.ecofood.core.service.SequenceGeneratorService.class);
     java.util.concurrent.atomic.AtomicLong sequence = new java.util.concurrent.atomic.AtomicLong();
@@ -325,7 +326,14 @@ class ProductApiTest {
   @Test void anonymousInvalidTokenAndNonEnterpriseAreRejected() throws Exception {
     mvc.perform(get("/api/v1/products")).andExpect(status().isUnauthorized());
     mvc.perform(get("/api/v1/products").header("Authorization", "Bearer invalid")).andExpect(status().isUnauthorized());
-    mvc.perform(get("/api/v1/products").header("Authorization", "Bearer " + token("TENANT")))
+    // TENANT_ADMIN/TENANT_PRODUCT_MANAGER can both use this read endpoint
+    // now (see ProductAuthorization.currentRead()) — a neither-of-those
+    // Tenant role string is what's still rejected.
+    String partnershipManagerToken = Jwts.builder().subject(new ObjectId().toHexString())
+        .id(UUID.randomUUID().toString()).claim("tenantId", tenant.toHexString())
+        .claim("roleGroups", List.of("TENANT")).claim("roles", List.of("TENANT_PARTNERSHIP_MANAGER"))
+        .expiration(new Date(System.currentTimeMillis() + 60_000)).signWith(KEY).compact();
+    mvc.perform(get("/api/v1/products").header("Authorization", "Bearer " + partnershipManagerToken))
         .andExpect(status().isForbidden());
   }
 

@@ -65,12 +65,23 @@ public class PlanSaleAccess {
             .orElseThrow(PlanSaleAccess::missingProposition);
     access.read(actor, p);
     String tenantId = actor.tenant().id();
+    // A Tenant declared as a distribution partner on the Proposition itself
+    // (definition.distributionPartnerIds) gets every Plan in it, not only
+    // ones that separately list it in their own tenantIds — the Proposition-
+    // level partner declaration is the real, sufficient authorization now
+    // (see PlanSaleAccess.require(), which enforces the same rule at the
+    // real submit-transaction sale-eligibility check).
+    boolean partnerOnProposition =
+        p.getDefinition() != null
+            && p.getDefinition().distributionPartnerIds() != null
+            && p.getDefinition().distributionPartnerIds().contains(tenantId);
     var plans =
         p.getPlans().stream()
             .filter(
                 v ->
                     !Boolean.TRUE.equals(v.getDeleted())
                         && (actor.enterprise()
+                            || partnerOnProposition
                             || (v.getTenantIds() != null && v.getTenantIds().contains(tenantId))))
             .toList();
     return new PropositionScope(tenantId, subject, actor.enterprise(), p, plans);
@@ -102,15 +113,17 @@ public class PlanSaleAccess {
     if (p.getDefinition() == null
         || p.getDefinition().distributionPartnerIds() == null
         || !p.getDefinition().distributionPartnerIds().contains(tenantId)) throw missing();
+    // Being a declared distribution partner on the Proposition itself is
+    // sufficient to sell any of its Plans now — Plan.tenantIds is no longer
+    // a required, additional per-Plan restriction on top of that (checked
+    // above); it's already implied by distributionPartnerIds membership.
     String canonicalPlanId = new ObjectId(planId).toHexString();
     var plan =
         p.getPlans().stream()
-            .filter(v -> canonicalPlanId.equals(v.getIdAsString()))
             .filter(
                 v ->
-                    !Boolean.TRUE.equals(v.getDeleted())
-                        && v.getTenantIds() != null
-                        && v.getTenantIds().contains(tenantId))
+                    canonicalPlanId.equals(v.getIdAsString())
+                        && !Boolean.TRUE.equals(v.getDeleted()))
             .findFirst()
             .orElseThrow(PlanSaleAccess::missing);
     return new Scope(tenantId, null, p, plan);
@@ -137,11 +150,15 @@ public class PlanSaleAccess {
   private void requireApprovedProductVersion(Scope scope) {
     var productId = scope.proposition().getProductId();
     var version = scope.plan().getProductVersion();
-    if (productId == null || version == null)
+    // isVersionApproved is a system-level check with no ACL-role gate — the
+    // caller here is a POS/seller authenticated by permission claims, not
+    // an employee with an ACL roleGroups claim, so getApprovedVersion()
+    // (which requires one) would always throw FORBIDDEN for a real sale.
+    if (productId == null || version == null
+        || !products.isVersionApproved(productId.toHexString(), version))
       throw new ResponseStatusException(
           HttpStatus.CONFLICT,
-          "Plan's Product version is unavailable; cannot verify it is still Approved");
-    products.getApprovedVersion(productId.toHexString(), version);
+          "Plan's bound Product version is unavailable or no longer Approved");
   }
 
   public String currency(Scope scope) {

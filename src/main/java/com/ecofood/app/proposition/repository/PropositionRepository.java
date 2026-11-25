@@ -16,4 +16,7 @@ public interface PropositionRepository extends MongoRepository<PropositionEntity
     List<PropositionEntity>
             findByDefinitionDistributionPartnerIdsInOrDefinitionBrandIdInOrPlansTenantIdsIn(
                     List<String> partners, List<String> brands, List<String> tenants);
+
+    List<PropositionEntity> findByDefinitionDistributionPartnerIdsInAndDeletedFalse(
+            List<String> partners);
 }
