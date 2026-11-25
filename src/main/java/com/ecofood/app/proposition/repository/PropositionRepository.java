@@ -10,6 +10,9 @@ public interface PropositionRepository extends MongoRepository<PropositionEntity
 
     List<PropositionEntity> findByDeletedFalse();
 
+    /** Every Proposition sourced from this Product — a Proposition carries no product version of its own, only which Product it was created from. */
+    List<PropositionEntity> findByProductIdAndDeletedFalse(ObjectId productId);
+
     List<PropositionEntity>
             findByDefinitionDistributionPartnerIdsInOrDefinitionBrandIdInOrPlansTenantIdsIn(
                     List<String> partners, List<String> brands, List<String> tenants);

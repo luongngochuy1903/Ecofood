@@ -29,7 +29,7 @@ class CatalogApiTest {
     var external=f.external.read(f.external.authenticate(key.credential()),p.id(),1,null,null,0,20);
     var json=new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules().writeValueAsString(external);
     for(String privateField:List.of("costing","ProfitShare","ingredientCost","submittedBy","recipe","invoiceHolder","credentialHash","sourceProcess","processRevision")) assertFalse(json.contains(privateField),privateField);
-    assertTrue(json.contains("12.10")); assertTrue(json.contains("USD"));
+    assertTrue(json.contains("11.00")); assertTrue(json.contains("USD"));
   }
   @Test void unsupportedVoucherComboAndInvalidCustomFieldsCannotBeCreated() throws Exception {
     var service=mock(CatalogPublicationServiceImpl.class); var mvc=MockMvcBuilders.standaloneSetup(new CatalogController(service)).setControllerAdvice(new CatalogApiErrors(),new GlobalExceptionHandler()).build();

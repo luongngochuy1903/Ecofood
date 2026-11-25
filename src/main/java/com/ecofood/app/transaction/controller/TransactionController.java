@@ -3,7 +3,6 @@ package com.ecofood.app.transaction.controller;
 import com.ecofood.app.config.ForbiddenException;
 import com.ecofood.app.transaction.entity.Invoice;
 import com.ecofood.app.transaction.service.TransactionService;
-import com.ecofood.core.dto.SubmitTransactionResponse;
 import com.ecofood.core.security.AuthenticationContext;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -30,14 +29,6 @@ public class TransactionController {
     if (tenant == null || tenant.isBlank() || subject == null || subject.isBlank())
       throw new ForbiddenException("Verified Tenant and subject required");
     return new Actor(tenant, subject);
-  }
-
-  @PostMapping("/sales/{orchestratorId}/transactions")
-  public ResponseEntity<SubmitTransactionResponse> submit(
-      @PathVariable String orchestratorId, @RequestBody Map<String, Object> payload) {
-    var actor = actor("TRANSACTION_SUBMIT");
-    return ResponseEntity.status(HttpStatus.CREATED)
-        .body(service.submit(actor.tenant(), actor.subject(), orchestratorId, payload));
   }
 
   @GetMapping("/transactions")

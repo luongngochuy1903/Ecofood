@@ -23,7 +23,6 @@ public class ProductVersionEntity extends BaseEntity {
   private String code;
   private String category;
   private String imageUrl;
-  @Builder.Default private List<ProductComponentRequest> componentProducts = List.of();
   @Builder.Default private List<ProductIngredientRequest> ingredients = List.of();
   private ProductRecipeRequest recipe;
   private ProductPricingRequest pricing;

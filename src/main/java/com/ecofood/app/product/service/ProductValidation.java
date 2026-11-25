@@ -55,11 +55,10 @@ public class ProductValidation {
       } catch (IllegalArgumentException ex) { bad("Product image must be an HTTP(S) URL"); }
     }
   }
+  /** Pricing/costing is no longer a Product-level concept — see Plan's own costing instead. */
   public void validateSubmit(ProductProcessEntity version) {
-    validateDraft(version.getName(),version.getIngredients(),version.getRecipe(),version.getPricing());
-    if (version.getPricing() == null) bad("Pricing is required before submit");
+    validateDraft(version.getName(),version.getIngredients(),version.getRecipe(),null);
     validateDefinition(version.getCode(), version.getCategory(), version.getImageUrl());
-    if (version.getPricing().sellingPrice().signum() < 0) bad("Selling price cannot be negative");
   }
   private static void bad(String message) {
     throw new ResponseStatusException(HttpStatus.BAD_REQUEST, message);

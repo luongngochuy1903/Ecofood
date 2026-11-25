@@ -11,9 +11,11 @@ import org.springframework.data.mongodb.core.mapping.Field;
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 @Document(collection = "product")
 public class ProductEntity extends BaseEntity {
+  /** Name of this entity's atomic Mongo counter — same pattern as TenantEntity.SEQUENCE_NAME. */
+  public static final String SEQUENCE_NAME = "product_sequence";
+
   @Indexed @Field("enterprise_identifier") private ObjectId enterpriseId;
   @Field("product_type") private ProductTypeEnum type;
-  @Field("source_product_identifier") private ObjectId sourceProductId;
   @Field("product_code") private String code;
   @Field("latest_version") private int latestVersion;
   @Field("latest_status") private ProductStatusEnum latestStatus;

@@ -34,12 +34,17 @@ public class ProductController {
   @PostMapping("/{id}/submit") public ProductResponse submit(@PathVariable String id) {
     return productService.submit(id);
   }
-  @PostMapping("/{id}/approve") public ProductResponse approve(@PathVariable String id) {
-    return productService.approve(id);
+  @PostMapping("/{id}/processes/{version}/approve") public ProductResponse approve(@PathVariable String id,@PathVariable int version,
+      @RequestBody(required=false) ProductApproveRequest request) {
+    return productService.approve(id,version,request);
   }
-  @PostMapping("/{id}/reject") public ProductResponse reject(@PathVariable String id,
+  @GetMapping("/{id}/processes/{version}/pending-plan-approvals") public List<PendingPlanApprovalResponse> pendingPlanApprovals(
+      @PathVariable String id,@PathVariable int version) {
+    return productService.pendingPlanApprovals(id,version);
+  }
+  @PostMapping("/{id}/processes/{version}/reject") public ProductResponse reject(@PathVariable String id,@PathVariable int version,
       @Valid @RequestBody ProductDecisionRequest request) {
-    return productService.reject(id,request);
+    return productService.reject(id,version,request);
   }
   @GetMapping("/{id}/versions") public List<ProductVersionResponse> versions(@PathVariable String id) {
     return productQueryService.versions(id);

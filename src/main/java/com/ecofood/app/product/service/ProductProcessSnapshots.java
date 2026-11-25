@@ -14,13 +14,16 @@ public class ProductProcessSnapshots {
     ProductDefinitionAttribute definition=ProductDefinitionAttribute.builder().productName(p.getName()).code(p.getCode())
         .category(p.getCategory()).description(p.getDescription()).imagesURL(p.getImageUrl())
         .ingredients(p.getIngredients()==null?List.of():List.copyOf(p.getIngredients()))
-        .componentProducts(p.getComponentProducts()==null?List.of():List.copyOf(p.getComponentProducts()))
         .recipe(p.getRecipe()).build();
-    ProductCostingAttribute costing=calculator.calculate(p.getCosting(),p.getPricing());
+    // Costing is optional now (a real Product no longer carries one — only a
+    // Plan's own cloned process does): only compute/persist an actual
+    // attribute when the caller supplied real costing/pricing data.
+    boolean hasCosting=p.getCosting()!=null || p.getPricing()!=null;
+    ProductCostingAttribute costing=hasCosting?calculator.calculate(p.getCosting(),p.getPricing()):null;
     ProductOverviewAttribute overview=new ProductOverviewAttribute();
     String[] metadata={"id","productProcessId","processRevision","createdAt","updatedAt","createdBy","updatedBy","deleted"};
     BeanUtils.copyProperties(definition,overview,metadata);
-    BeanUtils.copyProperties(costing,overview,metadata);
+    if(costing!=null) BeanUtils.copyProperties(costing,overview,metadata);
     p.setDefinitionAttribute(definition); p.setCostingAttribute(costing); p.setOverviewAttribute(overview);
     if(p.getProcessElementName()==null)p.setProcessElementName("Version "+p.getVersion());
     // Flat API fields are a projection, not another stored copy of the definition.
@@ -30,7 +33,8 @@ public class ProductProcessSnapshots {
     p.setDefinitionAttribute(d);p.setCostingAttribute(c);p.setOverviewAttribute(o);
     p.setName(d.getProductName());p.setCode(d.getCode());p.setCategory(d.getCategory());
     p.setDescription(d.getDescription());p.setImageUrl(d.getImagesURL());p.setIngredients(d.getIngredients());
-    p.setComponentProducts(d.getComponentProducts());p.setRecipe(d.getRecipe());
+    p.setRecipe(d.getRecipe());
+    if(c==null) { p.setCosting(null); p.setPricing(null); return; }
     p.setCosting(new ProductCostingRequest(c.getIngredientCost(),c.getPackagingCost(),c.getLaborCost(),c.getOperationCost(),c.getMarketingFee(),c.getTargetMargin(),c.getTax(),c.getCurrency()));
     p.setPricing(c.getSellingPrice()==null?null:new ProductPricingRequest(c.getSellingPrice(),c.getTotalCost(),c.getCurrency(),c.getNote()));
   }

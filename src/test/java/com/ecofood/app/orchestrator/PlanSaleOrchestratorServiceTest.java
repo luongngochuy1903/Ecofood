@@ -10,141 +10,327 @@ import com.ecofood.app.orchestrator.entity.PlanSaleOrchestrator;
 import com.ecofood.app.orchestrator.repository.PlanSaleOrchestratorRepository;
 import com.ecofood.app.orchestrator.security.PlanSaleAccess;
 import com.ecofood.app.orchestrator.service.PlanSaleOrchestratorServiceImpl;
-import com.ecofood.app.orchestrator.validation.SaleSchemaValidator;
-import com.ecofood.core.dto.PlanSaleOrchestratorDtos;
-import com.ecofood.core.enums.PlanSaleOrchestratorStatusEnum;
+import com.ecofood.app.proposition.entity.PropositionEntity;
+import com.ecofood.core.client.CoreProductProcessClient;
+import com.ecofood.core.dto.PlanSaleOrchestratorRequest;
+import com.ecofood.core.dto.SaleConfigurationField;
+import com.ecofood.core.enums.PlanStatusEnum;
+import java.time.Instant;
 import java.util.*;
+import org.bson.types.ObjectId;
 import org.junit.jupiter.api.*;
-import org.springframework.dao.*;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.server.ResponseStatusException;
 
 class PlanSaleOrchestratorServiceTest {
   private final PlanSaleOrchestratorRepository repo = mock(PlanSaleOrchestratorRepository.class);
   private final PlanSaleAccess access = mock(PlanSaleAccess.class);
-  private final SaleSchemaValidator schemas = new SaleSchemaValidator();
+  private final CoreProductProcessClient productProcesses = mock(CoreProductProcessClient.class);
   private final PlanSaleOrchestratorServiceImpl service =
-      new PlanSaleOrchestratorServiceImpl(repo, access, schemas);
-  private final Map<String, PlanSaleOrchestrator> rows = new HashMap<>();
+      new PlanSaleOrchestratorServiceImpl(repo, access, productProcesses);
+  private final PropositionEntity proposition = new PropositionEntity();
+
+  private PlanSaleAccess.PropositionScope scope(
+      List<com.ecofood.app.proposition.entity.Plan> plans) {
+    return new PlanSaleAccess.PropositionScope(TENANT, "employee", false, proposition, plans);
+  }
+
+  private PlanSaleAccess.PropositionScope enterpriseScope(
+      List<com.ecofood.app.proposition.entity.Plan> plans) {
+    return new PlanSaleAccess.PropositionScope("enterprise-tenant", "employee", true, proposition, plans);
+  }
+
+  private PlanSaleOrchestratorRequest request(Long expectedRevision, String name, List<String> planIds) {
+    return request(expectedRevision, name, planIds, List.of());
+  }
+
+  private PlanSaleOrchestratorRequest request(
+      Long expectedRevision, String name, List<String> planIds, List<SaleConfigurationField> additionalInfoFields) {
+    return new PlanSaleOrchestratorRequest(expectedRevision, name, "desc", planIds, null, additionalInfoFields, null);
+  }
+
+  private PlanSaleOrchestratorRequest request(
+      Long expectedRevision,
+      String name,
+      List<String> planIds,
+      List<SaleConfigurationField> planItems,
+      List<SaleConfigurationField> additionalInfoFields,
+      List<SaleConfigurationField> invoiceHolder) {
+    return new PlanSaleOrchestratorRequest(
+        expectedRevision, name, "desc", planIds, planItems, additionalInfoFields, invoiceHolder);
+  }
 
   @BeforeEach
   void setup() {
-    for (String plan : List.of(PLAN, OTHER_PLAN)) {
-      when(access.current(PROP, plan)).thenReturn(scope(plan));
-      when(repo.findByTenantIdAndPropositionIdAndPlanId(TENANT, PROP, plan))
-          .thenAnswer(inv -> Optional.ofNullable(rows.get(plan)));
-    }
-    when(access.currency(any())).thenReturn("VND");
+    proposition.setId(new ObjectId(PROP));
     when(repo.save(any()))
         .thenAnswer(
             inv -> {
               PlanSaleOrchestrator row = inv.getArgument(0);
-              row.setId(row.getPlanId());
+              if (row.getId() == null) row.setId(new ObjectId().toHexString());
               row.setRevision(row.getRevision() == null ? 0L : row.getRevision() + 1);
-              rows.put(row.getPlanId(), row);
               return row;
             });
   }
 
-  private PlanSaleOrchestrator create(String plan) {
-    return service.create(PROP, plan, new PlanSaleOrchestratorDtos.Save(null, config()));
-  }
-
-  private PlanSaleOrchestratorDtos.Revision revision(PlanSaleOrchestrator row) {
-    return new PlanSaleOrchestratorDtos.Revision(row.getRevision());
+  @Test
+  void createPersistsOrchestratorScopedToTenantAndPlans() {
+    var planA = plan(PLAN, "PL00001", PlanStatusEnum.APPROVED);
+    when(access.currentForProposition(PROP)).thenReturn(scope(List.of(planA)));
+    when(productProcesses.get(PLAN)).thenReturn(processNamed(PLAN, "Chicken Plan"));
+    var response = service.create(PROP, request(null, "Sale A", List.of(PLAN)));
+    assertEquals(PROP, response.propositionId());
+    assertEquals("Sale A", response.name());
+    assertEquals(1, response.plans().size());
+    assertEquals(PLAN, response.plans().get(0).planId());
+    assertEquals("Chicken Plan", response.plans().get(0).planName());
+    var capture = org.mockito.ArgumentCaptor.forClass(PlanSaleOrchestrator.class);
+    verify(repo).save(capture.capture());
+    assertEquals(TENANT, capture.getValue().getTenantId());
+    assertEquals(List.of(PLAN), capture.getValue().getPlanIds());
   }
 
   @Test
-  void createsExactlyOneDraftForEachPlanWithFixedContext() {
-    var a = create(PLAN);
-    var b = create(OTHER_PLAN);
-    assertEquals(TENANT, a.getTenantId());
-    assertEquals(PROP, a.getPropositionId());
-    assertEquals(PLAN, a.getPlanId());
-    assertEquals(OTHER_PLAN, b.getPlanId());
-    assertNull(a.getActiveVersion());
-    assertEquals(PlanSaleOrchestratorStatusEnum.DRAFT, a.getVersions().get(0).status());
-    assertThrows(ResponseStatusException.class, () -> create(PLAN));
-  }
-
-  @Test
-  void lifecycleKeepsOldActiveAndOtherPlanUnchanged() {
-    var a = create(PLAN);
-    var b = create(OTHER_PLAN);
-    service.activate(PROP, PLAN, revision(a));
-    service.version(PROP, PLAN, revision(a));
-    assertEquals(1, a.getActiveVersion());
-    assertEquals(PlanSaleOrchestratorStatusEnum.ACTIVE, a.getVersions().get(0).status());
-    service.edit(PROP, PLAN, new PlanSaleOrchestratorDtos.Save(a.getRevision(), config()));
-    service.activate(PROP, PLAN, revision(a));
-    assertEquals(2, a.getActiveVersion());
-    assertEquals(PlanSaleOrchestratorStatusEnum.ARCHIVED, a.getVersions().get(0).status());
-    assertEquals(1, a.getVersions().stream().filter(v -> v.status() == PlanSaleOrchestratorStatusEnum.ACTIVE).count());
-    assertEquals(0L, b.getRevision());
-    assertNull(b.getActiveVersion());
-    assertEquals(1, b.getVersions().size());
-  }
-
-  @Test
-  void activeIsReadOnlyAndOnlyOneDraftIsAllowed() {
-    var a = create(PLAN);
-    assertThrows(ResponseStatusException.class, () -> service.version(PROP, PLAN, revision(a)));
-    service.activate(PROP, PLAN, revision(a));
+  void createRejectsPlanNotVisibleToTenant() {
+    when(access.currentForProposition(PROP)).thenReturn(scope(List.of()));
     assertThrows(
-        ResponseStatusException.class,
-        () -> service.edit(PROP, PLAN, new PlanSaleOrchestratorDtos.Save(a.getRevision(), config())));
-  }
-
-  @Test
-  void invalidActivationKeepsCurrentActiveAndDoesNotSave() {
-    var a = create(PLAN);
-    service.activate(PROP, PLAN, revision(a));
-    service.version(PROP, PLAN, revision(a));
-    var invalid = new PlanSaleOrchestratorDtos.Configuration("Sale", "", 100, null, Set.of());
-    service.edit(PROP, PLAN, new PlanSaleOrchestratorDtos.Save(a.getRevision(), invalid));
-    clearInvocations(repo);
-    assertFalse(service.validate(PROP, PLAN, revision(a)).valid());
-    assertThrows(BadRequestException.class, () -> service.activate(PROP, PLAN, revision(a)));
-    assertEquals(1, a.getActiveVersion());
+        BadRequestException.class, () -> service.create(PROP, request(null, "Sale", List.of(PLAN))));
     verify(repo, never()).save(any());
   }
 
   @Test
-  void activatesPlanConfigurationWithoutAnyPosRegistry() {
-    var a = create(PLAN);
-    var b = create(OTHER_PLAN);
-    service.activate(PROP, PLAN, revision(a));
-    service.activate(PROP, OTHER_PLAN, revision(b));
-    assertEquals(1, a.getActiveVersion());
-    assertEquals(1, b.getActiveVersion());
-  }
-
-  @Test
-  void refusesExpiredPlanActivationAndStaleRevision() {
-    var a = create(PLAN);
-    doThrow(
-            new ResponseStatusException(
-                org.springframework.http.HttpStatus.CONFLICT, "Expired Plan"))
-        .when(access)
-        .active(any());
-    assertThrows(BadRequestException.class, () -> service.activate(PROP, PLAN, revision(a)));
+  void createRejectsPlanAlreadyClaimedByAnotherOrchestrator() {
+    var planA = plan(PLAN, "PL00001", PlanStatusEnum.APPROVED);
+    when(access.currentForProposition(PROP)).thenReturn(scope(List.of(planA)));
+    var existing = new PlanSaleOrchestrator();
+    existing.setId("other-orch");
+    when(repo.findByTenantIdAndPlanIdsContaining(TENANT, PLAN)).thenReturn(Optional.of(existing));
     assertThrows(
-        ResponseStatusException.class, () -> service.edit(PROP, PLAN, new PlanSaleOrchestratorDtos.Save(-1L, config())));
+        BadRequestException.class, () -> service.create(PROP, request(null, "Sale", List.of(PLAN))));
+    verify(repo, never()).save(any());
   }
 
   @Test
-  void handlesConcurrentCreateAndVersionConflicts() {
+  void createRequiresNameAndAtLeastOnePlan() {
+    when(access.currentForProposition(PROP)).thenReturn(scope(List.of()));
+    assertThrows(BadRequestException.class, () -> service.create(PROP, request(null, "Sale", List.of())));
+    assertThrows(BadRequestException.class, () -> service.create(PROP, request(null, "", List.of(PLAN))));
+  }
+
+  @Test
+  void updateRequiresMatchingExpectedRevisionAndAllowsReplacingPlans() {
+    var planA = plan(PLAN, "PL00001", PlanStatusEnum.APPROVED);
+    var planB = plan(OTHER_PLAN, "PL00002", PlanStatusEnum.APPROVED);
+    when(access.currentForProposition(PROP)).thenReturn(scope(List.of(planA, planB)));
+    when(productProcesses.get(PLAN)).thenReturn(processNamed(PLAN, "Chicken Plan"));
+    when(productProcesses.get(OTHER_PLAN)).thenReturn(processNamed(OTHER_PLAN, "Water Plan"));
+    var created = service.create(PROP, request(null, "Sale A", List.of(PLAN)));
+    var row = new PlanSaleOrchestrator();
+    row.setId(created.id());
+    row.setTenantId(TENANT);
+    row.setPropositionId(PROP);
+    row.setRevision(created.revision());
+    row.setPlanIds(new ArrayList<>(List.of(PLAN)));
+    when(repo.findByIdAndTenantIdAndPropositionId(created.id(), TENANT, PROP))
+        .thenReturn(Optional.of(row));
+    assertThrows(
+        ResponseStatusException.class,
+        () -> service.update(PROP, created.id(), request(-1L, "Sale A", List.of(PLAN))));
+    var updated =
+        service.update(PROP, created.id(), request(created.revision(), "Sale A2", List.of(OTHER_PLAN)));
+    assertEquals("Sale A2", updated.name());
+    assertEquals(List.of(OTHER_PLAN), updated.plans().stream().map(p -> p.planId()).toList());
+  }
+
+  @Test
+  void getThrowsNotFoundWhenMissing() {
+    when(access.currentForProposition(PROP)).thenReturn(scope(List.of()));
+    when(repo.findByIdAndTenantIdAndPropositionId("missing", TENANT, PROP))
+        .thenReturn(Optional.empty());
+    assertThrows(ResponseStatusException.class, () -> service.get(PROP, "missing"));
+  }
+
+  @Test
+  void directoryListsOneRowPerOrchestratorAndSupportsSearch() {
+    var planA = plan(PLAN, "PL00001", PlanStatusEnum.APPROVED);
+    var planB = plan(OTHER_PLAN, "PL00002", PlanStatusEnum.APPROVED);
+    when(access.currentForProposition(PROP)).thenReturn(scope(List.of(planA, planB)));
+    when(productProcesses.get(PLAN)).thenReturn(processNamed(PLAN, "Chicken Plan"));
+    when(productProcesses.get(OTHER_PLAN)).thenReturn(processNamed(OTHER_PLAN, "Water Plan"));
+    var rowA = new PlanSaleOrchestrator();
+    rowA.setId("orch-a");
+    rowA.setName("Sale A");
+    rowA.setPlanIds(List.of(PLAN));
+    rowA.setUpdatedAt(Instant.now());
+    var rowB = new PlanSaleOrchestrator();
+    rowB.setId("orch-b");
+    rowB.setName("Sale B");
+    rowB.setPlanIds(List.of(OTHER_PLAN));
+    rowB.setUpdatedAt(Instant.now());
+    when(repo.findByTenantIdAndPropositionId(TENANT, PROP)).thenReturn(List.of(rowA, rowB));
+    var page = service.directory(PROP, 0, 20, null, null);
+    assertEquals(2, page.getContent().size());
+    var filtered = service.directory(PROP, 0, 20, null, "chicken");
+    assertEquals(1, filtered.getContent().size());
+    assertEquals("orch-a", filtered.getContent().get(0).id());
+    assertEquals(List.of("Chicken Plan"), filtered.getContent().get(0).planNames());
+  }
+
+  @Test
+  void enterpriseActorSeesAndCanEditAnyTenantsOrchestratorAcrossTheProposition() {
+    var planA = plan(PLAN, "PL00001", PlanStatusEnum.APPROVED);
+    var planB = plan(OTHER_PLAN, "PL00002", PlanStatusEnum.APPROVED);
+    when(access.currentForProposition(PROP)).thenReturn(enterpriseScope(List.of(planA, planB)));
+    when(productProcesses.get(PLAN)).thenReturn(processNamed(PLAN, "Chicken Plan"));
+    when(productProcesses.get(OTHER_PLAN)).thenReturn(processNamed(OTHER_PLAN, "Water Plan"));
+    var rowA = new PlanSaleOrchestrator();
+    rowA.setId("orch-a");
+    rowA.setTenantId(TENANT);
+    rowA.setPropositionId(PROP);
+    rowA.setName("Tenant's Orchestrator");
+    rowA.setRevision(0L);
+    rowA.setPlanIds(new ArrayList<>(List.of(PLAN)));
+    rowA.setUpdatedAt(Instant.now());
+    when(repo.findByPropositionId(PROP)).thenReturn(List.of(rowA));
+    var page = service.directory(PROP, 0, 20, null, null);
+    assertEquals(1, page.getContent().size());
+    assertEquals("orch-a", page.getContent().get(0).id());
+
+    when(repo.findByIdAndPropositionId("orch-a", PROP)).thenReturn(Optional.of(rowA));
+    var detail = service.get(PROP, "orch-a");
+    assertEquals("Tenant's Orchestrator", detail.name());
+
+    var updated =
+        service.update(PROP, "orch-a", request(0L, "Updated by Enterprise", List.of(OTHER_PLAN)));
+    assertEquals("Updated by Enterprise", updated.name());
+    // The uniqueness check must use the row's OWN tenant (TENANT), never the
+    // Enterprise actor's own tenantId ("enterprise-tenant") — otherwise a
+    // real collision within the owning Tenant's own Orchestrators could
+    // slip through unnoticed.
+    verify(repo).findByTenantIdAndPlanIdsContaining(TENANT, OTHER_PLAN);
+    verify(repo, never()).findByTenantIdAndPlanIdsContaining("enterprise-tenant", OTHER_PLAN);
+  }
+
+  @Test
+  void tenantActorCannotLoadAnotherTenantsOrchestratorAndNeverQueriesAcrossTheProposition() {
+    when(access.currentForProposition(PROP)).thenReturn(scope(List.of()));
+    when(repo.findByIdAndTenantIdAndPropositionId("orch-a", TENANT, PROP))
+        .thenReturn(Optional.empty());
+    assertThrows(ResponseStatusException.class, () -> service.get(PROP, "orch-a"));
+    verify(repo, never()).findByIdAndPropositionId(any(), any());
+  }
+
+  @Test
+  void createPersistsAndReturnsAdditionalInfoFields() {
+    var planA = plan(PLAN, "PL00001", PlanStatusEnum.APPROVED);
+    when(access.currentForProposition(PROP)).thenReturn(scope(List.of(planA)));
+    when(productProcesses.get(PLAN)).thenReturn(processNamed(PLAN, "Chicken Plan"));
+    var giftNote = new SaleConfigurationField("giftNote", "STRING", "Gift note", "Printed on receipt", true);
+    var response = service.create(PROP, request(null, "Sale A", List.of(PLAN), List.of(giftNote)));
+    assertEquals(List.of(giftNote), response.additionalInfoFields());
+    var capture = org.mockito.ArgumentCaptor.forClass(PlanSaleOrchestrator.class);
+    verify(repo).save(capture.capture());
+    assertEquals(List.of(giftNote), capture.getValue().getAdditionalInfoFields());
+  }
+
+  @Test
+  void createRejectsAdditionalInfoFieldReusingAFixedItemKey() {
+    when(access.currentForProposition(PROP))
+        .thenReturn(scope(List.of(plan(PLAN, "PL00001", PlanStatusEnum.APPROVED))));
+    var collides = new SaleConfigurationField("quantity", "NUMBER", "", "", false);
+    assertThrows(
+        BadRequestException.class,
+        () -> service.create(PROP, request(null, "Sale", List.of(PLAN), List.of(collides))));
+    verify(repo, never()).save(any());
+  }
+
+  @Test
+  void createRejectsDuplicateAdditionalInfoKeysAndUnsupportedDataTypes() {
+    when(access.currentForProposition(PROP))
+        .thenReturn(scope(List.of(plan(PLAN, "PL00001", PlanStatusEnum.APPROVED))));
+    var a = new SaleConfigurationField("note", "STRING", "", "", false);
+    var duplicate = new SaleConfigurationField("note", "STRING", "", "", true);
+    assertThrows(
+        BadRequestException.class,
+        () -> service.create(PROP, request(null, "Sale", List.of(PLAN), List.of(a, duplicate))));
+    var unsupported = new SaleConfigurationField("note", "OBJECT", "", "", false);
+    assertThrows(
+        BadRequestException.class,
+        () -> service.create(PROP, request(null, "Sale", List.of(PLAN), List.of(unsupported))));
+    verify(repo, never()).save(any());
+  }
+
+  @Test
+  void createDefaultsPlanItemsAndInvoiceHolderWhenNotSupplied() {
+    var planA = plan(PLAN, "PL00001", PlanStatusEnum.APPROVED);
+    when(access.currentForProposition(PROP)).thenReturn(scope(List.of(planA)));
+    when(productProcesses.get(PLAN)).thenReturn(processNamed(PLAN, "Chicken Plan"));
+    var response = service.create(PROP, request(null, "Sale A", List.of(PLAN)));
+    assertEquals(
+        Set.of("planId", "quantity", "actualPrice"),
+        response.planItems().stream().map(SaleConfigurationField::key).collect(java.util.stream.Collectors.toSet()));
+    assertTrue(response.planItems().stream().filter(f -> f.key().equals("planId")).findFirst().orElseThrow().required());
+    assertTrue(response.planItems().stream().filter(f -> f.key().equals("quantity")).findFirst().orElseThrow().required());
+    assertFalse(response.planItems().stream().filter(f -> f.key().equals("actualPrice")).findFirst().orElseThrow().required());
+    assertEquals(
+        Set.of("firstName", "lastName", "email", "phoneNumber", "address"),
+        response.invoiceHolder().stream().map(SaleConfigurationField::key).collect(java.util.stream.Collectors.toSet()));
+    assertTrue(response.invoiceHolder().stream().noneMatch(SaleConfigurationField::required));
+  }
+
+  @Test
+  void createAllowsTogglingActualPriceRequiredButRejectsRenamingPlanItemKeys() {
+    when(access.currentForProposition(PROP))
+        .thenReturn(scope(List.of(plan(PLAN, "PL00001", PlanStatusEnum.APPROVED))));
+    when(productProcesses.get(PLAN)).thenReturn(processNamed(PLAN, "Chicken Plan"));
+    var planItems =
+        List.of(
+            new SaleConfigurationField("planId", "STRING", "", "", true),
+            new SaleConfigurationField("quantity", "NUMBER", "", "", true),
+            new SaleConfigurationField("actualPrice", "NUMBER", "", "", true));
+    var response = service.create(PROP, request(null, "Sale", List.of(PLAN), planItems, List.of(), List.of()));
+    assertTrue(response.planItems().stream().filter(f -> f.key().equals("actualPrice")).findFirst().orElseThrow().required());
+
+    var renamed =
+        List.of(
+            new SaleConfigurationField("planId", "STRING", "", "", true),
+            new SaleConfigurationField("qty", "NUMBER", "", "", true),
+            new SaleConfigurationField("actualPrice", "NUMBER", "", "", false));
+    assertThrows(
+        BadRequestException.class,
+        () -> service.create(PROP, request(null, "Sale", List.of(PLAN), renamed, List.of(), List.of())));
+  }
+
+  @Test
+  void createRejectsDuplicateInvoiceHolderKeysAndUnsupportedDataTypes() {
+    when(access.currentForProposition(PROP))
+        .thenReturn(scope(List.of(plan(PLAN, "PL00001", PlanStatusEnum.APPROVED))));
+    var duplicate =
+        List.of(
+            new SaleConfigurationField("firstName", "STRING", "", "", false),
+            new SaleConfigurationField("firstName", "STRING", "", "", false));
+    assertThrows(
+        BadRequestException.class,
+        () -> service.create(PROP, request(null, "Sale", List.of(PLAN), null, List.of(), duplicate)));
+    var unsupported = List.of(new SaleConfigurationField("firstName", "OBJECT", "", "", false));
+    assertThrows(
+        BadRequestException.class,
+        () -> service.create(PROP, request(null, "Sale", List.of(PLAN), null, List.of(), unsupported)));
+    verify(repo, never()).save(any());
+  }
+
+  @Test
+  void handlesConcurrentCreateConflicts() {
+    when(access.currentForProposition(PROP))
+        .thenReturn(scope(List.of(plan(PLAN, "PL00001", PlanStatusEnum.APPROVED))));
+    when(productProcesses.get(PLAN)).thenReturn(processNamed(PLAN, "Chicken Plan"));
     doThrow(new DuplicateKeyException("race")).when(repo).save(any());
     assertEquals(
         409,
-        assertThrows(ResponseStatusException.class, () -> create(PLAN)).getStatusCode().value());
-    doThrow(new OptimisticLockingFailureException("race")).when(repo).save(any());
-    assertEquals(
-        409,
-        assertThrows(ResponseStatusException.class, () -> create(PLAN)).getStatusCode().value());
-  }
-
-  @Test
-  void returnsNoConfigurationForPlanUntilCreated() {
-    assertTrue(service.get(PROP, PLAN).isEmpty());
+        assertThrows(
+                ResponseStatusException.class,
+                () -> service.create(PROP, request(null, "Sale", List.of(PLAN))))
+            .getStatusCode()
+            .value());
   }
 }

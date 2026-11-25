@@ -19,24 +19,23 @@ public class PlanSaleMongoConfig {
               new Index()
                   .on("tenantId", Sort.Direction.ASC)
                   .on("propositionId", Sort.Direction.ASC)
-                  .on("planId", Sort.Direction.ASC)
-                  .unique()
-                  .partial(
-                      PartialIndexFilter.of(
-                          Criteria.where("tenantId")
-                              .exists(true)
-                              .and("propositionId")
-                              .exists(true)
-                              .and("planId")
-                              .exists(true)))
-                  .named("ux_orchestrator_tenant_proposition_plan"));
+                  .named("ix_orchestrator_tenant_proposition"));
+      // A Plan belongs to at most one Sale Orchestrator per Tenant — a
+      // unique index on an array field (planIds) enforces per-element
+      // uniqueness across documents, exactly this invariant. Partial on
+      // planIds existing so leftover documents from the pre-redesign,
+      // one-document-per-Plan schema (no planIds field at all) don't
+      // collide with each other under a shared null key and block the
+      // index build.
       mongo
           .indexOps(PlanSaleOrchestrator.class)
           .ensureIndex(
               new Index()
                   .on("tenantId", Sort.Direction.ASC)
-                  .on("activeVersion", Sort.Direction.ASC)
-                  .named("ix_orchestrator_tenant_active"));
+                  .on("planIds", Sort.Direction.ASC)
+                  .unique()
+                  .partial(PartialIndexFilter.of(Criteria.where("planIds").exists(true)))
+                  .named("ux_orchestrator_tenant_plan"));
     };
   }
 }

@@ -18,7 +18,7 @@ class BatchMetricsTest {
     var lines=new ArrayList<InvoicePlanLine>(); int index=0;
     for(String prop:props) {
       var unit=invoice(id,"tenant",prop,currency,"100");
-      lines.add(new InvoicePlanLine(""+(++index),"orch","plan","Plan",index,bd("100"),bd("100").multiply(bd(""+index)),unit.getSnapshot(),verified));
+      lines.add(new InvoicePlanLine(""+(++index),"orch","plan","Plan",index,bd("100"),bd("100").multiply(bd(""+index)),unit.getSnapshot(),verified,null));
     }
     invoice.setType("PLAN_SALE_BATCH"); invoice.setPlanLines(lines); invoice.setPropositionId(null);
     invoice.setPlanId(null); invoice.setOrchestratorId(null); invoice.setOrchestratorVersion(0); invoice.setSnapshot(null);

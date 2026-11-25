@@ -10,6 +10,7 @@ import com.ecofood.app.catalog.security.CatalogAccess;
 import com.ecofood.core.dto.CatalogDtos;
 import com.ecofood.core.enums.CatalogPublicationStatusEnum;
 import com.ecofood.core.enums.CatalogTypeEnum;
+import com.ecofood.core.enums.PlanStatusEnum;
 import java.util.*;
 import java.util.concurrent.*;
 import org.junit.jupiter.api.*;
@@ -23,7 +24,9 @@ class CatalogLifecycleTest {
     var p=f.published(CatalogTypeEnum.PRODUCT,1);
     assertEquals(CatalogPublicationStatusEnum.PUBLISHED,p.status()); assertEquals(2,p.pins().size()); assertEquals(4,p.pins().get(0).productVersion()); assertEquals(1,p.pins().get(0).planVersion()); assertEquals(2L,p.pins().get(0).processRevision());
     assertTrue(p.endpoint().endsWith("/versions/1")); assertEquals(List.of("CREATE_DRAFT","VALIDATE","PUBLISH"),p.audit().stream().map(CatalogDtos.Audit::action).toList()); assertTrue(p.grants().isEmpty());
-    assertEquals(Set.of("product","product_process","product_definition_attribute","api_publication"),f.db.collections.keySet());
+    // Plans are now full Product-shaped clones, so their own costing rows
+    // exist in the shared collection regardless of this publication's type.
+    assertEquals(Set.of("product","product_process","product_definition_attribute","product_costing_attribute","api_publication"),f.db.collections.keySet());
   }
   @Test void permissionDeniedCannotSavePublishOrGrant() {
     var draft=f.draft(CatalogTypeEnum.PRODUCT,1);
@@ -35,7 +38,10 @@ class CatalogLifecycleTest {
     assertEquals(HttpStatus.CONFLICT,assertThrows(ResponseStatusException.class,()->f.publications.save(null,draft)).getStatusCode()); assertEquals(first.id(),f.publications.detail(first.id()).id()); assertEquals(1,f.db.rows(ApiPublication.class).size());
   }
   @Test void approvedSourceRequiredAndFailedValidationIsAudited() {
-    var p=f.publications.save(null,f.draft(CatalogTypeEnum.PRODUCT,1)); f.proposition.setStatus(com.ecofood.core.enums.PropositionStatusEnum.DRAFT);
+    // No Proposition-side status left to hold a source back — simulate "not
+    // yet approved" directly on the Plans the draft selects instead.
+    f.proposition.getPlans().forEach(pl -> pl.setStatus(PlanStatusEnum.DRAFT));
+    var p=f.publications.save(null,f.draft(CatalogTypeEnum.PRODUCT,1));
     var publicationId1 = p.id();
     var revision1 = new CatalogDtos.Revision(p.revision());
     assertThrows(ResponseStatusException.class,()-> f.publications.validate(publicationId1, revision1));
@@ -51,7 +57,7 @@ class CatalogLifecycleTest {
   }
   @Test void sourceChangeBetweenValidateAndPublishRequiresRevalidation() {
     var p=f.publications.save(null,f.draft(CatalogTypeEnum.PRICE,1)); var v=f.publications.validate(p.id(),new CatalogDtos.Revision(p.revision()));
-    f.proposition.getPlans().get(0).setProductOverrides(new com.ecofood.core.dto.PlanProductOverrides("Changed",null,null));
+    f.db.rows(com.ecofood.app.product.entity.ProductDefinitionAttribute.class).values().iterator().next().put("productName","Changed");
     var publicationId3 = v.id();
     var revision2 = new CatalogDtos.Revision(v.revision());
     assertThrows(ResponseStatusException.class,()-> f.publications.publish(publicationId3, revision2)); assertEquals(CatalogPublicationStatusEnum.VALIDATED,f.publications.detail(v.id()).status());

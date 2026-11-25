@@ -2,8 +2,10 @@ package com.ecofood.app.transaction.service;
 
 import com.ecofood.app.config.ForbiddenException;
 import com.ecofood.app.orchestrator.security.PlanSaleAccess;
-import com.ecofood.app.proposition.entity.PropositionEntity;
+import com.ecofood.app.proposition.entity.Plan;
 import com.ecofood.app.transaction.entity.InvoiceSnapshot;
+import com.ecofood.core.client.CoreProductProcessClient;
+import com.ecofood.core.client.CoreProductQueryClient;
 import com.ecofood.core.dto.PreparedSaleTransaction;
 import com.ecofood.core.dto.ProductCostingAttributeResponse;
 import com.ecofood.core.dto.ProductProcessResponse;
@@ -14,12 +16,22 @@ import java.util.List;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
+/**
+ * Prices invoices from the Plan's own costing now — a Plan is a full,
+ * independently-priced clone of the source product, not a thin override, so
+ * its costing is read live via CoreProductProcessClient (keyed by the
+ * Plan's own id) rather than from a cached sourceProcess snapshot on the
+ * Proposition, which no longer carries pricing at all.
+ */
 @Component
 @RequiredArgsConstructor
 public class InvoiceSnapshotFactory {
   private static final ZoneId ACCOUNTING_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
   private final PlanSaleAccess access;
+  private final CoreProductProcessClient productProcesses;
+  private final CoreProductQueryClient products;
 
   public InvoiceSnapshot capture(String tenant, PreparedSaleTransaction prepared, Instant receivedAt) {
     var binding = prepared.binding();
@@ -29,24 +41,33 @@ public class InvoiceSnapshotFactory {
     var scope = access.require(tenant, binding.propositionId(), binding.planId());
     var proposition = scope.proposition();
     var plan = scope.plan();
-    var source = proposition.getSourceProcess();
-    boolean sourceMatches = sourceMatches(proposition, source);
     var missing = new ArrayList<String>();
     missing.add("NET_REVENUE_UNVERIFIED");
-    var cost = costing(source, sourceMatches, missing);
+    var source = planProcess(plan, missing);
+    var cost = costing(source, missing);
     validateCosting(source, cost, prepared.transaction().currency(), missing);
     var definition = proposition.getDefinition();
     if (definition.enterpriseProfitShare() == null || definition.platformProfitShare() == null
         || definition.distributionProfitShare() == null) missing.add("PROFIT_SHARE_MISSING");
-    var market = plan.getMarketConfiguration();
     var accountingDate = receivedAt.atZone(ACCOUNTING_ZONE);
+    var productId = proposition.getProductId() == null ? null : proposition.getProductId().toHexString();
+    // The Plan's own bound Product version — the Proposition no longer pins
+    // one — resolved live rather than cached, same reasoning as CatalogData.
+    var sourceProcessId = productId == null || plan.getProductVersion() == null
+        ? null
+        : products.processes(productId).stream()
+            .filter(x -> x.version() == plan.getProductVersion())
+            .findFirst()
+            .map(com.ecofood.core.dto.ProductProcessResponse::id)
+            .orElse(null);
     return new InvoiceSnapshot(
         1, proposition.getIdAsString(), proposition.getRevision(), tenant,
         binding.distributionPartnerId(), plan.getIdAsString(), plan.getVersion(),
         prepared.orchestratorId(), prepared.orchestratorVersion(),
-        proposition.getProductId() == null ? null : proposition.getProductId().toHexString(),
-        proposition.getProductProcessId() == null ? null : proposition.getProductProcessId().toHexString(),
-        proposition.getProductVersion(), sourceMatches ? source.revision() : null,
+        productId,
+        sourceProcessId,
+        plan.getProductVersion() == null ? 0 : plan.getProductVersion(),
+        source == null ? null : source.revision(),
         cost == null ? null : new InvoiceSnapshot.Costing(
             cost.id(), cost.productProcessId(), cost.processRevision(), cost.currency(),
             cost.ingredientCost(), cost.packagingCost(), cost.laborCost(), cost.operationCost(),
@@ -54,42 +75,32 @@ public class InvoiceSnapshotFactory {
             cost.basePrice(), cost.sellingPrice()),
         new InvoiceSnapshot.ProfitShare(definition.enterpriseProfitShare(),
             definition.platformProfitShare(), definition.distributionProfitShare()),
-        market == null ? null : new InvoiceSnapshot.Market(market.currency(), market.salePrice(),
-            market.taxRate(), market.surcharge(), market.taxAmount(), market.totalPrice()),
+        // Plan no longer has a separate market-configuration layer — its costing
+        // above (sellingPrice/tax) is the one pricing source now.
+        null,
         prepared.transaction().currency(), receivedAt, ACCOUNTING_ZONE.getId(),
         accountingDate.getMonthValue(), accountingDate.getYear(), "MISSING_DATA", missing,
         null, null, null);
   }
 
-  private boolean sourceMatches(PropositionEntity proposition, ProductProcessResponse source) {
-    return source != null
-        && proposition.getProductProcessId() != null
-        && Objects.equals(proposition.getProductProcessId().toHexString(), source.id())
-        && proposition.getProductId() != null
-        && Objects.equals(proposition.getProductId().toHexString(), source.productId())
-        && proposition.getProductVersion() == source.version();
+  private ProductProcessResponse planProcess(Plan plan, List<String> missing) {
+    try {
+      return productProcesses.get(plan.getIdAsString());
+    } catch (ResponseStatusException ex) {
+      missing.add("PRODUCT_PROCESS_MISSING");
+      return null;
+    }
   }
 
-  private ProductCostingAttributeResponse costing(ProductProcessResponse source,
-      boolean sourceMatches, List<String> missing) {
-    ProductCostingAttributeResponse cost = null;
-    if (source == null) {
-      missing.add("PRODUCT_PROCESS_MISSING");
-    } else if (!sourceMatches) {
-      missing.add("PRODUCT_PROCESS_REFERENCE_MISMATCH");
-    } else if (source.costing() != null
-        && source.costing().processElementAttribute() != null
-        && source.costing().processElementAttribute().size() == 1) {
-      var candidate = source.costing().processElementAttribute().get(0);
-      if (candidate != null
-          && Objects.equals(candidate.productProcessId(), source.id())
-          && Objects.equals(candidate.processRevision(), source.revision())) {
-        cost = candidate;
-      } else {
-        missing.add("COSTING_REFERENCE_MISMATCH");
-      }
+  private ProductCostingAttributeResponse costing(ProductProcessResponse source, List<String> missing) {
+    if (source == null) return null;
+    if (source.costing() == null
+        || source.costing().processElementAttribute() == null
+        || source.costing().processElementAttribute().size() != 1) {
+      missing.add("COSTING_MISSING");
+      return null;
     }
-    return cost;
+    return source.costing().processElementAttribute().get(0);
   }
 
   private void validateCosting(ProductProcessResponse source,

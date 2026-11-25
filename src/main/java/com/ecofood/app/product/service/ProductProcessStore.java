@@ -33,21 +33,25 @@ public class ProductProcessStore {
     if(p.getId()==null)p.setId(new ObjectId());
     snapshots.prepare(p);
     ProductDefinitionAttribute d=p.getDefinitionAttribute();
+    // Costing is optional now — a real Product no longer supplies one (only a
+    // Plan's own cloned process does), so no row is written for it at all.
     ProductCostingAttribute c=p.getCostingAttribute();
     ProductOverviewAttribute o=p.getOverviewAttribute();
     long nextRevision=p.getRevision()==null?0:p.getRevision()+1;
-    for(ProductElementAttribute attribute:List.of(d,c,o)) {
+    for(ProductElementAttribute attribute:c==null?List.of(d,o):List.of(d,c,o)) {
       attribute.setId(new ObjectId());attribute.setProductProcessId(p.getId());attribute.setProcessRevision(nextRevision);
     }
     ProductDefinition oldDefinition=p.getDefinition();ProductCosting oldCosting=p.getCostingProcess();ProductOverview oldOverview=p.getOverview();
     p.setDefinition(new ProductDefinition(oldDefinition==null?new ObjectId().toHexString():oldDefinition.id(),"Definition",List.of(d.getId())));
-    p.setCostingProcess(new ProductCosting(oldCosting==null?new ObjectId().toHexString():oldCosting.id(),"Costing",List.of(c.getId())));
+    p.setCostingProcess(c==null?null:new ProductCosting(oldCosting==null?new ObjectId().toHexString():oldCosting.id(),"Costing",List.of(c.getId())));
     p.setOverview(new ProductOverview(oldOverview==null?new ObjectId().toHexString():oldOverview.id(),"Overview",List.of(o.getId())));
     List<ProductElementAttribute> inserted=new ArrayList<>();
     Long previousRevision=p.getRevision();
     boolean publishing=false;
     try {
-      definitions.insert(d);inserted.add(d);costings.insert(c);inserted.add(c);overviews.insert(o);inserted.add(o);
+      definitions.insert(d);inserted.add(d);
+      if(c!=null){costings.insert(c);inserted.add(c);}
+      overviews.insert(o);inserted.add(o);
       publishing=true;
       if(p.isLegacy()) {p.setRevision(nextRevision);processes.insert(p);p.setLegacy(false);}
       else processes.save(p);
@@ -75,11 +79,15 @@ public class ProductProcessStore {
     if(p.getOverview()!=null)p.getOverview().processElementAttribute().forEach(overviews::deleteById);
   }
   private ProductProcessEntity hydrate(ProductProcessEntity p) {
-    if(p.getDefinition()==null||p.getCostingProcess()==null||p.getOverview()==null)throw missing();
+    if(p.getDefinition()==null||p.getOverview()==null)throw missing();
     ProductDefinitionAttribute d=definitions.findById(first(p.getDefinition().processElementAttribute())).orElseThrow(this::missing);
-    ProductCostingAttribute c=costings.findById(first(p.getCostingProcess().processElementAttribute())).orElseThrow(this::missing);
+    // Costing is optional — only present at all when this revision was saved
+    // with real costing/pricing data (always true for a Plan, never true for
+    // a real Product since this refactor).
+    ProductCostingAttribute c=p.getCostingProcess()==null?null
+        :costings.findById(first(p.getCostingProcess().processElementAttribute())).orElseThrow(this::missing);
     ProductOverviewAttribute o=overviews.findById(first(p.getOverview().processElementAttribute())).orElseThrow(this::missing);
-    for(ProductElementAttribute a:List.of(d,c,o))if(!p.getId().equals(a.getProductProcessId())||!Objects.equals(p.getRevision(),a.getProcessRevision()))throw missing();
+    for(ProductElementAttribute a:c==null?List.of(d,o):List.of(d,c,o))if(!p.getId().equals(a.getProductProcessId())||!Objects.equals(p.getRevision(),a.getProcessRevision()))throw missing();
     snapshots.project(p,d,c,o);return p;
   }
   private ObjectId first(List<ObjectId> ids) {if(ids==null||ids.size()!=1)throw missing();return ids.get(0);}

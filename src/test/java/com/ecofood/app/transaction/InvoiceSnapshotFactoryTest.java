@@ -9,9 +9,10 @@ import com.ecofood.app.orchestrator.security.PlanSaleAccess;
 import com.ecofood.app.proposition.entity.Plan;
 import com.ecofood.app.proposition.entity.PropositionEntity;
 import com.ecofood.app.transaction.service.InvoiceSnapshotFactory;
+import com.ecofood.core.client.CoreProductProcessClient;
+import com.ecofood.core.client.CoreProductQueryClient;
 import com.ecofood.core.dto.*;
 import com.ecofood.core.dto.InvoiceItemDto;
-import com.ecofood.core.dto.MarketConfigurationResponse;
 import com.ecofood.core.dto.PreparedSaleTransaction;
 import com.ecofood.core.dto.ProductCostingAttributeResponse;
 import com.ecofood.core.dto.ProductProcessElementResponse;
@@ -26,6 +27,8 @@ import java.util.*;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 class InvoiceSnapshotFactoryTest {
   private static final String TENANT = "111111111111111111111111";
@@ -34,7 +37,9 @@ class InvoiceSnapshotFactoryTest {
   private static final String PRODUCT = "444444444444444444444444";
   private static final String PROCESS = "555555555555555555555555";
   private final PlanSaleAccess access = mock(PlanSaleAccess.class);
-  private final InvoiceSnapshotFactory factory = new InvoiceSnapshotFactory(access);
+  private final CoreProductProcessClient productProcesses = mock(CoreProductProcessClient.class);
+  private final CoreProductQueryClient products = mock(CoreProductQueryClient.class);
+  private final InvoiceSnapshotFactory factory = new InvoiceSnapshotFactory(access, productProcesses, products);
   private PropositionEntity proposition;
   private PreparedSaleTransaction prepared;
 
@@ -44,15 +49,13 @@ class InvoiceSnapshotFactoryTest {
     proposition.setId(new ObjectId(PROP));
     proposition.setRevision(8L);
     proposition.setProductId(new ObjectId(PRODUCT));
-    proposition.setProductProcessId(new ObjectId(PROCESS));
-    proposition.setProductVersion(2);
-    proposition.setSourceProcess(process("VND"));
     proposition.setDefinition(definition("10"));
     var plan = new Plan();
     plan.setId(new ObjectId(PLAN));
     plan.setVersion(3);
-    plan.setMarketConfiguration(new MarketConfigurationResponse("VND", bd("100"), bd("10"),
-        bd("5"), bd("10"), bd("115")));
+    plan.setProductVersion(2);
+    when(productProcesses.get(PLAN)).thenReturn(process("VND"));
+    when(products.processes(PRODUCT)).thenReturn(List.of(process("VND")));
     when(access.require(TENANT, PROP, PLAN))
         .thenReturn(new PlanSaleAccess.Scope(TENANT, null, proposition, plan));
     prepared = new PreparedSaleTransaction("orch", 4,
@@ -100,7 +103,9 @@ class InvoiceSnapshotFactoryTest {
     assertEquals(bd("3"), snapshot.costing().operationCost());
     assertEquals(bd("2"), snapshot.costing().marketingFee());
     assertEquals(bd("10"), snapshot.profitShare().platformProfitShare());
-    assertEquals(bd("115"), snapshot.market().totalPrice());
+    // Plan no longer carries a separate market-configuration layer — its
+    // costing (asserted above) is the one pricing source now.
+    assertNull(snapshot.market());
     assertEquals("Asia/Ho_Chi_Minh", snapshot.accountingTimezone());
     assertEquals(1, snapshot.accountingMonth());
     assertEquals(2027, snapshot.accountingYear());
@@ -112,7 +117,6 @@ class InvoiceSnapshotFactoryTest {
     assertNull(snapshot.profit());
     // Replacing the source after capture cannot change an immutable snapshot.
     proposition.setDefinition(definition("25"));
-    proposition.setSourceProcess(null);
     assertEquals(bd("10"), snapshot.profitShare().platformProfitShare());
     assertEquals(bd("40"), snapshot.costing().ingredientCost());
     var missingData = snapshot.missingData();
@@ -121,21 +125,16 @@ class InvoiceSnapshotFactoryTest {
 
   @Test
   void recordsMissingOrMismatchedCostWithoutSubstitutingZeroOrDoingCurrencyConversion() {
-    proposition.setSourceProcess(null);
+    when(productProcesses.get(PLAN)).thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "missing"));
     var missing = factory.capture(TENANT, prepared, Instant.now());
     assertNull(missing.costing());
-    assertTrue(missing.missingData().contains("COSTING_MISSING"));
-    proposition.setSourceProcess(process("USD"));
+    assertTrue(missing.missingData().contains("PRODUCT_PROCESS_MISSING"));
+    doReturn(process("USD")).when(productProcesses).get(PLAN);
     var mismatch = factory.capture(TENANT, prepared, Instant.now());
     assertEquals("USD", mismatch.costing().currency());
     assertEquals("VND", mismatch.currency());
     assertTrue(mismatch.missingData().contains("COSTING_CURRENCY_MISMATCH"));
     assertNull(mismatch.profit());
-    proposition.setProductProcessId(new ObjectId());
-    var wrongProcess = factory.capture(TENANT, prepared, Instant.now());
-    assertNull(wrongProcess.costing());
-    assertNull(wrongProcess.productProcessRevision());
-    assertTrue(wrongProcess.missingData().contains("PRODUCT_PROCESS_REFERENCE_MISMATCH"));
   }
 
   @Test

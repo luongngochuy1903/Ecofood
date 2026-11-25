@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.ecofood.core.client.CoreTenantQueryClient;
+import com.ecofood.core.dto.PropositionTenantReference;
 import com.ecofood.core.dto.TenantResponse;
 import com.ecofood.core.security.AuthenticationContext;
 import com.ecofood.core.service.ACLService;
@@ -74,5 +75,40 @@ class ProductAuthorizationTest {
   @Test void foreignProductIsHidden() {
     assertThatThrownBy(() -> authorization.requireOwned(new ObjectId(), new ObjectId()))
         .isInstanceOf(ResponseStatusException.class).hasMessageContaining("404");
+  }
+
+  @Test void ecoAdminGetsUnrestrictedPlatformReadWithoutAnyTenantLookup() {
+    authenticate("SYSTEM", "ECO_ADMIN");
+    var actor = authorization.currentRead();
+    assertThat(actor.platform()).isTrue();
+    assertThat(authorization.canRead(actor, new ObjectId())).isTrue();
+    verifyNoInteractions(tenants);
+  }
+
+  @Test void ecoProductManagerIsAllowedButOtherSystemRolesAreForbidden() {
+    authenticate("SYSTEM", "ECO_PRODUCT_MANAGER");
+    assertThat(authorization.currentRead().platform()).isTrue();
+    authenticate("SYSTEM", "ECO_DASHBOARD_MANAGER");
+    assertThatThrownBy(authorization::currentRead).isInstanceOf(ResponseStatusException.class).hasMessageContaining("403");
+  }
+
+  @Test void tenantProductManagerIsScopedAndOtherTenantRoleStringsAreRejected() {
+    authenticate("TENANT", "TENANT_ADMIN");
+    assertThatThrownBy(authorization::currentRead).isInstanceOf(ResponseStatusException.class).hasMessageContaining("403");
+    authenticate("TENANT", "TENANT_PRODUCT_MANAGER");
+    when(tenants.propositionReference(tenant.toHexString())).thenReturn(
+        new PropositionTenantReference(tenant.toHexString(), "Sub-Tenant", null, null, null,
+            List.of(), List.of(), false));
+    assertThat(authorization.currentRead().enterpriseScope()).containsExactly(tenant.toHexString());
+  }
+
+  @Test void enterpriseActorCurrentReadIsScopedToItsOwnEnterpriseOnly() {
+    authenticate("ENTERPRISE", "ENTERPRISE_PRODUCT_MANAGER");
+    var owner = new ObjectId();
+    when(tenants.getById(tenant.toHexString())).thenReturn(TenantResponse.builder().enterpriseId(owner.toHexString()).build());
+    var actor = authorization.currentRead();
+    assertThat(actor.platform()).isFalse();
+    assertThat(authorization.canRead(actor, owner)).isTrue();
+    assertThat(authorization.canRead(actor, new ObjectId())).isFalse();
   }
 }

@@ -60,22 +60,20 @@ public class PropositionController {
         return service.update(id, r);
     }
 
-    @PostMapping("/{id}/submit")
-    public PropositionResponse submit(
-            @PathVariable String id, @Valid @RequestBody RevisionRequest r) {
-        return service.submit(id, r);
-    }
-
-    @PostMapping("/{id}/approve")
-    public PropositionResponse approve(
-            @PathVariable String id, @Valid @RequestBody RevisionRequest r) {
-        return service.approve(id, r);
-    }
-
     @PostMapping("/{id}/plans")
     public ResponseEntity<PropositionResponse> addPlan(
             @PathVariable String id, @Valid @RequestBody PlanRequest r) {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.addPlan(id, r));
+    }
+
+    @GetMapping("/{id}/plans/directory")
+    public PageResponse<PlanResponse> planDirectory(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "name,asc") String sort,
+            @RequestParam(required = false) String search) {
+        return query.planDirectory(id, page, size, sort, search);
     }
 
     @GetMapping("/{id}/plans/{planId}")
@@ -105,6 +103,14 @@ public class PropositionController {
             @PathVariable String planId,
             @Valid @RequestBody RevisionRequest r) {
         return service.approvePlan(id, planId, r);
+    }
+
+    @PostMapping("/{id}/plans/{planId}/reject")
+    public PropositionResponse reject(
+            @PathVariable String id,
+            @PathVariable String planId,
+            @Valid @RequestBody PlanDecisionRequest r) {
+        return service.rejectPlan(id, planId, r);
     }
 
     @PostMapping("/{id}/plans/{planId}/submit")

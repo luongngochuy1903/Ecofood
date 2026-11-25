@@ -28,7 +28,7 @@ class CatalogExternalTest {
   }
   @Test void priceIsReadFromApprovedMarketConfigurationWithoutFinancialRecalculation() {
     var p=f.published(CatalogTypeEnum.PRICE,1); var key=f.credential(p.id(),B); var result=f.external.read(f.external.authenticate(key.credential()),p.id(),1,null,null,0,20);
-    assertEquals(new java.math.BigDecimal("12.10"),result.content().get(0).price().totalPrice()); assertEquals("USD",result.content().get(0).price().currency());
+    assertEquals(new java.math.BigDecimal("11.00"),result.content().get(0).price().totalPrice()); assertEquals("USD",result.content().get(0).price().currency());
     assertFalse(f.db.collections.containsKey("invoice")); assertFalse(f.db.collections.containsKey("submission")); assertFalse(f.db.collections.containsKey("actual_metrics"));
   }
   @Test void revokedPartnerCannotAuthenticateOrContinueWithPreviouslyAuthenticatedPrincipal() {
@@ -90,10 +90,10 @@ class CatalogExternalTest {
   }
   @Test void publicationAndSourceExpiryOrModifiedPriceDoNotSilentlyChangeHistoricalResponse() {
     var p=f.published(CatalogTypeEnum.PRICE,1); var key=f.credential(p.id(),B); var identity=f.external.authenticate(key.credential());
-    var oldPins=f.publications.detail(p.id()).pins(); f.proposition.getPlans().get(0).setName("A later name");
-    // Plan name is not part of the public data contract; non-public metadata alone does not change the API.
+    var oldPins=f.publications.detail(p.id()).pins(); f.proposition.getPlans().get(0).setApprovedBy("a-different-approver");
+    // Plan approver metadata is not part of the public data contract; non-public metadata alone does not change the API.
     assertNotNull(f.external.read(identity,p.id(),1,null,null,0,20));
-    f.proposition.getPlans().get(0).setProductOverrides(new com.ecofood.core.dto.PlanProductOverrides("Changed publicly",null,null));
+    f.db.rows(com.ecofood.app.product.entity.ProductDefinitionAttribute.class).values().iterator().next().put("productName","Changed publicly");
     var publicationId8 = p.id();
     assertThrows(ResponseStatusException.class,()-> f.external.read(identity, publicationId8, 1, null, null, 0, 20)); assertEquals(oldPins,f.publications.detail(p.id()).pins());
     assertEquals(B,f.publications.detail(p.id()).lastDeniedPartnerId()); assertEquals("SOURCE_NOT_PUBLISHABLE",f.publications.detail(p.id()).lastDeniedCode());

@@ -43,6 +43,8 @@ public class UserQueryServiceImpl implements UserQueryService {
         .id(user.getIdAsString())
         .username(user.getUsername())
         .email(user.getEmail())
+        .firstName(user.getFirstName())
+        .lastName(user.getLastName())
         .externalLoginId(user.getExternalLoginId())
         .partyRelationships(user.getPartyRelationships().stream().map(this::toRelationResponse).toList())
         .build();

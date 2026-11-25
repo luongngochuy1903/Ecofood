@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/sales/transaction-batches")
+@RequestMapping("/api/v1/sales/transactions")
 public class BatchTransactionController {
   private final BatchTransactionService service;
   @PostMapping

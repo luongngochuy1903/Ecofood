@@ -8,11 +8,14 @@ import com.ecofood.app.notification.service.SaleConfirmationHandoff;
 import com.ecofood.app.submission.entity.InvoiceBatchSubmission;
 import com.ecofood.app.transaction.entity.*;
 import com.ecofood.core.enums.TransactionStatus;
+import com.ecofood.core.service.PropositionService;
 import jakarta.validation.Validator;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.security.MessageDigest;
 import java.util.*;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.bson.types.ObjectId;
 import org.springframework.data.mongodb.core.MongoOperations;
@@ -28,20 +31,71 @@ public class BatchTransactionService {
   private final MongoMetricsTransactions transactions;
   private final BatchSalePlanResolver plans;
   private final SaleConfirmationHandoff confirmations;
+  private final PropositionService propositions;
   private final Validator validator;
 
   public Response submit(String tenant, String subject, Request request) {
-    var numbers = validateRequest(tenant, subject, request);
-    String submissionId = "sale-batch:" + hash(List.of(tenant, subject, numbers));
-    String fingerprint = hash(request.transaction().invoices().stream()
-        .sorted(Comparator.comparing(Receipt::invoiceNumber)).map(this::canonical).toList());
+    validateRequest(tenant, subject, request);
+    // No caller-supplied invoice id exists to key a retry off of, so identity
+    // IS content: the same tenant+subject submitting the exact same batch
+    // (same Receipts, same order) is the one case treated as an idempotent
+    // replay rather than a brand-new submission — see fingerprint below.
+    String fingerprint = hash(request.transaction().invoices().stream().map(this::canonical).toList());
+    String submissionId = "sale-batch:" + hash(List.of(tenant, subject, fingerprint));
+    // Populated only by a FRESH batch (persistBatch returns early, before
+    // touching it, on an idempotent replay) — so recordActualMetrics below
+    // naturally never double-counts a retried submit.
+    var created = new ArrayList<Invoice>();
     var batch = transactions.execute(ops ->
-        persistBatch(ops, tenant, subject, request, submissionId, fingerprint));
+        persistBatch(ops, tenant, subject, request, submissionId, fingerprint, created));
     if (!batch.invoiceIds().isEmpty()) confirmations.deliver(batch);
-    return responseInRequestOrder(request, batch);
+    recordActualMetrics(created);
+    return new Response(new Result(batch.results()));
   }
 
-  private SortedSet<String> validateRequest(String tenant, String subject, Request request) {
+  /**
+   * Accumulates each accepted Invoice's own sale amount into its
+   * Proposition's actualMetrics (see PropositionService.recordActualSale)
+   * — a denormalized reporting figure, not the source of truth (the
+   * Invoice itself, already committed, is), so a failure here is logged
+   * and swallowed rather than failing the submit-transaction response.
+   */
+  private void recordActualMetrics(List<Invoice> invoices) {
+    for (var invoice : invoices) {
+      if (invoice.getPlanLines() == null) continue;
+      for (var line : invoice.getPlanLines()) {
+        try {
+          recordLineMetrics(invoice, line);
+        } catch (RuntimeException ignored) {
+          // Best-effort; see method doc.
+        }
+      }
+    }
+  }
+
+  private void recordLineMetrics(Invoice invoice, InvoicePlanLine line) {
+    var snapshot = line.snapshot();
+    String propositionId = snapshot == null ? null : snapshot.propositionId();
+    if (propositionId == null) return;
+    var costing = snapshot.costing();
+    var profitShare = snapshot.profitShare();
+    BigDecimal quantity = BigDecimal.valueOf(line.quantity());
+    BigDecimal ingredientCost = costing == null || costing.ingredientCost() == null
+        ? BigDecimal.ZERO : costing.ingredientCost().multiply(quantity);
+    BigDecimal totalCost = costing == null ? BigDecimal.ZERO : Stream.of(
+            costing.ingredientCost(), costing.packagingCost(), costing.laborCost(),
+            costing.operationCost(), costing.marketingFee())
+        .filter(Objects::nonNull).map(c -> c.multiply(quantity)).reduce(BigDecimal.ZERO, BigDecimal::add);
+    BigDecimal platformRate = profitShare == null || profitShare.platformProfitShare() == null
+        ? BigDecimal.ZERO : profitShare.platformProfitShare();
+    BigDecimal platformCost = line.amount().multiply(platformRate)
+        .divide(new BigDecimal("100"), 8, RoundingMode.HALF_UP);
+    BigDecimal profit = line.amount().subtract(totalCost).subtract(platformCost);
+    propositions.recordActualSale(
+        propositionId, invoice.getReceivedAt(), line.amount(), ingredientCost, platformCost, profit);
+  }
+
+  private void validateRequest(String tenant, String subject, Request request) {
     if (tenant == null || tenant.isBlank() || subject == null || subject.isBlank()) {
       throw new ForbiddenException("Verified Tenant and caller required");
     }
@@ -51,17 +105,15 @@ public class BatchTransactionService {
     if (request.transaction().invoices().stream().mapToInt(r -> r.items().size()).sum() > 1000) {
       throw new BadRequestException("Batch exceeds 1000 Plan lines");
     }
-    var numbers = new TreeSet<String>();
-    for (var receipt : request.transaction().invoices()) {
-      if (!numbers.add(receipt.invoiceNumber())) {
-        throw new BadRequestException("Duplicate invoiceNumber in batch");
-      }
-    }
-    return numbers;
   }
 
   private InvoiceBatchSubmission persistBatch(MongoOperations ops, String tenant, String subject,
-      Request request, String submissionId, String fingerprint) {
+      Request request, String submissionId, String fingerprint, List<Invoice> created) {
+    // The underlying Mongo transaction can retry this whole lambda body
+    // (TransientTransactionError, or a duplicate-key race) — reset `created`
+    // on every attempt so a retry can never leave it holding more than one
+    // attempt's worth of Invoices.
+    created.clear();
     var query = Query.query(Criteria.where("_id").is(submissionId).and(TENANT_ID).is(tenant));
     var previous = ops.findOne(query, InvoiceBatchSubmission.class);
     if (previous != null) {
@@ -84,6 +136,7 @@ public class BatchTransactionService {
       ops.insert(invoice);
     }
     ops.insert(event);
+    created.addAll(invoices);
     return event;
   }
 
@@ -91,17 +144,10 @@ public class BatchTransactionService {
 
   private PreparedReceipt prepareReceipt(MongoOperations ops, String tenant, String subject,
       Receipt receipt, String submissionId, Instant now) {
-    var existing = ops.findOne(Query.query(Criteria.where(TENANT_ID).is(tenant)
-        .and("posId").is(subject).and("invoiceNumber").is(receipt.invoiceNumber())), Invoice.class);
-    if (existing != null) {
-      return rejected(receipt, "INVOICE_ALREADY_SUBMITTED",
-          "Invoice belongs to an earlier Submit; do not include it in a new batch");
-    }
     try {
       var invoice = prepare(tenant, subject, receipt, now);
       invoice.setSubmissionId(submissionId);
-      return new PreparedReceipt(invoice,
-          new ReceiptResult(receipt.invoiceNumber(), receipt.items(), "ACCEPTED", null));
+      return new PreparedReceipt(invoice, new ReceiptResult(receipt.items(), "ACCEPTED", null));
     } catch (BadRequestException invalid) {
       return rejected(receipt, "INVALID_INVOICE", invalid.getMessage());
     } catch (ForbiddenException denied) {
@@ -115,16 +161,7 @@ public class BatchTransactionService {
 
   private PreparedReceipt rejected(Receipt receipt, String code, String message) {
     var error = new com.ecofood.app.transaction.dto.BatchTransactionDtos.Error(code, message);
-    return new PreparedReceipt(null,
-        new ReceiptResult(receipt.invoiceNumber(), receipt.items(), "REJECTED", error));
-  }
-
-  private Response responseInRequestOrder(Request request, InvoiceBatchSubmission batch) {
-    var byNumber = new HashMap<String, ReceiptResult>();
-    batch.results().forEach(r -> byNumber.put(r.invoiceNumber(), r));
-    var results = request.transaction().invoices().stream()
-        .map(r -> byNumber.get(r.invoiceNumber())).toList();
-    return new Response(new Result(results));
+    return new PreparedReceipt(null, new ReceiptResult(receipt.items(), "REJECTED", error));
   }
 
   private Invoice prepare(String tenant, String subject, Receipt receipt, Instant now) {
@@ -135,7 +172,12 @@ public class BatchTransactionService {
     invoice.setSubmittedBy(subject);
     invoice.setPosId(subject);
     invoice.setDistributionPartnerId(tenant);
-    invoice.setInvoiceNumber(receipt.invoiceNumber());
+    // No caller-supplied invoice id exists here — the Sale Orchestrator
+    // never defines one. The Invoice's own generated id doubles as its
+    // invoiceNumber so the pre-existing (tenantId, posId, invoiceNumber)
+    // unique index and every other consumer of Invoice.invoiceNumber
+    // (customer receipts, complaints, notifications) keep working unchanged.
+    invoice.setInvoiceNumber(invoice.getId());
     invoice.setCurrency(lines.get(0).snapshot().currency());
     invoice.setReceivedAt(now);
     invoice.setTransactionTimeSource("NOT_SUPPLIED");
@@ -146,20 +188,22 @@ public class BatchTransactionService {
     invoice.setPlanLines(List.copyOf(lines));
     invoice.setSourcePayloadFingerprint(hash(canonical(receipt)));
     invoice.setItems(List.of());
+    // The Receipt's invoiceHolder values (whichever keys the owning Sale
+    // Orchestrator(s) configured) were only validated for required-field
+    // presence so far — orchestratorPayload is the internal, POS-only slot
+    // that already hides from the Customer-facing receipt view, so it's
+    // where they're actually kept rather than discarded after validation.
+    invoice.setOrchestratorPayload(receipt.invoiceHolder());
     invoice.setPostWorkflowResults(Map.of());
     return invoice;
   }
 
   private List<InvoicePlanLine> resolveLines(String tenant, String subject, Receipt receipt, Instant now) {
     var lines = new ArrayList<InvoicePlanLine>();
-    var ids = new HashSet<String>();
     String currency = null;
-    for (var item : receipt.items()) {
-      if (!ids.add(item.lineId())) throw new BadRequestException("Duplicate lineId in Invoice");
-      if (item.unitPrice().multiply(item.quantity()).compareTo(item.amount()) != 0) {
-        throw new BadRequestException("Item amount must equal quantity * unitPrice");
-      }
-      var line = plans.resolve(tenant, subject, receipt.invoiceNumber(), item, now);
+    var items = receipt.items();
+    for (int index = 0; index < items.size(); index++) {
+      var line = plans.resolve(tenant, subject, index, items.get(index), now);
       String lineCurrency = line.snapshot().currency();
       if (currency != null && !currency.equals(lineCurrency)) {
         throw new BadRequestException("Invoice cannot mix currencies");
@@ -167,19 +211,26 @@ public class BatchTransactionService {
       currency = lineCurrency;
       lines.add(line);
     }
+    // invoiceHolder is carried once per Receipt, not per item — validated
+    // once per distinct Orchestrator the Receipt's own items resolved to.
+    lines.stream().map(InvoicePlanLine::orchestratorId).distinct()
+        .forEach(orchestratorId -> plans.requireInvoiceHolder(orchestratorId, receipt.invoiceHolder()));
     return lines;
   }
 
   private Receipt canonical(Receipt receipt) {
-    return new Receipt(receipt.invoiceNumber(), receipt.items().stream()
-        .sorted(Comparator.comparing(Item::lineId))
-        .map(i -> new Item(i.lineId(), i.orchestratorId(), i.planId(), i.quantity(),
-            i.unitPrice().stripTrailingZeros(), i.amount().stripTrailingZeros())).toList());
+    return new Receipt(
+        receipt.invoiceHolder() == null ? null : new TreeMap<>(receipt.invoiceHolder()),
+        receipt.items().stream()
+            .sorted(Comparator.comparing(Item::planId))
+            .map(i -> new Item(i.planId(), i.quantity(),
+                i.actualPrice() == null ? null : i.actualPrice().stripTrailingZeros(),
+                i.additionalInfo() == null ? null : new TreeMap<>(i.additionalInfo()))).toList());
   }
 
   private ResponseStatusException conflict() {
     return new ResponseStatusException(HttpStatus.CONFLICT,
-        "Batch invoice numbers already used with different content");
+        "Batch id already used with different content");
   }
 
   private String hash(Object value) {

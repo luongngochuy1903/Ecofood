@@ -28,6 +28,7 @@ import com.ecofood.core.service.ACLService;
 import com.ecofood.core.service.SequenceGeneratorService;
 import com.ecofood.core.service.TenantService;
 import com.ecofood.core.util.FormatCode;
+import com.ecofood.app.auth.service.KeycloakTokenVerifier;
 import com.ecofood.app.config.BadRequestException;
 import com.ecofood.app.config.ForbiddenException;
 import com.ecofood.app.enterprise.entity.Communication;
@@ -85,6 +86,7 @@ public class TenantServiceImpl implements TenantService {
   private final CoreUserRoleAssignmentClient userRoleAssignmentClient;
   private final CoreEnterpriseClient enterpriseClient;
   private final ACLService aclService;
+  private final KeycloakTokenVerifier keycloakTokenVerifier;
 
   @Value("${app.tenant.login-theme}")
   private String loginTheme;
@@ -248,6 +250,12 @@ public class TenantServiceImpl implements TenantService {
     userRoleAssignmentClient.assignRoleForOnboarding(
         new ObjectId(user.getUserId()), tenant.getId(), request.getPartnerTypeCode());
 
+    // Forces the new realm's JWKS to be fetched now, during onboarding's own
+    // already-slow request, instead of leaving the first post-onboarding
+    // /auth/exchange call to pay that cold-fetch network round-trip itself
+    // (see KeycloakTokenVerifier.warmUp javadoc). Best-effort — never throws.
+    keycloakTokenVerifier.warmUp(realmName);
+
     return TenantOnboardResponse.builder()
         .tenantId(tenantId)
         .tenantName(tenant.getTenantName())
@@ -286,6 +294,7 @@ public class TenantServiceImpl implements TenantService {
     }
 
     tenant.setTenantName(request.getTenantName());
+    tenant.setLogoUrl(request.getLogoUrl());
     if (request.getContact() != null) {
       tenant.setContact(mapContact(request.getContact()));
     }
@@ -379,6 +388,7 @@ public class TenantServiceImpl implements TenantService {
         .clientId(tenant.getClientId())
         .enterpriseId(tenant.getEnterpriseIdAsString())
         .domainUrl(tenant.getDomainUrl())
+        .logoUrl(tenant.getLogoUrl())
         .tenantType(tenant.getTenantType())
         .partnerTypeCode(
             tenant.getPartnerType() != null ? PartnerTypeEnum.valueOf(tenant.getPartnerType().getPartnerTypeCode()) : null)

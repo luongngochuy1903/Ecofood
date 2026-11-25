@@ -36,7 +36,7 @@ class ProductVersionReviewServiceTest {
     verify(mongo).updateMulti(query.capture(), update.capture(), eq(PropositionEntity.class));
     var filter = query.getValue().getQueryObject();
     assertEquals(product.getId(), filter.get("productId")); assertEquals(product.getEnterpriseId(), filter.get("enterpriseId")); assertEquals(1, filter.get("productVersion"));
-    assertEquals(PropositionStatusEnum.PENDING_REVIEW, update.getValue().getUpdateObject().get("$set", org.bson.Document.class).get("status"));
+    assertEquals(ProductStatusEnum.PENDING_REVIEW, update.getValue().getUpdateObject().get("$set", org.bson.Document.class).get("sourceProcess.status"));
     assertTrue(update.getValue().getUpdateObject().containsKey("$push")); assertTrue(update.getValue().getUpdateObject().containsKey("$inc"));
     verify(mongo).updateFirst(any(Query.class), any(Update.class), eq(ProductEntity.class));
   }
@@ -67,7 +67,6 @@ class ProductVersionReviewServiceTest {
     document.put("changes", List.of(mapped.get("$push", Document.class).get("changes")));
     var restored = converter.read(PropositionEntity.class, document);
     assertNull(restored.getUpdatedBy());
-    assertEquals(PropositionStatusEnum.PENDING_REVIEW, restored.getStatus());
     assertEquals("PRODUCT_VERSION_REVIEW", restored.getChanges().get(0).actorId());
   }
 

@@ -1,64 +1,50 @@
 package com.ecofood.app.orchestrator.controller;
 
-import com.ecofood.core.dto.PlanSaleOrchestratorDtos;
-import com.ecofood.core.dto.PlanSaleOrchestratorView;
+import com.ecofood.core.dto.PageResponse;
+import com.ecofood.core.dto.PlanSaleOrchestratorDirectoryResponse;
+import com.ecofood.core.dto.PlanSaleOrchestratorRequest;
+import com.ecofood.core.dto.PlanSaleOrchestratorResponse;
 import com.ecofood.core.service.PlanSaleOrchestratorService;
-import java.util.List;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 
+/**
+ * No longer nested under a single Plan (an Orchestrator can cover many) —
+ * same base path every other directory endpoint in this platform uses (see
+ * TenantController), plus plain CRUD routes for one Orchestrator at a time.
+ */
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/propositions/{propositionId}/plans/{planId}/sale-orchestrator")
+@RequestMapping("/api/v1/propositions/{propositionId}/sale-orchestrators")
 public class PlanSaleOrchestratorController {
   private final PlanSaleOrchestratorService service;
 
-  @GetMapping
-  public ResponseEntity<? extends PlanSaleOrchestratorView> get(
-      @PathVariable String propositionId, @PathVariable String planId) {
-    return service
-        .get(propositionId, planId)
-        .map(ResponseEntity::ok)
-        .orElseGet(() -> ResponseEntity.noContent().build());
+  @GetMapping("/directory")
+  public PageResponse<PlanSaleOrchestratorDirectoryResponse> directory(
+      @PathVariable String propositionId,
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size,
+      @RequestParam(defaultValue = "name,asc") String sort,
+      @RequestParam(required = false) String search) {
+    return service.directory(propositionId, page, size, sort, search);
+  }
+
+  @GetMapping("/{id}")
+  public PlanSaleOrchestratorResponse get(@PathVariable String propositionId, @PathVariable String id) {
+    return service.get(propositionId, id);
   }
 
   @PostMapping
-  public ResponseEntity<? extends PlanSaleOrchestratorView> create(
-      @PathVariable String propositionId, @PathVariable String planId, @RequestBody PlanSaleOrchestratorDtos.Save r) {
-    return ResponseEntity.status(HttpStatus.CREATED).body(service.create(propositionId, planId, r));
+  public ResponseEntity<PlanSaleOrchestratorResponse> create(
+      @PathVariable String propositionId, @Valid @RequestBody PlanSaleOrchestratorRequest r) {
+    return ResponseEntity.status(HttpStatus.CREATED).body(service.create(propositionId, r));
   }
 
-  @PutMapping("/draft")
-  public PlanSaleOrchestratorView edit(
-      @PathVariable String propositionId, @PathVariable String planId, @RequestBody PlanSaleOrchestratorDtos.Save r) {
-    return service.edit(propositionId, planId, r);
-  }
-
-  @PostMapping("/versions")
-  public PlanSaleOrchestratorView version(
-      @PathVariable String propositionId, @PathVariable String planId, @RequestBody PlanSaleOrchestratorDtos.Revision r) {
-    return service.version(propositionId, planId, r);
-  }
-
-  @GetMapping("/versions")
-  public List<PlanSaleOrchestratorDtos.ConfigVersion> versions(
-      @PathVariable String propositionId, @PathVariable String planId) {
-    return service
-        .get(propositionId, planId)
-        .map(PlanSaleOrchestratorView::getVersions)
-        .orElse(List.of());
-  }
-
-  @PostMapping("/validate")
-  public PlanSaleOrchestratorDtos.Validation validate(
-      @PathVariable String propositionId, @PathVariable String planId, @RequestBody PlanSaleOrchestratorDtos.Revision r) {
-    return service.validate(propositionId, planId, r);
-  }
-
-  @PostMapping("/activate")
-  public PlanSaleOrchestratorView activate(
-      @PathVariable String propositionId, @PathVariable String planId, @RequestBody PlanSaleOrchestratorDtos.Revision r) {
-    return service.activate(propositionId, planId, r);
+  @PutMapping("/{id}")
+  public PlanSaleOrchestratorResponse update(
+      @PathVariable String propositionId, @PathVariable String id, @Valid @RequestBody PlanSaleOrchestratorRequest r) {
+    return service.update(propositionId, id, r);
   }
 }

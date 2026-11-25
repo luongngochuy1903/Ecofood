@@ -27,11 +27,11 @@ class ProductValidationTest {
       new ProductPricingRequest(new BigDecimal("-1"),BigDecimal.ZERO,"VND")))
       .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Negative/invalid price");
   }
-  @Test void rejectsSubmitWithoutPricing() {
-    ProductProcessEntity version=ProductProcessEntity.builder().name("Product")
+  @Test void submitNoLongerRequiresPricingOrCosting() {
+    // Pricing/costing moved to Plan entirely — a Product with neither can still submit.
+    ProductProcessEntity version=ProductProcessEntity.builder().name("Product").code("PR00001").category("Food")
       .status(ProductStatusEnum.DRAFT).ingredients(List.of()).build();
-    assertThatThrownBy(()->validator.validateSubmit(version))
-      .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Pricing is required");
+    assertThatCode(()->validator.validateSubmit(version)).doesNotThrowAnyException();
   }
   @Test void rejectsRecipeWithNoSteps() {
     assertThatThrownBy(()->validator.validateDraft("Product",List.of(),new ProductRecipeRequest(true,List.of()),null))

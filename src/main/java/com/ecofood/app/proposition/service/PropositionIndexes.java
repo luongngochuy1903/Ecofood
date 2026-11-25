@@ -17,7 +17,7 @@ public class PropositionIndexes implements InitializingBean {
     public void afterPropertiesSet() {
         var index = mongo.indexOps(PropositionEntity.class);
         index.ensureIndex(new Index().on("enterpriseId", Sort.Direction.ASC));
-        index.ensureIndex(new Index().on("productProcessId", Sort.Direction.ASC));
+        index.ensureIndex(new Index().on("sourceProcess.id", Sort.Direction.ASC));
         index.ensureIndex(new Index().on("definition.distributionPartnerIds", Sort.Direction.ASC));
         index.ensureIndex(new Index().on("definition.brandId", Sort.Direction.ASC));
         index.ensureIndex(new Index().on("plans.tenantIds", Sort.Direction.ASC));

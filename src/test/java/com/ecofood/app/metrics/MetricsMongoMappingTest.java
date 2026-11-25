@@ -12,6 +12,7 @@ import com.ecofood.app.submission.entity.Submission;
 import com.ecofood.app.transaction.entity.Invoice;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.bson.Document;
 import org.bson.types.Decimal128;
 import org.junit.jupiter.api.Test;
@@ -87,8 +88,8 @@ class MetricsMongoMappingTest {
   @Test
   void sharedBatchEnvelopeAndMultiContributionMarkerRoundTripWithoutParallelCollection() {
     var converter=converter(); var now=Instant.parse("2026-11-20T03:00:00Z");
-    var result=new com.ecofood.app.transaction.dto.BatchTransactionDtos.ReceiptResult("INV-1",
-        List.of(new com.ecofood.app.transaction.dto.BatchTransactionDtos.Item("1","orch","plan",2,bd("50"),bd("100"))),"ACCEPTED",null);
+    var result=new com.ecofood.app.transaction.dto.BatchTransactionDtos.ReceiptResult(
+        List.of(new com.ecofood.app.transaction.dto.BatchTransactionDtos.Item("plan",2,bd("50"))),"ACCEPTED",null);
     var batch=com.ecofood.app.submission.entity.InvoiceBatchSubmission.create("batch",now,"tenant",List.of("i1","i2"),"hash","seller",List.of(result));
     var bson=new Document(); converter.write(batch,bson);
     assertEquals(batch,converter.read(com.ecofood.app.submission.entity.InvoiceBatchSubmission.class,bson));
@@ -100,7 +101,7 @@ class MetricsMongoMappingTest {
     assertEquals(state,converter.read(SubmissionMetricsState.class,bson).actualMetrics());
     var invoice=invoice("i1","tenant","p1","USD",null);
     invoice.setType("PLAN_SALE_BATCH");
-    invoice.setPlanLines(List.of(new com.ecofood.app.transaction.entity.InvoicePlanLine("1","orch","plan","Plan",2,bd("50"),bd("100"),invoice.getSnapshot(),false)));
+    invoice.setPlanLines(List.of(new com.ecofood.app.transaction.entity.InvoicePlanLine("1","orch","plan","Plan",2,bd("50"),bd("100"),invoice.getSnapshot(),false,Map.of("note","gift"))));
     var row=new Document(); converter.write(invoice,row);
     var line=row.getList("planLines",Document.class).get(0);
     assertInstanceOf(Decimal128.class,line.get("unitPrice"));assertInstanceOf(Decimal128.class,line.get("amount"));

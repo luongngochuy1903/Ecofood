@@ -6,127 +6,115 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import com.ecofood.app.config.*;
 import com.ecofood.app.config.ForbiddenException;
 import com.ecofood.app.config.GlobalExceptionHandler;
 import com.ecofood.app.orchestrator.controller.PlanSaleOrchestratorController;
-import com.ecofood.app.orchestrator.entity.PlanSaleOrchestrator;
 import com.ecofood.app.orchestrator.exception.PlanSaleErrorHandler;
-import com.ecofood.app.orchestrator.service.PlanSaleOrchestratorServiceImpl;
-import com.ecofood.core.dto.PlanSaleOrchestratorDtos;
-import java.util.*;
+import com.ecofood.core.dto.PageResponse;
+import com.ecofood.core.dto.PlanSaleOrchestratorDirectoryResponse;
+import com.ecofood.core.dto.PlanSaleOrchestratorResponse;
+import com.ecofood.core.service.PlanSaleOrchestratorService;
+import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.server.ResponseStatusException;
 
 class PlanSaleOrchestratorControllerTest {
-  private final String base =
-      "/api/v1/propositions/" + PROP + "/plans/" + PLAN + "/sale-orchestrator";
-  private PlanSaleOrchestratorServiceImpl service;
+  private final String base = "/api/v1/propositions/" + PROP + "/sale-orchestrators";
+  private PlanSaleOrchestratorService service;
   private MockMvc mvc;
 
   @BeforeEach
   void setup() {
-    service = mock(PlanSaleOrchestratorServiceImpl.class);
+    service = mock(PlanSaleOrchestratorService.class);
     mvc =
         MockMvcBuilders.standaloneSetup(new PlanSaleOrchestratorController(service))
             .setControllerAdvice(new PlanSaleErrorHandler(), new GlobalExceptionHandler())
             .build();
   }
 
-  @Test
-  void returns204OnlyForAnAuthorizedPlanWithNoConfiguration() throws Exception {
-    when(service.get(PROP, PLAN)).thenReturn(Optional.empty());
-    mvc.perform(get(base)).andExpect(status().isNoContent());
-    verify(service).get(PROP, PLAN);
+  private PlanSaleOrchestratorResponse response() {
+    return new PlanSaleOrchestratorResponse(
+        "orch", 0L, PROP, "Sale A", "desc",
+        List.of(new PlanSaleOrchestratorResponse.PlanRef(PLAN, "PL00001", "Chicken Plan", null)),
+        List.of(), List.of(), List.of(),
+        Instant.now(), Instant.now(), "employee", "employee");
   }
 
   @Test
-  void existingAuthorizationAndConflictErrorsKeepTheirStatus() throws Exception {
-    when(service.get(PROP, PLAN)).thenThrow(new ForbiddenException("Tenant role required"));
-    mvc.perform(get(base)).andExpect(status().isForbidden());
-    when(service.activate(eq(PROP), eq(PLAN), any()))
-        .thenThrow(
-            new org.springframework.web.server.ResponseStatusException(
-                HttpStatus.CONFLICT, "Stale revision"));
+  void returnsOrchestratorDetail() throws Exception {
+    when(service.get(PROP, "orch")).thenReturn(response());
+    mvc.perform(get(base + "/orch"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value("orch"))
+        .andExpect(jsonPath("$.plans[0].planId").value(PLAN));
+  }
+
+  @Test
+  void propagatesForbiddenAndConflictStatusFromService() throws Exception {
+    when(service.get(PROP, "orch")).thenThrow(new ForbiddenException("Tenant role required"));
+    mvc.perform(get(base + "/orch")).andExpect(status().isForbidden());
+    when(service.update(eq(PROP), eq("orch"), any()))
+        .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Sale Orchestrator changed"));
     mvc.perform(
-            post(base + "/activate")
+            put(base + "/orch")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"expectedRevision\":0}"))
+                .content(
+                    "{\"expectedRevision\":0,\"name\":\"Sale A\",\"planIds\":[\"" + PLAN + "\"]}"))
         .andExpect(status().isConflict());
   }
 
   @Test
-  void rejectsScriptRulesAndUnsupportedTypesBeforeReachingService() throws Exception {
-    for (String field :
-        List.of(
-            "{\"name\":\"bad\",\"type\":\"STRING\",\"script\":\"execute()\"}",
-            "{\"name\":\"bad\",\"type\":\"SCRIPT\"}")) {
-      mvc.perform(
-              post(base)
-                  .contentType(MediaType.APPLICATION_JSON)
-                  .content(
-                      "{\"configuration\":{\"name\":\"Sale\",\"maxItems\":100,\"postWorkflows\":[],\"payloadSchema\":{\"fields\":["
-                          + field
-                          + "]}}}"))
-          .andExpect(status().isBadRequest());
-    }
+  void rejectsRequestWithNoPlansOrBlankName() throws Exception {
+    mvc.perform(
+            post(base)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Sale A\",\"planIds\":[]}"))
+        .andExpect(status().isBadRequest());
+    mvc.perform(
+            post(base)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"\",\"planIds\":[\"" + PLAN + "\"]}"))
+        .andExpect(status().isBadRequest());
     verifyNoInteractions(service);
   }
 
   @Test
-  void acceptsNestedSchemaAndDoesNotAcceptPlanIdentityFromRequestBody() throws Exception {
-    when(service.create(eq(PROP), eq(PLAN), any())).thenReturn(new PlanSaleOrchestrator());
+  void createsOrchestratorAndReturns201() throws Exception {
+    when(service.create(eq(PROP), any())).thenReturn(response());
     mvc.perform(
             post(base)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
-                    """
-{"tenantId":"attacker","planId":"other","configuration":{"name":"Sale","maxItems":100,"postWorkflows":[],
-  "payloadSchema":{"fields":[{"name":"items","type":"ARRAY","required":true,"items":{"type":"OBJECT","fields":[]}}]}}}
-"""))
-        .andExpect(status().isCreated());
+                    "{\"name\":\"Sale A\",\"description\":\"desc\",\"planIds\":[\""
+                        + PLAN
+                        + "\"]}"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.name").value("Sale A"));
     verify(service)
-        .create(
-            eq(PROP),
-            eq(PLAN),
-            argThat(r -> !r.configuration().payloadSchema().fields().get(0).items().required()));
+        .create(eq(PROP), argThat(r -> r.name().equals("Sale A") && r.planIds().equals(List.of(PLAN))));
   }
 
   @Test
-  void validatesDraftWithoutActivatingIt() throws Exception {
-    when(service.validate(eq(PROP), eq(PLAN), any()))
-        .thenReturn(new PlanSaleOrchestratorDtos.Validation(false, List.of("Duplicate field")));
-    mvc.perform(
-            post(base + "/validate")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"expectedRevision\":0}"))
+  void returnsDirectoryPage() throws Exception {
+    var row =
+        new PlanSaleOrchestratorDirectoryResponse(
+            "orch", "Sale A", "desc", List.of(PLAN), List.of("Chicken Plan"), Instant.now());
+    when(service.directory(PROP, 0, 20, "name,asc", null))
+        .thenReturn(
+            PageResponse.<PlanSaleOrchestratorDirectoryResponse>builder()
+                .content(List.of(row))
+                .page(0)
+                .size(20)
+                .totalElements(1)
+                .totalPages(1)
+                .build());
+    mvc.perform(get(base + "/directory"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.valid").value(false))
-        .andExpect(jsonPath("$.errors[0]").value("Duplicate field"));
-    verify(service, never()).activate(any(), any(), any());
-  }
-
-  @Test
-  void acceptsConfigurationWithoutPosAndIgnoresLegacyPosFields() throws Exception {
-    when(service.create(eq(PROP), eq(PLAN), any())).thenReturn(new PlanSaleOrchestrator());
-    mvc.perform(
-            post(base)
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(
-                    """
-{"configuration":{"name":"Sale","maxItems":100,"postWorkflows":[],"posBindings":[{"posId":"legacy","authenticatedSubject":"legacy"}],"payloadSchema":{"fields":[]}}}
-"""))
-        .andExpect(status().isCreated());
-    verify(service)
-        .create(
-            eq(PROP),
-            eq(PLAN),
-            argThat(
-                r ->
-                    r.configuration().maxItems() == 100
-                        && r.configuration().name().equals("Sale")));
+        .andExpect(jsonPath("$.content[0].id").value("orch"));
   }
 }

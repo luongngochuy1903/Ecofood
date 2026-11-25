@@ -179,7 +179,7 @@ class AuthControllerTest {
   }
 
   @Test
-  void logoutAlwaysReturns200AndRevokesBothTokens() throws Exception {
+  void logoutAlwaysReturns200AndDelegatesToInternalTokenServiceLogout() throws Exception {
     mockMvc
         .perform(
             post("/api/v1/auth/logout")
@@ -188,8 +188,7 @@ class AuthControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.message", is("Logged out")));
 
-    verify(internalTokenService).revoke("a");
-    verify(internalTokenService).revoke("r");
+    verify(internalTokenService).logout("a", "r");
   }
 
   @Test

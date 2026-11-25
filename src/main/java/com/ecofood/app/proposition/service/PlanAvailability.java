@@ -4,13 +4,12 @@ import com.ecofood.app.proposition.entity.*;
 import com.ecofood.core.enums.*;
 import java.time.Instant;
 
-/** Approval and effective dates are independent of the three review statuses. */
+/** A Proposition has no review status of its own — only its effective dates gate it. */
 public final class PlanAvailability {
     private PlanAvailability() {}
 
     public static boolean propositionActive(PropositionEntity p, Instant now) {
         return !Boolean.TRUE.equals(p.getDeleted())
-                && p.getStatus() == PropositionStatusEnum.APPROVED
                 && within(p.getDefinition().startDate(), p.getDefinition().endDate(), now);
     }
 

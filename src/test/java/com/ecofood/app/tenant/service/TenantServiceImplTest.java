@@ -78,6 +78,7 @@ class TenantServiceImplTest {
   @Mock private CoreEnterpriseClient enterpriseClient;
   @Mock private ACLService aclService;
   @Mock private RealmResource realmResource;
+  @Mock private com.ecofood.app.auth.service.KeycloakTokenVerifier keycloakTokenVerifier;
 
   private TenantServiceImpl tenantService;
 
@@ -86,7 +87,7 @@ class TenantServiceImplTest {
     tenantService =
         new TenantServiceImpl(
             tenantKeycloakService, tenantRepository, userClient, sequenceGeneratorService, userRoleAssignmentClient,
-            enterpriseClient, aclService);
+            enterpriseClient, aclService, keycloakTokenVerifier);
     // @Value fields — never populated outside a Spring context, so set
     // directly for this plain Mockito-based unit test.
     ReflectionTestUtils.setField(tenantService, "loginTheme", "app");

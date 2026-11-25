@@ -21,7 +21,7 @@ class ProductProcessStoreTest {
       new ProductProcessSnapshots(new ProductCostCalculator()));
   private ProductProcessEntity process() {
     return ProductProcessEntity.builder().productId(new ObjectId()).version(1).name("Chicken").code("CHICKEN")
-        .category("Meals").status(ProductStatusEnum.DRAFT).ingredients(List.of()).componentProducts(List.of())
+        .category("Meals").status(ProductStatusEnum.DRAFT).ingredients(List.of())
         .costing(new ProductCostingRequest(new BigDecimal("50000"),new BigDecimal("10000"),null,null,null,new BigDecimal("20"),new BigDecimal("10")))
         .pricing(new ProductPricingRequest(new BigDecimal("90000"),null,"VND")).build();
   }
@@ -70,6 +70,21 @@ class ProductProcessStoreTest {
     when(processes.save(any())).thenThrow(new org.springframework.dao.DataAccessResourceFailureException("Network response lost"));
     assertThatThrownBy(()->store.save(p)).hasMessageContaining("Network response lost");
     verify(definitions,never()).deleteById(any());verify(costings,never()).deleteById(any());verify(overviews,never()).deleteById(any());
+  }
+  @Test void productWithoutCostingOrPricingNeverPersistsACostingAttribute() {
+    ProductProcessEntity p=ProductProcessEntity.builder().productId(new ObjectId()).version(1).name("Chicken").code("CHICKEN")
+        .category("Meals").status(ProductStatusEnum.DRAFT).ingredients(List.of()).build();
+    when(processes.save(any())).thenAnswer(i->{ProductProcessEntity value=i.getArgument(0);value.setRevision(0L);return value;});
+    store.save(p);
+    verifyNoInteractions(costings);
+    assertThat(p.getCostingAttribute()).isNull();assertThat(p.getCostingProcess()).isNull();
+    assertThat(p.getOverviewAttribute().getProductName()).isEqualTo("Chicken");
+    when(processes.findByProductIdAndVersion(p.getProductId(),1)).thenReturn(Optional.of(p));
+    when(definitions.findById(p.getDefinitionAttribute().getId())).thenReturn(Optional.of(p.getDefinitionAttribute()));
+    when(overviews.findById(p.getOverviewAttribute().getId())).thenReturn(Optional.of(p.getOverviewAttribute()));
+    var hydrated=store.findByProductIdAndVersion(p.getProductId(),1).orElseThrow();
+    assertThat(hydrated.getName()).isEqualTo("Chicken");assertThat(hydrated.getCostingAttribute()).isNull();assertThat(hydrated.getPricing()).isNull();
+    verifyNoMoreInteractions(costings);
   }
   @Test void hydrationRejectsAttributesFromAnotherProcess() {
     ProductProcessEntity p=process();

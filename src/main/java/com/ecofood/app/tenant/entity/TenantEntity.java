@@ -65,6 +65,9 @@ public class TenantEntity extends BaseEntity {
   @Field("domain_url")
   private String domainUrl;
 
+  @Field("logo_url")
+  private String logoUrl;
+
   @Field("tenant_code")
   private String tenantCode;
 

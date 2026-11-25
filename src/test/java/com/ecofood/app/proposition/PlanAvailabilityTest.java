@@ -45,14 +45,10 @@ class PlanAvailabilityTest {
     }
 
     @Test
-    void bothApprovalsAndEffectivePeriodsAreRequiredWithoutAdditionalStatuses() {
+    void onlyThePlansOwnApprovalAndEffectivePeriodsAreRequired() {
         var p = proposition();
         var plan = plan();
         p.setPlans(List.of(plan));
-        assertThat(PlanAvailability.active(p, plan, now)).isFalse();
-        p.setStatus(PropositionStatusEnum.PENDING_REVIEW);
-        assertThat(PlanAvailability.active(p, plan, now)).isFalse();
-        p.setStatus(PropositionStatusEnum.APPROVED);
         plan.setStatus(PlanStatusEnum.PENDING_REVIEW);
         assertThat(PlanAvailability.active(p, plan, now)).isFalse();
         plan.setStatus(PlanStatusEnum.APPROVED);
@@ -68,7 +64,6 @@ class PlanAvailabilityTest {
     @Test
     void successorWaitsForItsOwnApprovalAndEffectiveDate() {
         var p = proposition();
-        p.setStatus(PropositionStatusEnum.APPROVED);
         var old = plan();
         var next = plan();
         next.setPreviousVersionId(old.getIdAsString());
@@ -84,7 +79,7 @@ class PlanAvailabilityTest {
     }
 
     @Test
-    void oldMongoDocumentsRemainDraftUntilPropositionApproval() throws Exception {
+    void oldMongoDocumentsWithALegacyPlanStatusStayInactiveUntilReApproved() throws Exception {
         var conversions = new PropositionMongoConfiguration().propositionMongoConversions();
         var context = new MongoMappingContext();
         context.setSimpleTypeHolder(conversions.getSimpleTypeHolder());
@@ -97,21 +92,17 @@ class PlanAvailabilityTest {
         p.setPlans(List.of(plan));
         var doc = new Document();
         converter.write(p, doc);
-        doc.remove("status");
         doc.getList("plans", Document.class).get(0).put("status", "LIVE");
         var old = converter.read(PropositionEntity.class, doc);
-        assertThat(old.getStatus()).isEqualTo(PropositionStatusEnum.DRAFT);
         assertThat(old.getPlans().get(0).getStatus()).isEqualTo(PlanStatusEnum.APPROVED);
-        assertThat(PlanAvailability.active(old, old.getPlans().get(0), now)).isFalse();
+        // No Proposition-side gate left to hold it back — once the legacy
+        // status maps to APPROVED and dates are unset (always within range),
+        // the Plan is active on its own.
+        assertThat(PlanAvailability.active(old, old.getPlans().get(0), now)).isTrue();
         for (String status : List.of("DEACTIVATED", "EXPIRED")) {
             doc.getList("plans", Document.class).get(0).put("status", status);
             assertThat(converter.read(PropositionEntity.class, doc).getPlans().get(0).getStatus())
                     .isEqualTo(PlanStatusEnum.DRAFT);
         }
-        assertThat(PropositionStatusEnum.values())
-                .containsExactly(
-                        PropositionStatusEnum.DRAFT,
-                        PropositionStatusEnum.PENDING_REVIEW,
-                        PropositionStatusEnum.APPROVED);
     }
 }

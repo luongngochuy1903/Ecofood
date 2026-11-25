@@ -26,7 +26,7 @@ class SaleConfirmationHandoffTest {
   private final SaleConfirmationHandoff handoff=new SaleConfirmationHandoff(mongo,directory,settings);
   private final String userId=new ObjectId().toHexString();
   private InvoiceBatchSubmission batch() { return InvoiceBatchSubmission.create("batch",Instant.now(),"tenant",List.of("i1","i2"),"hash",userId,
-      List.of(new ReceiptResult("INV-1",List.of(),"ACCEPTED",null),new ReceiptResult("INV-2",List.of(),"ACCEPTED",null))); }
+      List.of(new ReceiptResult(List.of(),"ACCEPTED",null),new ReceiptResult(List.of(),"ACCEPTED",null))); }
   private UserEntity seller() {
     var user=new UserEntity();user.setId(new ObjectId(userId));user.setEmail("seller@example.org");
     user.setUserCategory(UserCategory.builder().userCategoryCode("PARTNER").build());
@@ -35,7 +35,7 @@ class SaleConfirmationHandoffTest {
   @Test void oneBatchQueuesOneEmailForVerifiedDirectorySellerNotAnEmailFromPayload() {
     seller(); handoff.deliver(batch());var captor=ArgumentCaptor.forClass(Notification.class); verify(mongo).insert(captor.capture());
     var notice=captor.getValue();assertEquals("seller@example.org",notice.getSendTo());assertEquals("batch",notice.getSubmissionId());
-    assertTrue(notice.getContent().contains("INV-1"));assertTrue(notice.getContent().contains("INV-2"));assertEquals("PENDING",notice.getStatus());
+    assertTrue(notice.getContent().contains("2 hóa đơn"));assertEquals("PENDING",notice.getStatus());
     verify(mongo).updateFirst(any(Query.class),argThat((Update u)->Boolean.FALSE.equals(u.getUpdateObject().get("$set",org.bson.Document.class).get("sellerConfirmation.pending"))),eq(InvoiceBatchSubmission.class));
   }
   @Test void missingSellerOrCustomerIdentityCannotReceiveSellingConfirmation() {

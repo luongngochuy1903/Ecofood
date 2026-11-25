@@ -13,7 +13,6 @@ public class ProductOverviewAttribute extends ProductElementAttribute {
   private String description;
   private String imagesURL;
   private List<ProductIngredientRequest> ingredients;
-  private List<ProductComponentRequest> componentProducts;
   private ProductRecipeRequest recipe;
   private BigDecimal ingredientCost;
   private BigDecimal packagingCost;

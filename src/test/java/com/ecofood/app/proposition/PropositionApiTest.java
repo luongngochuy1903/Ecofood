@@ -143,8 +143,8 @@ class PropositionApiTest {
                 new ProductResponse(
                         product,
                         enterprise,
+                        "Enterprise",
                         ProductTypeEnum.STANDALONE,
-                        null,
                         1,
                         0L,
                         ProductStatusEnum.APPROVED,
@@ -160,9 +160,9 @@ class PropositionApiTest {
                         null,
                         "MEAL",
                         "Meals",
-                        null,
-                        List.of());
+                        null);
         when(products.getApprovedVersion(product, 1)).thenReturn(productDto);
+        when(products.getById(product)).thenReturn(productDto);
         when(products.processes(product)).thenReturn(List.of(source));
         when(products.list(any(), any(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(productDto)));
@@ -221,18 +221,23 @@ class PropositionApiTest {
         var currencies = new PropositionCurrencies(currencyRepo);
         var validation =
                 new PropositionValidation(Validation.buildDefaultValidatorFactory().getValidator());
-        var mapper = new PropositionMapper(access, parties, currencies);
+        var processes = new FakeProductProcessClient();
+        var userQueryClient = mock(com.ecofood.core.client.CoreUserQueryClient.class);
+        var mapper = new PropositionMapper(access, parties, currencies, processes, userQueryClient);
+        var sequences = mock(com.ecofood.core.service.SequenceGeneratorService.class);
+        when(sequences.generateSequence(any())).thenAnswer(i -> 1L);
         service =
                 new PropositionServiceImpl(
                         repo,
                         products,
                         enterprises,
+                        processes,
                         access,
                         validation,
                         parties,
                         currencies,
-                        new MarketConfigurationCalculator(),
-                        mapper);
+                        mapper,
+                        sequences);
         var query =
                 new PropositionQueryServiceImpl(
                         repo, access, mapper, parties, currencies, products);
@@ -279,7 +284,7 @@ class PropositionApiTest {
                         List.of(
                                 new ProductDefinitionAttributeResponse(
                                         "attr", process, 0L, "Meal", "MEAL", "Meals", null, null,
-                                        List.of(), List.of(), null))),
+                                        List.of(), null))),
                 null,
                 null,
                 false,
@@ -316,8 +321,6 @@ class PropositionApiTest {
     private String createBody() {
         return "{\"productId\":\""
                 + product
-                + "\",\"productVersion\":1,\"productProcessId\":\""
-                + process
                 + "\",\"definition\":"
                 + definition()
                 + "}";
@@ -331,15 +334,115 @@ class PropositionApiTest {
                                 .content(createBody()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.definition.currency").value("USD"))
-                .andExpect(jsonPath("$.productProcessId").value(process));
+                .andExpect(jsonPath("$.productId").value(product));
         return data.keySet().iterator().next().toHexString();
     }
 
-    private String plan(long revision, String region, String tenant, String market) {
+    private String plan(long revision, String region, String tenant, String pricing) {
         return """
-      {"expectedRevision":%s,"name":"Plan","regionIds":["%s"],"tenantIds":["%s"],"marketConfiguration":%s}
+      {"expectedRevision":%s,"productVersion":1,"name":"Plan","category":"Food","regionIds":["%s"],"tenantIds":["%s"],"pricing":%s}
       """
-                .formatted(revision, region, tenant, market);
+                .formatted(revision, region, tenant, pricing);
+    }
+
+    /**
+     * A Plan's name/description/category/image/ingredients/recipe/costing now
+     * live in their own product_process + attribute rows (see
+     * CoreProductProcessClient), not embedded in the Proposition — this is a
+     * minimal in-memory stand-in for that store, keyed by family id (a
+     * Plan's own id), mirroring exactly what ProductProcessWriteServiceImpl
+     * does against real Mongo collections.
+     */
+    private static final class FakeProductProcessClient extends CoreProductProcessClient {
+        private final Map<String, ProductFamilySaveRequest> store = new HashMap<>();
+
+        FakeProductProcessClient() {
+            super(null);
+        }
+
+        @Override
+        public ProductProcessResponse save(String familyId, ProductFamilySaveRequest r) {
+            if (r.imageUrl() != null && !r.imageUrl().isBlank()) {
+                try {
+                    var uri = java.net.URI.create(r.imageUrl());
+                    if (!("https".equalsIgnoreCase(uri.getScheme()) || "http".equalsIgnoreCase(uri.getScheme()))
+                            || uri.getHost() == null)
+                        throw new org.springframework.web.server.ResponseStatusException(
+                                org.springframework.http.HttpStatus.BAD_REQUEST, "Image must be an HTTP(S) URL");
+                } catch (IllegalArgumentException ex) {
+                    throw new org.springframework.web.server.ResponseStatusException(
+                            org.springframework.http.HttpStatus.BAD_REQUEST, "Image must be an HTTP(S) URL");
+                }
+            }
+            var currency = r.pricing() != null ? r.pricing().currency() : r.costing() != null ? r.costing().currency() : null;
+            if (currency != null && !currency.isBlank()) {
+                try {
+                    java.util.Currency.getInstance(currency.trim().toUpperCase(java.util.Locale.ROOT));
+                } catch (IllegalArgumentException ex) {
+                    throw new org.springframework.web.server.ResponseStatusException(
+                            org.springframework.http.HttpStatus.BAD_REQUEST, "Select a valid ISO 4217 currency");
+                }
+            }
+            store.put(familyId, r);
+            return get(familyId);
+        }
+
+        @Override
+        public ProductProcessResponse get(String familyId) {
+            var r = store.get(familyId);
+            if (r == null)
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.NOT_FOUND, "Plan content not found");
+            var currency =
+                    r.pricing() != null && r.pricing().currency() != null
+                            ? r.pricing().currency()
+                            : r.costing() != null ? r.costing().currency() : null;
+            var costing =
+                    new ProductCostingAttributeResponse(
+                            familyId + "-costing",
+                            familyId,
+                            0L,
+                            r.costing() == null ? null : r.costing().ingredientCost(),
+                            r.costing() == null ? null : r.costing().packagingCost(),
+                            r.costing() == null ? null : r.costing().laborCost(),
+                            r.costing() == null ? null : r.costing().operationCost(),
+                            r.costing() == null ? null : r.costing().marketingFee(),
+                            r.costing() == null ? null : r.costing().targetMargin(),
+                            r.costing() == null ? null : r.costing().tax(),
+                            null,
+                            null,
+                            r.pricing() == null ? null : r.pricing().sellingPrice(),
+                            currency,
+                            r.pricing() == null ? null : r.pricing().note());
+            var definition =
+                    new ProductDefinitionAttributeResponse(
+                            familyId + "-definition",
+                            familyId,
+                            0L,
+                            r.name(),
+                            null,
+                            r.category(),
+                            r.description(),
+                            r.imageUrl(),
+                            r.ingredients() == null ? List.of() : r.ingredients(),
+                            r.recipe());
+            return new ProductProcessResponse(
+                    familyId + "-process",
+                    familyId,
+                    1,
+                    0L,
+                    ProductStatusEnum.DRAFT,
+                    "v1",
+                    new ProductProcessElementResponse<>("definition", "Definition", List.of(definition)),
+                    new ProductProcessElementResponse<>("costing", "Costing", List.of(costing)),
+                    null,
+                    false,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null);
+        }
     }
 
     @Test
@@ -354,15 +457,15 @@ class PropositionApiTest {
                                                 0,
                                                 "TH",
                                                 child,
-                                                "{\"salePrice\":25.10,\"taxRate\":8,\"surcharge\":1}")))
+                                                "{\"sellingPrice\":25.10}")))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.plans[0].marketConfiguration.totalPrice").value("28.11"));
+                .andExpect(jsonPath("$.plans[0].costing.sellingPrice").value("25.1"));
         String planId = rows().get(0).getPlans().get(0).getIdAsString();
         mvc.perform(
                         post(path + "/plans")
                                 .header("Authorization", "Bearer " + ownerToken)
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content(plan(1, "VN", partner, "{\"salePrice\":30}")))
+                                .content(plan(1, "VN", partner, "{\"sellingPrice\":30}")))
                 .andExpect(status().isCreated());
         action(path + "/plans/" + planId + "/submit", 200);
         mvc.perform(
@@ -387,7 +490,37 @@ class PropositionApiTest {
                 .containsExactly(
                         PlanStatusEnum.DRAFT,
                         PlanStatusEnum.PENDING_REVIEW,
-                        PlanStatusEnum.APPROVED);
+                        PlanStatusEnum.APPROVED,
+                        PlanStatusEnum.REJECTED);
+    }
+
+    @Test
+    void planDirectoryListsVisiblePlansAndSupportsSearch() throws Exception {
+        String path = "/api/v1/propositions/" + create();
+        mvc.perform(post(path + "/plans")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+          {"expectedRevision":0,"productVersion":1,"name":"Alpha Plan","category":"Food","regionIds":["TH"],"tenantIds":["%s"]}
+          """.formatted(child)))
+                .andExpect(status().isCreated());
+        mvc.perform(post(path + "/plans")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+          {"expectedRevision":1,"productVersion":1,"name":"Beta Plan","category":"Food","regionIds":["VN"],"tenantIds":["%s"]}
+          """.formatted(partner)))
+                .andExpect(status().isCreated());
+        mvc.perform(get(path + "/plans/directory").header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.content[0].name").value("Alpha Plan"))
+                .andExpect(jsonPath("$.content[1].name").value("Beta Plan"));
+        mvc.perform(get(path + "/plans/directory").header("Authorization", "Bearer " + ownerToken)
+                        .param("search", "beta"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].name").value("Beta Plan"));
     }
 
     @Test
@@ -399,16 +532,16 @@ class PropositionApiTest {
         mvc.perform(post(path + "/plans")
                         .header("Authorization", "Bearer " + ownerToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(plan(0, "TH", child, "{\"currency\":\"ZZZ\",\"salePrice\":100}")))
+                        .content(plan(0, "TH", child, "{\"currency\":\"ZZZ\",\"sellingPrice\":100}")))
                 .andExpect(status().isBadRequest());
         mvc.perform(post(path + "/plans")
                         .header("Authorization", "Bearer " + ownerToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(plan(0, "TH", child, "{\"currency\":\"THB\",\"salePrice\":100,\"taxRate\":8}")))
+                        .content(plan(0, "TH", child, "{\"currency\":\"THB\",\"sellingPrice\":100.00}")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.definition.currency").value("USD"))
-                .andExpect(jsonPath("$.plans[0].marketConfiguration.currency").value("THB"))
-                .andExpect(jsonPath("$.plans[0].marketConfiguration.totalPrice").value("108.00"));
+                .andExpect(jsonPath("$.plans[0].costing.currency").value("THB"))
+                .andExpect(jsonPath("$.plans[0].costing.sellingPrice").value("100.0"));
         String planId = rows().get(0).getPlans().get(0).getIdAsString();
         mvc.perform(post(path + "/plans/" + planId + "/submit")
                         .header("Authorization", "Bearer " + ownerToken)
@@ -419,7 +552,7 @@ class PropositionApiTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"expectedRevision\":2}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.plans[0].status").value("APPROVED"))
-                .andExpect(jsonPath("$.plans[0].marketConfiguration.currency").value("THB"));
+                .andExpect(jsonPath("$.plans[0].costing.currency").value("THB"));
     }
 
     @Test
@@ -427,7 +560,7 @@ class PropositionApiTest {
         String path = "/api/v1/propositions/" + create();
         mvc.perform(post(path + "/plans").header("Authorization", "Bearer " + ownerToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(plan(0, "TH", child, "{\"currency\":\"THB\",\"salePrice\":100}")))
+                        .content(plan(0, "TH", child, "{\"currency\":\"THB\",\"sellingPrice\":100.00}")))
                 .andExpect(status().isCreated());
         mvc.perform(put("/api/v1/propositions/settings")
                         .header("Authorization", "Bearer " + ownerToken)
@@ -439,7 +572,7 @@ class PropositionApiTest {
         mvc.perform(get(path).header("Authorization", "Bearer " + ownerToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.definition.currency").value("USD"))
-                .andExpect(jsonPath("$.plans[0].marketConfiguration.currency").value("THB"));
+                .andExpect(jsonPath("$.plans[0].costing.currency").value("THB"));
         mvc.perform(put(path).header("Authorization", "Bearer " + ownerToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedRevision\":1,\"definition\":" + definition() + "}"))
@@ -499,25 +632,42 @@ class PropositionApiTest {
     @Test
     void invalidSourceMarketsRevisionAndFailedCasDoNotPublishChanges() throws Exception {
         String id = create(), path = "/api/v1/propositions/" + id;
+        // rows().get(0) is this file's usual shortcut for "the one Proposition
+        // this test created" — but this test (uniquely) creates a second one
+        // just below, so every later lookup here goes through this instead,
+        // scoped to the actual `id` the rest of the test exercises.
+        java.util.function.Supplier<PropositionEntity> loaded =
+                () ->
+                        rows().stream()
+                                .filter(p -> p.getIdAsString().equals(id))
+                                .findFirst()
+                                .orElseThrow();
         when(products.processes(product)).thenReturn(List.of(source(ProductStatusEnum.DRAFT)));
+        // Neither the Proposition nor its Plans ever require an APPROVED
+        // source Product — creating one with a DRAFT source succeeds below
+        // (the only thing this second, otherwise-unused Proposition proves),
+        // and every addPlan attempt in the loop next still gets rejected, but
+        // each for its own, unrelated reason (never the DRAFT source).
         mvc.perform(
                         post("/api/v1/propositions")
                                 .header("Authorization", "Bearer " + ownerToken)
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(createBody()))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isCreated());
         for (String body :
                 List.of(
                         plan(0, "OTHER", child, "null"),
                         plan(0, "TH", foreign, "null"),
-                        plan(0, "TH", child, "{\"salePrice\":-1}"),
-                        plan(0, "TH", child, "{\"salePrice\":1.001}")))
+                        plan(0, "TH", child, "{\"sellingPrice\":-1}")))
             mvc.perform(
                             post(path + "/plans")
                                     .header("Authorization", "Bearer " + ownerToken)
                                     .contentType(MediaType.APPLICATION_JSON)
                                     .content(body))
                     .andExpect(status().isBadRequest());
+        // Restore an APPROVED source for the rest of this test — not load-
+        // bearing (a Plan never requires one), just more realistic data.
+        when(products.processes(product)).thenReturn(List.of(source(ProductStatusEnum.APPROVED)));
         conflict = true;
         mvc.perform(
                         post(path + "/plans")
@@ -525,8 +675,8 @@ class PropositionApiTest {
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(plan(0, "TH", child, "null")))
                 .andExpect(status().isConflict());
-        assertThat(rows().get(0).getChanges()).hasSize(1);
-        assertThat(rows().get(0).getPlans()).isEmpty();
+        assertThat(loaded.get().getChanges()).hasSize(1);
+        assertThat(loaded.get().getPlans()).isEmpty();
         mvc.perform(
                         post(path + "/plans")
                                 .header("Authorization", "Bearer " + ownerToken)
@@ -539,13 +689,16 @@ class PropositionApiTest {
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(plan(0, "VN", child, "null")))
                 .andExpect(status().isConflict());
+        // Same country + tenant + (open-ended) period as the Plan just added
+        // above — no longer rejected: Plans are no longer required to avoid
+        // overlapping each other.
         mvc.perform(
                         post(path + "/plans")
                                 .header("Authorization", "Bearer " + ownerToken)
                                 .contentType(MediaType.APPLICATION_JSON)
                                 .content(plan(1, "TH", child, "null")))
-                .andExpect(status().isBadRequest());
-        String planId = rows().get(0).getPlans().get(0).getIdAsString();
+                .andExpect(status().isCreated());
+        String planId = loaded.get().getPlans().get(0).getIdAsString();
         mvc.perform(
                         post(path + "/plans/" + planId + "/approve")
                                 .header("Authorization", "Bearer " + ownerToken)
@@ -556,9 +709,9 @@ class PropositionApiTest {
                         delete(path + "/plans/" + planId)
                                 .header("Authorization", "Bearer " + ownerToken)
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content("{\"expectedRevision\":1}"))
+                                .content("{\"expectedRevision\":2}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.plans.length()").value(0));
+                .andExpect(jsonPath("$.plans.length()").value(1));
     }
 
     @Test
@@ -571,6 +724,10 @@ class PropositionApiTest {
                                         "{\"availableCurrencies\":[\"USD\",\"VND\",\"KWD\"],\"defaultCurrency\":\"USD\"}"))
                 .andExpect(status().isOk());
         String id = create(), path = "/api/v1/propositions/" + id;
+        // PropositionUpdateRequest has no productId/product-binding field at all —
+        // updating a Proposition can never change which Product it points at
+        // (that's immutable since create()); an extra, unknown field here is
+        // simply ignored, same as before.
         mvc.perform(
                         put(path)
                                 .header("Authorization", "Bearer " + ownerToken)
@@ -582,7 +739,7 @@ class PropositionApiTest {
                                                 + definition()
                                                 + "}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.productProcessId").value(process));
+                .andExpect(jsonPath("$.productId").value(product));
         mvc.perform(
                         post(path + "/plans")
                                 .header("Authorization", "Bearer " + ownerToken)
@@ -592,9 +749,9 @@ class PropositionApiTest {
                                                 1,
                                                 "TH",
                                                 child,
-                                                "{\"currency\":\"KWD\",\"salePrice\":1.123}")))
+                                                "{\"currency\":\"KWD\",\"sellingPrice\":1.123}")))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.plans[0].marketConfiguration.totalPrice").value("1.123"));
+                .andExpect(jsonPath("$.plans[0].costing.sellingPrice").value("1.123"));
         mvc.perform(
                         post(path + "/plans")
                                 .header("Authorization", "Bearer " + ownerToken)
@@ -604,7 +761,7 @@ class PropositionApiTest {
                                                 2,
                                                 "VN",
                                                 child,
-                                                "{\"currency\":\"EUR\",\"salePrice\":1}")))
+                                                "{\"currency\":\"EUR\",\"sellingPrice\":1}")))
                 .andExpect(status().isBadRequest());
         mvc.perform(
                         get("/api/v1/propositions/settings")
@@ -639,6 +796,29 @@ class PropositionApiTest {
                 .andExpect(jsonPath("$.definition.expectMetrics[1].quarter").value(1))
                 .andExpect(jsonPath("$.definition.expectMetrics[1].year").value(2027))
                 .andExpect(jsonPath("$.definition.expectMetrics[1].revenue").value("0.01"));
+    }
+
+    @Test
+    void actualMetricsAreZeroSeededAtCreationMatchingExpectMetricsPeriods() throws Exception {
+        var body =
+                createBody()
+                        .replace(
+                                "\"expectRevenue\":\"1000\"",
+                                "\"expectRevenue\":\"1\",\"expectMetrics\":["
+                                        + "{\"quarter\":4,\"year\":2026,\"revenue\":\"100\"}]");
+        mvc.perform(
+                        post("/api/v1/propositions")
+                                .header("Authorization", "Bearer " + ownerToken)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(body))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.actualMetrics[0].quarter").value(4))
+                .andExpect(jsonPath("$.actualMetrics[0].year").value(2026))
+                .andExpect(jsonPath("$.actualMetrics[0].totalSalesVolume").value("0"))
+                .andExpect(jsonPath("$.actualMetrics[0].profit").value("0"))
+                .andExpect(jsonPath("$.actualMetrics[0].ingredientCost").value("0"))
+                .andExpect(jsonPath("$.actualMetrics[0].platformCost").value("0"))
+                .andExpect(jsonPath("$.actualMetrics[0].revenue").value("0"));
     }
 
     @Test
@@ -696,7 +876,7 @@ class PropositionApiTest {
                         post("/api/v1/propositions/" + id + "/plans")
                                 .header("Authorization", "Bearer " + ownerToken)
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content(plan(0, "VN", brand, "{\"salePrice\":10}")))
+                                .content(plan(0, "VN", brand, "{\"sellingPrice\":10}")))
                 .andExpect(status().isCreated());
         mvc.perform(
                         post("/api/v1/propositions/" + id + "/plans")
@@ -730,13 +910,13 @@ class PropositionApiTest {
     }
 
     @Test
-    void planApprovalDoesNotApprovePropositionAndWaitsForBothApprovals() throws Exception {
+    void planBecomesActiveOnItsOwnApprovalWithoutAnyPropositionApproval() throws Exception {
         String id = create(), path = "/api/v1/propositions/" + id;
         mvc.perform(
                         post(path + "/plans")
                                 .header("Authorization", "Bearer " + ownerToken)
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content(plan(0, "VN", partner, "{\"salePrice\":10}")))
+                                .content(plan(0, "VN", partner, "{\"sellingPrice\":10}")))
                 .andExpect(status().isCreated());
         String planId = rows().get(0).getPlans().get(0).getIdAsString(),
                 planPath = path + "/plans/" + planId;
@@ -753,35 +933,22 @@ class PropositionApiTest {
                 .andExpect(status().isConflict());
         action(planPath + "/approve", 200)
                 .andExpect(jsonPath("$.plans[0].status").value("APPROVED"))
-                .andExpect(jsonPath("$.plans[0].active").value(false))
-                .andExpect(jsonPath("$.status").value("DRAFT"));
-        action(path + "/approve", 409);
-        action(path + "/submit", 200)
-                .andExpect(jsonPath("$.status").value("PENDING_REVIEW"))
-                .andExpect(jsonPath("$.plans[0].active").value(false));
-        action(path + "/approve", 200)
-                .andExpect(jsonPath("$.status").value("APPROVED"))
-                .andExpect(jsonPath("$.plans[0].active").value(true))
-                .andExpect(jsonPath("$.approvedBy").isNotEmpty());
-        action(path + "/submit", 409);
+                .andExpect(jsonPath("$.plans[0].active").value(true));
         action(planPath + "/submit", 409);
         assertThat(rows().get(0).getChanges())
                 .extracting(PropositionChange::action)
-                .contains(
-                        "SUBMIT_PLAN", "APPROVE_PLAN", "SUBMIT_PROPOSITION", "APPROVE_PROPOSITION");
+                .contains("SUBMIT_PLAN", "APPROVE_PLAN");
     }
 
     @Test
-    void propositionApprovalDoesNotApproveItsPlansAndApprovedVersionCanBeRevised()
+    void creatingAndApprovingPlanVersionsWorksWithoutAnyPropositionApproval()
             throws Exception {
         String id = create(), path = "/api/v1/propositions/" + id;
-        action(path + "/submit", 200);
-        action(path + "/approve", 200);
         mvc.perform(
                         post(path + "/plans")
                                 .header("Authorization", "Bearer " + ownerToken)
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content(plan(2, "VN", partner, "{\"salePrice\":10}")))
+                                .content(plan(0, "VN", partner, "{\"sellingPrice\":10}")))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.plans[0].status").value("DRAFT"))
                 .andExpect(jsonPath("$.plans[0].active").value(false));
@@ -802,7 +969,7 @@ class PropositionApiTest {
     }
 
     @Test
-    void reviewChecksScopeRevisionsAndCompletionWithoutCouplingApprovals() throws Exception {
+    void reviewChecksScopeAndRevisionsOnPlanActions() throws Exception {
         mvc.perform(
                         post("/api/v1/propositions")
                                 .header("Authorization", "Bearer " + ownerToken)
@@ -822,12 +989,11 @@ class PropositionApiTest {
                                                                 "\"targetYear\":null")
                                                 + "}"))
                 .andExpect(status().isOk());
-        action(path + "/submit", 400);
         mvc.perform(
                         post(path + "/plans")
                                 .header("Authorization", "Bearer " + ownerToken)
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content(plan(1, "VN", partner, "{\"salePrice\":10}")))
+                                .content(plan(1, "VN", partner, "{\"sellingPrice\":10}")))
                 .andExpect(status().isCreated());
         String planPath = path + "/plans/" + rows().get(0).getPlans().get(0).getIdAsString();
         mvc.perform(
@@ -840,7 +1006,7 @@ class PropositionApiTest {
         action(planPath + "/submit", 409);
         assertThat(rows().get(0).getPlans().get(0).getStatus()).isEqualTo(PlanStatusEnum.DRAFT);
         action(planPath + "/submit", 200);
-        action(planPath + "/approve", 200).andExpect(jsonPath("$.plans[0].active").value(false));
+        action(planPath + "/approve", 200).andExpect(jsonPath("$.plans[0].active").value(true));
         mvc.perform(
                         post(planPath + "/approve")
                                 .header("Authorization", "Bearer " + ownerToken)

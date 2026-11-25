@@ -1,6 +1,8 @@
 package com.ecofood.app.auth.service;
 
 import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.jwk.JWKMatcher;
+import com.nimbusds.jose.jwk.JWKSelector;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
@@ -16,6 +18,8 @@ import java.text.ParseException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -33,12 +37,18 @@ import org.springframework.stereotype.Service;
 @Service
 public class KeycloakTokenVerifier {
 
+  private static final Logger log = LoggerFactory.getLogger(KeycloakTokenVerifier.class);
+
   private static final String JWKS_PATH = "/protocol/openid-connect/certs";
 
   @Value("${jwt.trustedIssuerPrefix}")
   private String trustedIssuerPrefix;
 
   private final ConcurrentMap<String, DefaultJWTProcessor<SecurityContext>> processors =
+      new ConcurrentHashMap<>();
+  // Parallel cache so warmUp() can force a JWKS fetch directly — the
+  // processor itself (above) doesn't expose its JWKSource once built.
+  private final ConcurrentMap<String, JWKSource<SecurityContext>> jwkSources =
       new ConcurrentHashMap<>();
 
   public JWTClaimsSet verify(String accessToken) {
@@ -74,6 +84,26 @@ public class KeycloakTokenVerifier {
     return issuer.substring(issuer.lastIndexOf('/') + 1);
   }
 
+  /**
+   * Forces a JWKS fetch for a just-onboarded tenant's realm, during
+   * onboarding's own (already slow) request, so the realm's very first
+   * /auth/exchange call afterward hits a warm in-memory cache instead of
+   * paying the cold-fetch network round-trip itself. Best-effort: a failure
+   * here only means the next exchange call falls back to its own on-demand
+   * fetch (now with the longer timeout below) — it must never fail
+   * onboarding itself.
+   */
+  public void warmUp(String realmName) {
+    String issuer = trustedIssuerPrefix + realmName;
+    try {
+      processors.computeIfAbsent(issuer, this::buildProcessor);
+      JWKSource<SecurityContext> jwkSource = jwkSources.get(issuer);
+      jwkSource.get(new JWKSelector(new JWKMatcher.Builder().build()), null);
+    } catch (Exception e) {
+      log.warn("JWKS warm-up failed for issuer {} — exchange will fall back to an on-demand fetch", issuer, e);
+    }
+  }
+
   private DefaultJWTProcessor<SecurityContext> buildProcessor(String issuer) {
     URL jwksUrl;
     try {
@@ -82,14 +112,17 @@ public class KeycloakTokenVerifier {
       throw new IllegalStateException("Malformed JWKS URL for issuer " + issuer, e);
     }
 
-    // Nimbus's default resource retriever uses a very short (sub-second)
-    // connect/read timeout — fine for a JWKS endpoint on localhost, but too
-    // aggressive for a real network round-trip (e.g. through Cloudflare's
-    // proxy to the VM's Keycloak), causing spurious JWKSetRetrievalException
-    // "Read timed out" failures under normal latency.
-    DefaultResourceRetriever resourceRetriever = new DefaultResourceRetriever(5000, 5000);
+    // Bumped from Nimbus's original too-aggressive 5s (itself already a
+    // bump from the sub-second default) — a real network round-trip through
+    // Cloudflare's proxy to the VM's Keycloak, especially the very first
+    // (cold-cache) fetch right after a tenant's realm was just created
+    // during onboarding, can occasionally exceed 5s under normal latency.
+    // warmUp() above is the real fix for the common case; this is the
+    // safety margin for whatever still hits a cold fetch directly.
+    DefaultResourceRetriever resourceRetriever = new DefaultResourceRetriever(10000, 10000);
     JWKSource<SecurityContext> jwkSource =
         JWKSourceBuilder.<SecurityContext>create(jwksUrl, resourceRetriever).cache(true).build();
+    jwkSources.put(issuer, jwkSource);
 
     DefaultJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
     processor.setJWSKeySelector(new JWSVerificationKeySelector<>(JWSAlgorithm.RS256, jwkSource));

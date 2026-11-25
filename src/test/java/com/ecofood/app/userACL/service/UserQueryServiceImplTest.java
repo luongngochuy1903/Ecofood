@@ -23,12 +23,15 @@ class UserQueryServiceImplTest {
   @Test
   void getByIdReturnsTheEntityWhenFound() {
     userQueryService = new UserQueryServiceImpl(userRepository);
-    UserEntity user = UserEntity.builder().username("jane.doe").build();
+    UserEntity user = UserEntity.builder().username("jane.doe").firstName("Jane").lastName("Doe").build();
     ObjectId id = new ObjectId();
     user.setId(id);
     when(userRepository.findById(id)).thenReturn(Optional.of(user));
 
-    assertThat(userQueryService.getById(id.toHexString()).getUsername()).isEqualTo("jane.doe");
+    var response = userQueryService.getById(id.toHexString());
+    assertThat(response.getUsername()).isEqualTo("jane.doe");
+    assertThat(response.getFirstName()).isEqualTo("Jane");
+    assertThat(response.getLastName()).isEqualTo("Doe");
   }
 
   @Test

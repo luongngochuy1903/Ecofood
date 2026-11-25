@@ -12,6 +12,5 @@ public class ProductDefinitionAttribute extends ProductElementAttribute {
   private String description;
   private String imagesURL;
   private List<ProductIngredientRequest> ingredients;
-  private List<ProductComponentRequest> componentProducts;
   private ProductRecipeRequest recipe;
 }

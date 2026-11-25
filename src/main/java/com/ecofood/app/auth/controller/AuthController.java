@@ -117,8 +117,7 @@ public class AuthController {
 
   @PostMapping("/logout")
   public ResponseEntity<?> logout(@RequestBody LogoutRequest request) {
-    internalTokenService.revoke(request.getAccessToken());
-    internalTokenService.revoke(request.getRefreshToken());
+    internalTokenService.logout(request.getAccessToken(), request.getRefreshToken());
     return ResponseEntity.ok(Map.of("message", "Logged out"));
   }
 

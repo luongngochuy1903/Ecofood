@@ -245,6 +245,9 @@ public class InternalTokenService {
     if (tokenBlacklistService.isRevoked(claims.getId())) {
       throw new IllegalArgumentException("Internal token has been revoked");
     }
+    if (tokenBlacklistService.isIssuedBeforeInvalidation(claims.getSubject(), claims.getIssuedAt().toInstant().getEpochSecond())) {
+      throw new IllegalArgumentException("Internal token issued before a global logout for this user");
+    }
     return claims;
   }
 
@@ -267,6 +270,42 @@ public class InternalTokenService {
       tokenBlacklistService.revoke(claims.getId(), expiryEpochSeconds);
     } catch (Exception ignored) {
       // Not a validly-signed token from us — nothing meaningful to revoke.
+    }
+  }
+
+  /**
+   * Full logout: revokes both tokens' shared jti (defense-in-depth fast
+   * path) AND globally invalidates every token this user holds, in every
+   * tenant/realm — a logout in tenant A now also ends a still-open session
+   * in tenant B, since both were minted off the same app-level user id and
+   * localStorage's per-origin isolation is otherwise the only thing keeping
+   * tenant B's copy "alive". Keycloak's own per-realm SSO session is
+   * intentionally untouched here (app-layer fix only).
+   *
+   * The user id is read off whichever of the two tokens still carries a
+   * valid signature (so a garbage/forged token can't be used to invalidate
+   * an arbitrary victim's sessions by stuffing a fake "sub" claim into an
+   * unsigned string) rather than trusted blindly.
+   */
+  public void logout(String accessToken, String refreshToken) {
+    revoke(accessToken);
+    revoke(refreshToken);
+
+    String userId = subjectOfValidlySignedToken(accessToken);
+    if (userId == null) {
+      userId = subjectOfValidlySignedToken(refreshToken);
+    }
+    tokenBlacklistService.invalidateAllForUser(userId);
+  }
+
+  private String subjectOfValidlySignedToken(String token) {
+    if (token == null || token.isBlank()) {
+      return null;
+    }
+    try {
+      return Jwts.parser().verifyWith(signingKey()).build().parseSignedClaims(token).getPayload().getSubject();
+    } catch (Exception e) {
+      return null;
     }
   }
 

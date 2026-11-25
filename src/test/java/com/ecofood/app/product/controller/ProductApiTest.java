@@ -76,6 +76,10 @@ class ProductApiTest {
     when(productRepository.findById(any())).thenAnswer(i -> Optional.ofNullable(products.get(i.getArgument(0))));
     when(productRepository.findByEnterpriseId(any())).thenAnswer(i -> products.values().stream()
         .filter(p -> p.getEnterpriseId().equals(i.getArgument(0))).toList());
+    when(productRepository.findByEnterpriseIdIn(any())).thenAnswer(i -> {
+      java.util.Collection<ObjectId> ids = i.getArgument(0);
+      return products.values().stream().filter(p -> ids.contains(p.getEnterpriseId())).toList();
+    });
     when(productRepository.findByEnterpriseIdAndCode(any(),anyString())).thenAnswer(i -> products.values().stream()
         .filter(p -> p.getEnterpriseId().equals(i.getArgument(0)) && Objects.equals(p.getCode(),i.getArgument(1))).findFirst());
     when(processRepository.save(any())).thenAnswer(i -> {
@@ -91,9 +95,24 @@ class ProductApiTest {
         .filter(v -> v.getProductId().equals(i.getArgument(0)))
         .sorted(Comparator.comparingInt(ProductProcessEntity::getVersion).reversed()).map(this::storedProcess).toList());
     ProductAuthorization authorization = new ProductAuthorization(new ACLService(), tenants);
+    com.ecofood.core.service.SequenceGeneratorService sequenceGeneratorService =
+        mock(com.ecofood.core.service.SequenceGeneratorService.class);
+    java.util.concurrent.atomic.AtomicLong sequence = new java.util.concurrent.atomic.AtomicLong();
+    when(sequenceGeneratorService.generateSequence(ProductEntity.SEQUENCE_NAME))
+        .thenAnswer(i -> sequence.incrementAndGet());
+    com.ecofood.core.client.CoreEnterpriseQueryClient enterpriseQueryClient =
+        mock(com.ecofood.core.client.CoreEnterpriseQueryClient.class);
+    when(enterpriseQueryClient.getById(any())).thenReturn(
+        com.ecofood.core.dto.EnterpriseResponse.builder().enterpriseId("e").enterpriseCompanyName("Test Enterprise").build());
+    com.ecofood.core.client.CoreUserQueryClient userQueryClient =
+        mock(com.ecofood.core.client.CoreUserQueryClient.class);
+    when(userQueryClient.getById(any())).thenReturn(
+        com.ecofood.core.dto.UserQueryResponse.builder().firstName("Anh").lastName("Nguyen").build());
+    ProductProcessMapper productProcessMapper = new ProductProcessMapper(enterpriseQueryClient, userQueryClient);
     ProductServiceImpl service = new ProductServiceImpl(productRepository, versionRepository, authorization,
-        new ProductValidation(), mock(ProductAuditService.class), mock(com.ecofood.app.product.service.ProductVersionReviewService.class));
-    ProductQueryServiceImpl query = new ProductQueryServiceImpl(productRepository, versionRepository, authorization);
+        new ProductValidation(), mock(ProductAuditService.class), mock(com.ecofood.app.product.service.ProductVersionReviewService.class),
+        mock(com.ecofood.core.service.PropositionService.class), sequenceGeneratorService, productProcessMapper);
+    ProductQueryServiceImpl query = new ProductQueryServiceImpl(productRepository, versionRepository, authorization, productProcessMapper);
     InternalTokenService tokens = mock(InternalTokenService.class);
     when(tokens.verifyToken(anyString())).thenAnswer(i -> Jwts.parser().verifyWith(KEY).build()
         .parseSignedClaims((String) i.getArgument(0)).getPayload());
@@ -124,14 +143,31 @@ class ProductApiTest {
         .expiration(new Date(System.currentTimeMillis() + 60_000)).signWith(KEY).compact();
   }
 
+  // Set by createProduct(), since code is server-generated — callers that need
+  // to send it back on an update (immutable after creation) read it from here.
+  private String lastCreatedCode;
+
   private String createProduct() throws Exception {
-    mvc.perform(post("/api/v1/products").header("Authorization", "Bearer " + token)
+    var result = mvc.perform(post("/api/v1/products").header("Authorization", "Bearer " + token)
         .contentType(MediaType.APPLICATION_JSON).content("""
           {"type":"STANDALONE","name":"Milk","code":"MILK","category":"Drinks","ingredients":[],
            "pricing":{"sellingPrice":120000,"costPrice":85000,"currency":"VND"}}
           """))
         .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("DRAFT"));
-    return products.keySet().iterator().next().toHexString();
+    lastCreatedCode = codeFrom(result);
+    return idFrom(result);
+  }
+  // code is server-generated now — extract the real id/code from the response
+  // instead of guessing which map entry a known literal code belongs to.
+  private String idFrom(org.springframework.test.web.servlet.ResultActions result) throws Exception {
+    return fieldFrom(result, "id");
+  }
+  private String codeFrom(org.springframework.test.web.servlet.ResultActions result) throws Exception {
+    return fieldFrom(result, "code");
+  }
+  private String fieldFrom(org.springframework.test.web.servlet.ResultActions result, String field) throws Exception {
+    return new com.fasterxml.jackson.databind.ObjectMapper()
+        .readTree(result.andReturn().getResponse().getContentAsString()).get(field).asText();
   }
 
   @Test void allNineEndpointsSupportReviewAndVersionWorkflow() throws Exception {
@@ -143,9 +179,9 @@ class ProductApiTest {
     mvc.perform(get(path).header("Authorization", "Bearer " + token))
         .andExpect(status().isOk()).andExpect(jsonPath("$.revision").value(0));
     String update = """
-        {"name":"Milk 1L","code":"MILK","category":"Drinks","ingredients":[],"expectedRevision":0,
+        {"name":"Milk 1L","code":"%s","category":"Drinks","ingredients":[],"expectedRevision":0,
          "pricing":{"sellingPrice":120000,"costPrice":85000,"currency":"VND"}}
-        """;
+        """.formatted(lastCreatedCode);
     mvc.perform(put(path).header("Authorization", "Bearer " + token)
         .contentType(MediaType.APPLICATION_JSON).content(update))
         .andExpect(status().isOk()).andExpect(jsonPath("$.revision").value(1));
@@ -153,14 +189,14 @@ class ProductApiTest {
         .contentType(MediaType.APPLICATION_JSON).content(update)).andExpect(status().isConflict());
     mvc.perform(post(path + "/submit").header("Authorization", "Bearer " + token))
         .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PENDING_REVIEW"));
-    mvc.perform(post(path + "/reject").header("Authorization", "Bearer " + token)
+    mvc.perform(post(path + "/processes/1/reject").header("Authorization", "Bearer " + token)
         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"Review ingredients\"}"))
         .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("REJECTED"));
     mvc.perform(put(path).header("Authorization", "Bearer " + token)
         .contentType(MediaType.APPLICATION_JSON).content(update.replace("\"expectedRevision\":0", "\"expectedRevision\":3")))
         .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("DRAFT"));
     mvc.perform(post(path + "/submit").header("Authorization", "Bearer " + token)).andExpect(status().isOk());
-    mvc.perform(post(path + "/approve").header("Authorization", "Bearer " + token))
+    mvc.perform(post(path + "/processes/1/approve").header("Authorization", "Bearer " + token))
         .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("APPROVED"));
     mvc.perform(post(path + "/versions").header("Authorization", "Bearer " + token))
         .andExpect(status().isCreated()).andExpect(jsonPath("$.version").value(2))
@@ -171,7 +207,7 @@ class ProductApiTest {
   }
 
   @Test void wizardDefinitionIngredientsRecipeAndPricingRoundTrip() throws Exception {
-    mvc.perform(post("/api/v1/products").header("Authorization", "Bearer " + token)
+    String id = idFrom(mvc.perform(post("/api/v1/products").header("Authorization", "Bearer " + token)
         .contentType(MediaType.APPLICATION_JSON).content("""
           {"type":"STANDALONE","name":"Chicken","code":"ch-01","category":"Meals",
            "imageUrl":"https://example.com/chicken.jpg",
@@ -180,85 +216,49 @@ class ProductApiTest {
              "note":"Serve hot","steps":[{"order":1,"name":"Boil chicken","description":"Simmer","durationMinutes":20}]},
            "pricing":{"sellingPrice":100000,"currency":"VND","note":"Basic price"}}
           """))
-        .andExpect(status().isCreated()).andExpect(jsonPath("$.code").value("CH-01"))
+        // code is server-generated now (e.g. PR00001) — just assert the format, not a literal value.
+        .andExpect(status().isCreated()).andExpect(jsonPath("$.code", org.hamcrest.Matchers.matchesPattern("PR\\d{5}")))
         .andExpect(jsonPath("$.ingredients[0].name").value("Chicken"))
         .andExpect(jsonPath("$.recipe.preparationMinutes").value(10))
-        .andExpect(jsonPath("$.pricing.note").value("Basic price"));
-    String id = products.keySet().iterator().next().toHexString();
+        .andExpect(jsonPath("$.pricing.note").value("Basic price")));
     mvc.perform(post("/api/v1/products/" + id + "/submit").header("Authorization", "Bearer " + token))
         .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("PENDING_REVIEW"));
-    mvc.perform(get("/api/v1/products").header("Authorization", "Bearer " + token).param("search","ch-01"))
+    mvc.perform(get("/api/v1/products").header("Authorization", "Bearer " + token).param("search","chicken"))
         .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1));
-    mvc.perform(post("/api/v1/products").header("Authorization", "Bearer " + token)
-        .contentType(MediaType.APPLICATION_JSON).content("""
-          {"type":"STANDALONE","name":"Duplicate","code":"CH-01","category":"Meals"}
-          """))
-        .andExpect(status().isConflict());
   }
-  @Test void adaptedAndMasterRelationshipsRoundTrip() throws Exception {
-    String base = createProduct();
-    mvc.perform(post("/api/v1/products").header("Authorization", "Bearer " + token)
-        .contentType(MediaType.APPLICATION_JSON).content("""
-          {"type":"STANDALONE","name":"Juice","code":"JUICE","category":"Drinks"}
-          """)).andExpect(status().isCreated());
-    String drink=products.values().stream().filter(p -> "JUICE".equals(p.getCode())).findFirst().orElseThrow().getIdAsString();
-    mvc.perform(post("/api/v1/products").header("Authorization", "Bearer " + token)
-        .contentType(MediaType.APPLICATION_JSON).content("""
-          {"type":"ADAPTED","name":"Invalid base","code":"INVALID","category":"Drinks","sourceProductId":"%s"}
-          """.formatted(base))).andExpect(status().isBadRequest());
-    mvc.perform(post("/api/v1/products").header("Authorization", "Bearer " + token)
-        .contentType(MediaType.APPLICATION_JSON).content("""
-          {"type":"MASTER","name":"Base combo","code":"BASE","category":"Combos",
-           "componentProducts":[{"productId":"%s","quantity":1},{"productId":"%s","quantity":1}],
-           "pricing":{"sellingPrice":130000,"currency":"VND"}}
-          """.formatted(base,drink))).andExpect(status().isCreated());
-    String source=products.values().stream().filter(p -> "BASE".equals(p.getCode())).findFirst().orElseThrow().getIdAsString();
-    String adaptedBody="""
-          {"type":"ADAPTED","name":"Flavoured combo","code":"ADAPTED","category":"Drinks","sourceProductId":"%s"}
-          """.formatted(source);
-    mvc.perform(post("/api/v1/products").header("Authorization", "Bearer " + token)
-        .contentType(MediaType.APPLICATION_JSON).content(adaptedBody)).andExpect(status().isBadRequest());
-    mvc.perform(post("/api/v1/products/"+source+"/submit").header("Authorization","Bearer "+token)).andExpect(status().isOk());
-    mvc.perform(post("/api/v1/products/"+source+"/approve").header("Authorization","Bearer "+token)).andExpect(status().isOk());
-    mvc.perform(post("/api/v1/products").header("Authorization", "Bearer " + token)
-        .contentType(MediaType.APPLICATION_JSON).content(adaptedBody))
-        .andExpect(status().isCreated()).andExpect(jsonPath("$.sourceProductId").value(source));
-    String adapted = products.values().stream().filter(p -> "ADAPTED".equals(p.getCode())).findFirst().orElseThrow().getIdAsString();
-    mvc.perform(post("/api/v1/products/"+source+"/versions").header("Authorization","Bearer "+token)).andExpect(status().isCreated());
-    mvc.perform(put("/api/v1/products/"+source).header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON).content("""
-        {"name":"Cycle","code":"BASE","category":"Combos","expectedRevision":0,
-         "componentProducts":[{"productId":"%s","quantity":1},{"productId":"%s","quantity":1}]}
-        """.formatted(base,adapted))).andExpect(status().isBadRequest());
-    mvc.perform(post("/api/v1/products").header("Authorization", "Bearer " + token)
-        .contentType(MediaType.APPLICATION_JSON).content("""
-          {"type":"MASTER","name":"Milk combo","code":"COMBO","category":"Combos",
-           "componentProducts":[{"productId":"%s","quantity":1},{"productId":"%s","quantity":2}],
-           "pricing":{"sellingPrice":130000,"currency":"VND"}}
-          """.formatted(base,adapted)))
-        .andExpect(status().isCreated()).andExpect(jsonPath("$.componentProducts[1].quantity").value(2));
-    String combo = products.values().stream().filter(p -> "COMBO".equals(p.getCode())).findFirst().orElseThrow().getIdAsString();
-    mvc.perform(post("/api/v1/products/" + combo + "/submit").header("Authorization", "Bearer " + token))
-        .andExpect(status().isOk());
-    mvc.perform(post("/api/v1/products/" + combo + "/approve").header("Authorization", "Bearer " + token))
-        .andExpect(status().isOk());
-    mvc.perform(post("/api/v1/products/" + combo + "/versions").header("Authorization", "Bearer " + token))
-        .andExpect(status().isCreated()).andExpect(jsonPath("$.componentProducts.length()").value(2))
-        .andExpect(jsonPath("$.category").value("Combos")).andExpect(jsonPath("$.code").value("COMBO"));
+  @Test void productWithoutCostingOrPricingPersistsNoCostingAttributeAtAll() throws Exception {
+    var created = mvc.perform(post("/api/v1/products").header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON).content("""
+      {"type":"STANDALONE","name":"Water","code":"WATER","category":"Drinks"}
+      """))
+        .andExpect(status().isCreated()).andExpect(jsonPath("$.costing").doesNotExist())
+        .andExpect(jsonPath("$.pricing").doesNotExist());
+    String code = codeFrom(created);
+    assertThat(costings).isEmpty();
+    String base="/api/v1/products/"+products.values().iterator().next().getIdAsString();
+    mvc.perform(put(base).header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON).content("""
+      {"name":"Water","code":"%s","category":"Drinks","expectedRevision":0}
+      """.formatted(code)))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.costing").doesNotExist());
+    mvc.perform(post(base+"/submit").header("Authorization","Bearer "+token))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.costing").doesNotExist());
+    // Three saves (create, update, submit) and still zero costing attribute documents.
+    assertThat(costings).isEmpty();
   }
   @Test void currencySurvivesDraftReadUpdateAndSubmission() throws Exception {
-    mvc.perform(post("/api/v1/products").header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON).content("""
+    var created = mvc.perform(post("/api/v1/products").header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON).content("""
       {"type":"STANDALONE","name":"Coffee","code":"COFFEE","category":"Drinks",
        "costing":{"ingredientCost":2.5,"currency":"USD"}}
       """))
         .andExpect(status().isCreated()).andExpect(jsonPath("$.costing.currency").value("USD"))
         .andExpect(jsonPath("$.pricing").doesNotExist());
+    String code = codeFrom(created);
     String base="/api/v1/products/"+products.values().iterator().next().getIdAsString();
     mvc.perform(get(base).header("Authorization","Bearer "+token))
         .andExpect(status().isOk()).andExpect(jsonPath("$.costing.currency").value("USD"));
     mvc.perform(put(base).header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON).content("""
-      {"name":"Coffee","code":"COFFEE","category":"Drinks","expectedRevision":0,
+      {"name":"Coffee","code":"%s","category":"Drinks","expectedRevision":0,
        "costing":{"ingredientCost":2.5,"currency":"USD"},"pricing":{"sellingPrice":5.5,"currency":"USD"}}
-      """))
+      """.formatted(code)))
         .andExpect(status().isOk()).andExpect(jsonPath("$.pricing.currency").value("USD"))
         .andExpect(jsonPath("$.costing.currency").value("USD"));
     mvc.perform(post(base+"/submit").header("Authorization","Bearer "+token))
@@ -266,7 +266,7 @@ class ProductApiTest {
         .andExpect(jsonPath("$.productProcess[0].overview.processElementAttribute[0].currency").value("USD"));
   }
   @Test void processesPersistTypedAttributesAndRetainApprovedVersionAfterNewDraft() throws Exception {
-    mvc.perform(post("/api/v1/products").header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON).content("""
+    var created = mvc.perform(post("/api/v1/products").header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON).content("""
       {"type":"STANDALONE","name":"Chicken","code":"CHICKEN","category":"Meals",
        "costing":{"ingredientCost":50000,"packagingCost":5000,"laborCost":10000,"operationCost":3000,"marketingFee":2000,"targetMargin":30,"tax":10},
        "pricing":{"sellingPrice":120000,"costPrice":999999,"currency":"VND"}}
@@ -275,17 +275,18 @@ class ProductApiTest {
         .andExpect(jsonPath("$.costing.basePrice").value(110000)).andExpect(jsonPath("$.pricing.costPrice").value(70000))
         .andExpect(jsonPath("$.productProcess[0].definition.processElementAttribute[0].productName").value("Chicken"))
         .andExpect(jsonPath("$.productProcess[0].overview.processElementAttribute[0].totalCost").value(70000));
+    String code = codeFrom(created);
     assertThat(definitions).hasSize(1);assertThat(costings).hasSize(1);assertThat(overviews).hasSize(1);
     ProductEntity root=products.values().iterator().next();String base="/api/v1/products/"+root.getIdAsString();
     assertThat(root.getProductProcess()).containsExactly(versions.get(0).getId());
     assertThat(root.getCategory()).containsExactly("Meals");
     mvc.perform(post(base+"/submit").header("Authorization","Bearer "+token)).andExpect(status().isOk());
-    mvc.perform(post(base+"/approve").header("Authorization","Bearer "+token)).andExpect(status().isOk());
+    mvc.perform(post(base+"/processes/1/approve").header("Authorization","Bearer "+token)).andExpect(status().isOk());
     mvc.perform(post(base+"/versions").header("Authorization","Bearer "+token)).andExpect(status().isCreated());
     mvc.perform(put(base).header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON).content("""
-      {"name":"New chicken","code":"CHICKEN","category":"Meals","expectedRevision":0,
+      {"name":"New chicken","code":"%s","category":"Meals","expectedRevision":0,
        "costing":{"ingredientCost":80000},"pricing":{"sellingPrice":140000,"currency":"VND"}}
-      """))
+      """.formatted(code)))
         .andExpect(status().isOk()).andExpect(jsonPath("$.costing.totalCost").value(80000));
     mvc.perform(get(base+"/processes/1").header("Authorization","Bearer "+token))
         .andExpect(status().isOk()).andExpect(jsonPath("$.name").value("Chicken"))
@@ -335,11 +336,11 @@ class ProductApiTest {
     mvc.perform(get("/api/v1/products/"+id+"/processes").header("Authorization","Bearer "+token)).andExpect(status().isNotFound());
     mvc.perform(get("/api/v1/products/"+id+"/processes/1").header("Authorization","Bearer "+token)).andExpect(status().isNotFound());
     mvc.perform(post("/api/v1/products").header("Authorization", "Bearer " + token)
-        .contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"MASTER\",\"name\":\" \"}"))
+        .contentType(MediaType.APPLICATION_JSON).content("{\"type\":\"STANDALONE\",\"name\":\" \"}"))
         .andExpect(status().isBadRequest());
     mvc.perform(post("/api/v1/products").header("Authorization", "Bearer " + token)
         .contentType(MediaType.APPLICATION_JSON).content("""
-          {"type":"MASTER","name":"Milk","ingredients":[{"ingredientId":"a","quantity":-1,"unit":"ML"}]}
+          {"type":"STANDALONE","name":"Milk","ingredients":[{"ingredientId":"a","quantity":-1,"unit":"ML"}]}
           """))
         .andExpect(status().isBadRequest());
   }

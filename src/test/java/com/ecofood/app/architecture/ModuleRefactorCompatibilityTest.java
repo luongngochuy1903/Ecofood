@@ -80,8 +80,7 @@ class ModuleRefactorCompatibilityTest {
   static Stream<Arguments> responses() {
     return Stream.of(Arguments.of(new Complaint(), ComplaintView.class, "handoffs"),
         Arguments.of(new Notification(), NotificationView.class, "leaseToken"),
-        Arguments.of(new NotificationRule(), NotificationRuleView.class, "unrelatedField"),
-        Arguments.of(new PlanSaleOrchestrator(), PlanSaleOrchestratorView.class, "unrelatedField"));
+        Arguments.of(new NotificationRule(), NotificationRuleView.class, "unrelatedField"));
   }
 
   @ParameterizedTest
@@ -101,8 +100,6 @@ class ModuleRefactorCompatibilityTest {
     assertEquals("\"ECOSYSTEM\"", mapper.writeValueAsString(ComplaintTypeEnum.ECOSYSTEM));
     assertEquals("\"WAITING_REPORTER\"", mapper.writeValueAsString(ComplaintStatusEnum.WAITING_REPORTER));
     assertEquals("\"QUARTERLY\"", mapper.writeValueAsString(DashboardPeriodEnum.QUARTERLY));
-    assertEquals("\"ACTIVE\"", mapper.writeValueAsString(PlanSaleOrchestratorStatusEnum.ACTIVE));
-    assertEquals("\"SEND_EMAIL_NOTIFICATION\"", mapper.writeValueAsString(PlanSaleWorkflowEnum.SEND_EMAIL_NOTIFICATION));
     assertEquals("\"Functional\"", mapper.writeValueAsString(RoleType.Functional));
   }
 }

@@ -79,6 +79,70 @@ public class PropositionQueryServiceImpl implements PropositionQueryService {
                 .orElseThrow(() -> PropositionAccess.error(HttpStatus.NOT_FOUND, "Plan not found"));
     }
 
+    /**
+     * Same visibility rule PropositionMapper.response() already applies to
+     * p.plans() (owner sees every Plan, a non-owner only the ones touching
+     * their own scope) — paginated/searched/sorted in memory, since a
+     * Proposition's Plans are an embedded list, not their own Mongo
+     * collection. Same "/{resource}/directory" endpoint shape as every
+     * other directory in this platform (see TenantController), just backed
+     * differently given the data model.
+     */
+    @Override
+    public PageResponse<PlanResponse> planDirectory(String id, int page, int size, String sort, String search) {
+        var actor = access.current();
+        var p = load(id);
+        access.read(actor, p);
+        boolean owner = access.owns(actor, p);
+        var needle = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+        var all =
+                p.getPlans().stream()
+                        .filter(plan -> !Boolean.TRUE.equals(plan.getDeleted()))
+                        .filter(
+                                plan ->
+                                        owner
+                                                || actor.platform()
+                                                || !Collections.disjoint(
+                                                        plan.getTenantIds(), actor.scope()))
+                        .map(plan -> mapper.plan(p, plan, actor))
+                        .filter(
+                                row ->
+                                        needle.isBlank()
+                                                || (row.name() != null
+                                                        && row.name().toLowerCase(Locale.ROOT).contains(needle))
+                                                || (row.code() != null
+                                                        && row.code().toLowerCase(Locale.ROOT).contains(needle)))
+                        .sorted(planDirectorySort(sort))
+                        .toList();
+        int pageSize = Math.min(Math.max(size, 1), 100);
+        int from = Math.min(page * pageSize, all.size()), to = Math.min(from + pageSize, all.size());
+        return PageResponse.<PlanResponse>builder()
+                .content(all.subList(from, to))
+                .page(page)
+                .size(pageSize)
+                .totalElements(all.size())
+                .totalPages((int) Math.ceil(all.size() / (double) pageSize))
+                .build();
+    }
+
+    private Comparator<PlanResponse> planDirectorySort(String sort) {
+        var parts = (sort == null || sort.isBlank() ? "name,asc" : sort).split(",", 2);
+        String field = parts[0].trim();
+        boolean descending = parts.length > 1 && parts[1].trim().equalsIgnoreCase("desc");
+        Comparator<PlanResponse> comparator =
+                switch (field) {
+                    case "code" -> Comparator.comparing(
+                            PlanResponse::code, Comparator.nullsLast(Comparator.naturalOrder()));
+                    case "status" -> Comparator.comparing(
+                            p -> p.status() == null ? "" : p.status().name());
+                    case "updatedAt" -> Comparator.comparing(
+                            PlanResponse::updatedAt, Comparator.nullsLast(Comparator.naturalOrder()));
+                    default -> Comparator.comparing(
+                            PlanResponse::name, Comparator.nullsLast(Comparator.naturalOrder()));
+                };
+        return descending ? comparator.reversed() : comparator;
+    }
+
     @Override
     public PropositionOptionsResponse options() {
         var actor = access.current();

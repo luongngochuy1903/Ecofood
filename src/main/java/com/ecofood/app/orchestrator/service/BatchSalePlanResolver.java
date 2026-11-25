@@ -6,35 +6,102 @@ import com.ecofood.app.orchestrator.security.PlanSaleAccess;
 import com.ecofood.app.transaction.dto.BatchTransactionDtos;
 import com.ecofood.app.transaction.entity.InvoicePlanLine;
 import com.ecofood.app.transaction.service.InvoiceSnapshotFactory;
+import com.ecofood.core.client.CoreProductProcessClient;
 import com.ecofood.core.dto.*;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-/** Uses the existing ACTIVE version and distribution guards, without changing UC-014 schemas. */
+/** Resolves each item straight from its planId — the caller never names an Orchestrator directly. */
 @Service
 @RequiredArgsConstructor
 public class BatchSalePlanResolver {
   private final PlanSaleOrchestratorRepository orchestrators;
   private final PlanSaleAccess access;
   private final InvoiceSnapshotFactory snapshots;
+  private final CoreProductProcessClient productProcesses;
 
-  public InvoicePlanLine resolve(String tenant, String subject, String number,
+  public InvoicePlanLine resolve(String tenant, String subject, int index,
       BatchTransactionDtos.Item item, Instant receivedAt) {
-    var row=orchestrators.findByIdAndTenantId(item.orchestratorId(),tenant)
-        .orElseThrow(()->new ForbiddenException("Orchestrator unavailable in this Tenant"));
-    if(!Objects.equals(item.planId(),row.getPlanId())) throw new BadRequestException("Plan does not match Orchestrator");
-    var version=PlanSaleOrchestratorServiceImpl.active(row);
-    var scope=access.require(tenant,row.getPropositionId(),row.getPlanId()); access.active(scope);
-    String currency=access.currency(scope);
-    try { if(Currency.getInstance(currency).getDefaultFractionDigits()<0) throw new IllegalArgumentException(); }
-    catch(RuntimeException invalid) { throw new BadRequestException("Plan currency unavailable"); }
-    var binding=new SaleOrchestratorConfig(tenant,subject,tenant,row.getPlanId(),row.getPropositionId(),true,true,true,Set.of(currency),version.configuration().maxItems());
-    // Internal snapshot adapter only; no sale timestamp is invented or persisted on the Invoice.
-    var request=new SubmitTransactionRequest(number,null,currency,item.amount(),List.of());
-    var prepared=new PreparedSaleTransaction(row.getId(),version.version(),binding,request,Map.of(),Set.of());
-    return new InvoicePlanLine(item.lineId(),row.getId(),row.getPlanId(),scope.plan().getName(),
-        item.quantity().longValueExact(),item.unitPrice(),item.amount(),snapshots.capture(tenant,prepared,receivedAt),false);
+    var row = orchestrators.findByTenantIdAndPlanIdsContaining(tenant, item.planId())
+        .orElseThrow(() -> new BadRequestException("Plan is not configured for sale: " + item.planId()));
+    var scope = access.require(tenant, row.getPropositionId(), item.planId());
+    access.active(scope);
+    String currency = access.currency(scope);
+    try { if (Currency.getInstance(currency).getDefaultFractionDigits() < 0) throw new IllegalArgumentException(); }
+    catch (RuntimeException invalid) { throw new BadRequestException("Plan currency unavailable"); }
+    BigDecimal unitPrice = resolveUnitPrice(row.getPlanItems(), scope, item);
+    requireAdditionalInfo(row.getAdditionalInfoFields(), item);
+    BigDecimal amount = unitPrice.multiply(item.quantity());
+    var binding = new SaleOrchestratorConfig(tenant, subject, tenant, item.planId(), row.getPropositionId(),
+        true, true, true, Set.of(currency), Integer.MAX_VALUE);
+    String lineId = "item-" + index;
+    // Internal snapshot adapter only; no sale timestamp is invented or
+    // persisted on the Invoice. Its own invoiceNumber slot is unused by
+    // InvoiceSnapshotFactory — there is no caller-supplied invoice id to
+    // pass through here, so lineId fills it purely to satisfy the shape.
+    var request = new SubmitTransactionRequest(lineId, null, currency, amount, List.of());
+    var prepared = new PreparedSaleTransaction(row.getId(), 1, binding, request, Map.of(), Set.of());
+    return new InvoicePlanLine(lineId, row.getId(), item.planId(), planName(item.planId()),
+        item.quantity().longValueExact(), unitPrice, amount,
+        snapshots.capture(tenant, prepared, receivedAt), item.actualPrice() != null, item.additionalInfo());
+  }
+
+  /**
+   * actualPrice falls back to the Plan's own defined selling price only
+   * when the owning Orchestrator's planItems config leaves it optional
+   * (the default); marking it required there means a submitted item must
+   * always supply its own actualPrice, no fallback.
+   */
+  private BigDecimal resolveUnitPrice(
+      List<SaleConfigurationField> planItems, PlanSaleAccess.Scope scope, BatchTransactionDtos.Item item) {
+    boolean actualPriceRequired = planItems.stream()
+        .filter(f -> f.key().equals("actualPrice"))
+        .findFirst()
+        .map(SaleConfigurationField::required)
+        .orElse(false);
+    if (actualPriceRequired) {
+      if (item.actualPrice() == null)
+        throw new BadRequestException("actualPrice is required for Plan: " + item.planId());
+      return item.actualPrice();
+    }
+    BigDecimal unitPrice = item.actualPrice() != null ? item.actualPrice() : access.sellingPrice(scope);
+    if (unitPrice == null)
+      throw new BadRequestException("Plan has no defined selling price; actualPrice is required: " + item.planId());
+    return unitPrice;
+  }
+
+  /** Each required Additional Info field the owning Orchestrator configured must carry a non-null value. */
+  private void requireAdditionalInfo(
+      List<SaleConfigurationField> fields, BatchTransactionDtos.Item item) {
+    for (var field : fields) {
+      if (!field.required()) continue;
+      var value = item.additionalInfo() == null ? null : item.additionalInfo().get(field.key());
+      if (value == null)
+        throw new BadRequestException(
+            "Missing required additionalInfo field for Plan " + item.planId() + ": " + field.key());
+    }
+  }
+
+  /** Validated once per Receipt, per distinct Orchestrator its items touch — see BatchTransactionService.resolveLines. */
+  public void requireInvoiceHolder(String orchestratorId, Map<String, Object> invoiceHolder) {
+    var row = orchestrators.findById(orchestratorId).orElse(null);
+    if (row == null) return;
+    for (var field : row.getInvoiceHolder()) {
+      if (!field.required()) continue;
+      var value = invoiceHolder == null ? null : invoiceHolder.get(field.key());
+      if (value == null)
+        throw new BadRequestException("Missing required invoiceHolder field: " + field.key());
+    }
+  }
+
+  /** The Plan's own name now lives on its cloned product process, not on the embedded Plan itself. */
+  private String planName(String planId) {
+    var content = productProcesses.get(planId);
+    if (content.definition() == null || content.definition().processElementAttribute() == null
+        || content.definition().processElementAttribute().isEmpty()) return null;
+    return content.definition().processElementAttribute().get(0).productName();
   }
 }

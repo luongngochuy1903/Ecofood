@@ -35,7 +35,6 @@ public class ProductProcessEntity extends BaseEntity {
   @Transient private String description;
   @Transient private String imageUrl;
   @Transient @Builder.Default private List<ProductIngredientRequest> ingredients=List.of();
-  @Transient @Builder.Default private List<ProductComponentRequest> componentProducts=List.of();
   @Transient private ProductRecipeRequest recipe;
   @Transient private ProductPricingRequest pricing;
   @Transient private ProductCostingRequest costing;

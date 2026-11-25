@@ -17,8 +17,10 @@ class CatalogDataTest {
   @BeforeEach void setup() throws Exception { f=new CatalogFixtures(); }
   @Test void pinnedApprovedProcessIsUsedEvenWhenLatestProductVersionIsDraft() {
     var resolved=f.data.resolve(f.actor,new CatalogDtos.Selection(PROP,PLAN1),CatalogTypeEnum.PRODUCT);
-    assertEquals(4,resolved.pin().productVersion()); assertEquals(PROCESS,resolved.pin().productProcessId()); assertEquals("Approved Food",resolved.item().name());
-    assertFalse(f.db.collections.containsKey("product_costing_attribute")); assertFalse(f.db.collections.containsKey("product_overview_attribute"));
+    // The item's displayed name/description/image now come from the Plan's OWN
+    // clone, not the Product's definition — only the Product process identity
+    // (version/id) is still read off the source Product for eligibility.
+    assertEquals(4,resolved.pin().productVersion()); assertEquals(PROCESS,resolved.pin().productProcessId()); assertEquals("Plan "+PLAN1,resolved.item().name());
   }
   @Test void productDraftProcessAndMismatchedDefinitionRevisionCannotBePublished() {
     var raw=f.db.raw(com.ecofood.app.product.entity.ProductProcessEntity.class,new ObjectId(PROCESS)); raw.put("status","DRAFT");
@@ -37,13 +39,13 @@ class CatalogDataTest {
     assertThrows(ResponseStatusException.class,()-> f.data.resolve(f.actor, selection4, CatalogTypeEnum.PRODUCT));
   }
   @Test void missingPriceDoesNotFallBackToProductCostingOrInventAnAmount() {
-    f.proposition.getPlans().get(0).setMarketConfiguration(null);
+    f.db.rows(com.ecofood.app.product.entity.ProductCostingAttribute.class).values().iterator().next().put("sellingPrice",null);
     var selection5 = new CatalogDtos.Selection(PROP,PLAN1);
     assertThrows(ResponseStatusException.class,()-> f.data.resolve(f.actor, selection5, CatalogTypeEnum.PRICE));
     assertNull(f.data.resolve(f.actor,new CatalogDtos.Selection(PROP,PLAN1),CatalogTypeEnum.PRODUCT).item().price());
   }
   @Test void supersededPlanIsDeniedRatherThanAutomaticallyReboundToNewPlan() {
-    var newer=plan("dddddddddddddddddddddddd",List.of(A,B)); newer.setVersion(2); newer.setPreviousVersionId(PLAN1); f.proposition.setPlans(List.of(f.proposition.getPlans().get(0),newer));
+    var newer=plan("dddddddddddddddddddddddd",List.of(A,B),f.db); newer.setVersion(2); newer.setPreviousVersionId(PLAN1); f.proposition.setPlans(List.of(f.proposition.getPlans().get(0),newer));
     var selection6 = new CatalogDtos.Selection(PROP,PLAN1);
     assertThrows(ResponseStatusException.class,()-> f.data.resolve(f.actor, selection6, CatalogTypeEnum.PRODUCT));
     assertEquals(2,f.data.resolve(f.actor,new CatalogDtos.Selection(PROP,newer.getIdAsString()),CatalogTypeEnum.PRODUCT).pin().planVersion());

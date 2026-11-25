@@ -269,4 +269,54 @@ class InternalTokenServiceTest {
 
     verify(tokenBlacklistService, never()).revoke(any(), any(Long.class));
   }
+
+  @Test
+  void verifyTokenRejectsATokenIssuedBeforeAGlobalLogoutForThatUser() {
+    stubLookups();
+    TokenPair pair = internalTokenService.mintTokenPair(userId.toHexString(), tenantId.toHexString());
+    when(tokenBlacklistService.isRevoked(org.mockito.ArgumentMatchers.anyString())).thenReturn(false);
+    when(tokenBlacklistService.isIssuedBeforeInvalidation(eq(userId.toHexString()), any(Long.class)))
+        .thenReturn(true);
+
+    assertThatThrownBy(() -> internalTokenService.verifyToken(pair.accessToken()))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("global logout");
+  }
+
+  @Test
+  void logoutRevokesBothJtisAndInvalidatesTheUserGloballyUsingTheAccessTokensSubject() {
+    stubLookups();
+    TokenPair pair = internalTokenService.mintTokenPair(userId.toHexString(), tenantId.toHexString());
+    String jti = decode(pair.accessToken()).getId();
+
+    internalTokenService.logout(pair.accessToken(), pair.refreshToken());
+
+    // access and refresh share one jti, so revoke() fires once per token (twice total) with it.
+    verify(tokenBlacklistService, org.mockito.Mockito.times(2)).revoke(eq(jti), any(Long.class));
+    verify(tokenBlacklistService).invalidateAllForUser(userId.toHexString());
+  }
+
+  @Test
+  void logoutFallsBackToTheRefreshTokensSubjectWhenTheAccessTokenIsGarbage() {
+    stubLookups();
+    TokenPair pair = internalTokenService.mintTokenPair(userId.toHexString(), tenantId.toHexString());
+
+    internalTokenService.logout("totally-not-a-jwt", pair.refreshToken());
+
+    verify(tokenBlacklistService).invalidateAllForUser(userId.toHexString());
+  }
+
+  @Test
+  void logoutNeverInvalidatesAUserIdForgedIntoAnUnsignedTokenString() {
+    // The "sub" claim here would decode to userId.toHexString() if read
+    // without signature verification — logout() must never trust that.
+    String forged =
+        Jwts.builder().subject(userId.toHexString()).claim("tokenType", "access").compact();
+
+    internalTokenService.logout(forged, null);
+
+    // invalidateAllForUser is still called (it's null-safe), but never with the forged subject.
+    verify(tokenBlacklistService, never()).invalidateAllForUser(userId.toHexString());
+    verify(tokenBlacklistService).invalidateAllForUser(null);
+  }
 }

@@ -26,16 +26,18 @@ public class ProductVersionReviewService {
       source.setApprovedAt(null); source.setApprovedBy(null);
       processes.save(source);
     }
+    // Propositions have no review status of their own — only the cached
+    // sourceProcess.status (read by Plan-approval validation) needs to stay
+    // in sync with the actual Product process going back to PENDING_REVIEW.
     var query = new Query(Criteria.where("enterpriseId").is(product.getEnterpriseId())
         .and("productId").is(product.getId()).and("productVersion").is(version)
-        .and("deleted").ne(true));
-    query.addCriteria(new Criteria().orOperator(Criteria.where("status").ne(PropositionStatusEnum.PENDING_REVIEW), Criteria.where("sourceProcess.status").ne(ProductStatusEnum.PENDING_REVIEW)));
+        .and("deleted").ne(true)
+        .and("sourceProcess.status").ne(ProductStatusEnum.PENDING_REVIEW));
     var now = Instant.now();
     var actor = "PRODUCT_VERSION_REVIEW";
     var audit = new org.bson.Document("action", "PRODUCT_VERSION_PENDING_REVIEW")
         .append("actorId", actor).append("at", now).append("status", "PENDING_REVIEW");
-    mongo.updateMulti(query, new Update().set("status", PropositionStatusEnum.PENDING_REVIEW)
-        .unset("approvedAt").unset("approvedBy").set("sourceProcess.status", ProductStatusEnum.PENDING_REVIEW)
+    mongo.updateMulti(query, new Update().set("sourceProcess.status", ProductStatusEnum.PENDING_REVIEW)
         // This system action has no user ObjectId; its identity lives in changes.actorId.
         .set("updatedAt", now).unset("updatedBy").inc("revision", 1).push("changes", audit), PropositionEntity.class);
     // Ack only after both steps succeed. Revision prevents a stale Product save restoring the queue.

@@ -116,34 +116,27 @@ public class PropositionValidation {
                 : amounts.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
-    public void proposition(PropositionEntity p) {
-        var d = p.getDefinition();
-        bean(d);
-        metrics(d);
-        dates(d.startDate(), d.endDate(), null, null);
-        if (d.targetYear() == null
-                || d.expectRevenue() == null
-                || d.enterpriseProfitShare() == null
-                || d.platformProfitShare() == null
-                || d.distributionProfitShare() == null)
-            bad(
-                    "Complete Proposition target year, expected revenue and profit shares before submitting for review");
-        if (p.getSourceProcess() == null
-                || p.getSourceProcess().status() != ProductStatusEnum.APPROVED)
-            bad("An APPROVED ProductProcess is required");
-    }
-
+    /**
+     * `content` is the Plan's own cloned product-process (see
+     * CoreProductProcessClient) — a Plan always carries one (created
+     * alongside the Plan itself), so a missing/null value here would mean
+     * the Core client call already threw rather than this method being
+     * reached. There's no more "permitted customization" to gate: a Plan
+     * is a full, always-editable clone, not a sparse set of overrides.
+     *
+     * <p>Deliberately does not require the Plan's own bound Product version
+     * to be APPROVED — a Plan can be submitted for review and approved
+     * independently of that Product version's own review status.
+     */
     public void plan(
             PropositionEntity p,
             Plan plan,
             List<PropositionTenantReference> eligible,
-            boolean approving) {
+            boolean approving,
+            ProductProcessResponse content) {
         var d = p.getDefinition();
-        if (plan.getName() == null
-                || plan.getName().isBlank()
-                || plan.getTenantIds() == null
-                || plan.getTenantIds().isEmpty())
-            bad("Plan name and distribution Sub-Tenants are required");
+        if (plan.getTenantIds() == null || plan.getTenantIds().isEmpty())
+            bad("Plan distribution Sub-Tenants are required");
         if (approving) {
             bean(d);
             metrics(d);
@@ -161,69 +154,14 @@ public class PropositionValidation {
                 bad(
                         "Plan Country of Sale must match every selected Sub-Tenant's onboarding country");
         dates(plan.getStartDate(), plan.getEndDate(), d.startDate(), d.endDate());
-        var o = plan.getProductOverrides();
-        if (o != null) {
-            if (o.recipe() != null) {
-                if (!d.allowedOverrides().contains(PlanOverrideField.RECIPE))
-                    bad("Product Process recipe customization is not permitted");
-                bean(o.recipe());
-                if (o.recipe().enabled()
-                        && (o.recipe().steps() == null || o.recipe().steps().isEmpty()))
-                    bad("Enabled Product Process recipe requires steps");
-                if (o.recipe().steps() != null) {
-                    var orders = new HashSet<Integer>();
-                    for (var step : o.recipe().steps())
-                        if (step == null || !orders.add(step.order()))
-                            bad(
-                                    "Product Process steps must be non-null and have unique order values");
-                }
-            }
-            if (o.name() != null
-                    && (!d.allowedOverrides().contains(PlanOverrideField.NAME)
-                            || o.name().isBlank()))
-                bad("Product name override is not permitted or is blank");
-            if (o.description() != null
-                    && !d.allowedOverrides().contains(PlanOverrideField.DESCRIPTION))
-                bad("Description override is not permitted");
-            if (o.imageUrl() != null) {
-                if (!d.allowedOverrides().contains(PlanOverrideField.IMAGE_URL))
-                    bad("Image override is not permitted");
-                if (!o.imageUrl().isBlank())
-                    try {
-                        var uri = java.net.URI.create(o.imageUrl());
-                        if (!("https".equalsIgnoreCase(uri.getScheme())
-                                        || "http".equalsIgnoreCase(uri.getScheme()))
-                                || uri.getHost() == null) bad("Image must be an HTTP(S) URL");
-                    } catch (IllegalArgumentException ex) {
-                        bad("Image must be an HTTP(S) URL");
-                    }
-            }
-        }
-        if (approving && plan.getMarketConfiguration() == null)
-            bad("Market configuration is required before approval");
-        if (p.getSourceProcess() == null
-                || p.getSourceProcess().status() != ProductStatusEnum.APPROVED)
-            bad("An APPROVED ProductProcess is required");
-        for (var other : p.getPlans())
-            if (!Boolean.TRUE.equals(other.getDeleted())
-                    && !other.getId().equals(plan.getId())
-                    && !(plan.getPreviousVersionId() != null
-                            && plan.getPreviousVersionId().equals(other.getIdAsString()))
-                    && !(other.getPreviousVersionId() != null
-                            && other.getPreviousVersionId().equals(plan.getIdAsString()))
-                    && overlaps(plan, other))
-                bad("Plan overlaps another Plan in country, tenant and effective period");
-    }
-
-    private boolean overlaps(Plan a, Plan b) {
-        if (Collections.disjoint(a.getRegionIds(), b.getRegionIds())
-                || Collections.disjoint(a.getTenantIds(), b.getTenantIds())) return false;
-        return (a.getEndDate() == null
-                        || b.getStartDate() == null
-                        || b.getStartDate().isBefore(a.getEndDate()))
-                && (b.getEndDate() == null
-                        || a.getStartDate() == null
-                        || a.getStartDate().isBefore(b.getEndDate()));
+        if (approving
+                && (content == null
+                        || content.costing() == null
+                        || content.costing().processElementAttribute() == null
+                        || content.costing().processElementAttribute().isEmpty()
+                        || content.costing().processElementAttribute().get(0).sellingPrice()
+                                == null))
+            bad("A selling price is required before approval");
     }
 
     public static void bad(String text) {

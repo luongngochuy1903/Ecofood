@@ -38,4 +38,34 @@ class TokenBlacklistServiceTest {
     tokenBlacklistService.isRevoked(jti);
     assertThat(tokenBlacklistService.isRevoked(jti)).isFalse();
   }
+
+  @Test
+  void isIssuedBeforeInvalidationFalseForAUserNeverInvalidated() {
+    assertThat(tokenBlacklistService.isIssuedBeforeInvalidation("user-1", Instant.now().getEpochSecond())).isFalse();
+  }
+
+  @Test
+  void isIssuedBeforeInvalidationTrueForATokenIssuedBeforeTheRecordedLogout() {
+    String userId = "user-2";
+    long issuedAt = Instant.now().getEpochSecond();
+    tokenBlacklistService.invalidateAllForUser(userId);
+
+    assertThat(tokenBlacklistService.isIssuedBeforeInvalidation(userId, issuedAt - 5)).isTrue();
+  }
+
+  @Test
+  void isIssuedBeforeInvalidationFalseForATokenIssuedAtOrAfterTheRecordedLogout() {
+    String userId = "user-3";
+    tokenBlacklistService.invalidateAllForUser(userId);
+    long afterLogout = Instant.now().getEpochSecond() + 5;
+
+    assertThat(tokenBlacklistService.isIssuedBeforeInvalidation(userId, afterLogout)).isFalse();
+  }
+
+  @Test
+  void invalidateAllForUserIsANoOpForNullUserId() {
+    tokenBlacklistService.invalidateAllForUser(null);
+
+    assertThat(tokenBlacklistService.isIssuedBeforeInvalidation(null, Instant.now().getEpochSecond())).isFalse();
+  }
 }

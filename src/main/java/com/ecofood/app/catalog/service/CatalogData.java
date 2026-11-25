@@ -21,6 +21,7 @@ import com.ecofood.core.enums.CatalogTypeEnum;
 import com.ecofood.core.enums.PartnerTypeEnum;
 import com.ecofood.core.enums.ProductStatusEnum;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.*;
@@ -65,26 +66,47 @@ public class CatalogData {
     if(!Objects.equals(actor.tenant().enterpriseId(),p.getEnterpriseId().toHexString())
         && parties.eligible(p).stream().noneMatch(t->t.id().equals(actor.tenant().id()))) throw unavailable();
     var product=mongo.findById(p.getProductId(),ProductEntity.class);
-    var process=p.getProductProcessId()==null?null:mongo.findById(p.getProductProcessId(),ProductProcessEntity.class);
-    requireApprovedSource(p,product,process);
-    var definition=mongo.findById(process.getDefinition().processElementAttribute().get(0),ProductDefinitionAttribute.class);
-    requireDefinition(process,definition);
-    var overrides=plan.getProductOverrides();
-    String name=overrides!=null && overrides.name()!=null?overrides.name():definition.getProductName();
-    String description=overrides!=null && overrides.description()!=null?overrides.description():definition.getDescription();
-    String image=overrides!=null && overrides.imageUrl()!=null?overrides.imageUrl():definition.getImagesURL();
-    MarketConfigurationResponse price=type==CatalogTypeEnum.PRICE?price(plan):null;
+    // The Plan's own bound Product version gates eligibility (it must stay
+    // APPROVED and its own definition must still match its approved revision) —
+    // the Proposition itself no longer pins any version, so a future change to
+    // one Plan's bound version only affects that Plan's family, not the whole
+    // Proposition. The catalog's displayed content is still the Plan's OWN full
+    // clone, not an "override" layered on top of the Product's definition.
+    var process=plan.getProductVersion()==null?null:mongo.findOne(
+        org.springframework.data.mongodb.core.query.Query.query(
+            org.springframework.data.mongodb.core.query.Criteria.where("product_identifier").is(p.getProductId())
+                .and("version").is(plan.getProductVersion())),
+        ProductProcessEntity.class);
+    requireApprovedSource(p,plan,product,process);
+    var sourceDefinition=mongo.findById(process.getDefinition().processElementAttribute().get(0),ProductDefinitionAttribute.class);
+    requireDefinition(process,sourceDefinition);
+    var planProcess=planProcess(plan);
+    requirePlanProcess(plan,planProcess);
+    var definition=mongo.findById(planProcess.getDefinition().processElementAttribute().get(0),ProductDefinitionAttribute.class);
+    requireDefinition(planProcess,definition);
+    MarketConfigurationResponse price=type==CatalogTypeEnum.PRICE?price(planProcess):null;
     var item=new CatalogDtos.Item(p.getIdAsString(),plan.getIdAsString(),plan.getVersion(),product.getIdAsString(),process.getVersion(),
-        definition.getCode(),name,description,definition.getCategory(),image,price);
+        definition.getCode(),definition.getProductName(),definition.getDescription(),definition.getCategory(),definition.getImagesURL(),price);
     var pin=new CatalogDtos.Pin(p.getIdAsString(),plan.getIdAsString(),plan.getVersion(),product.getIdAsString(),process.getIdAsString(),process.getVersion(),
         process.getRevision(),definition.getIdAsString(),fingerprint(item));
     return new Resolved(pin,item,eligible);
   }
-  private void requireApprovedSource(PropositionEntity p,ProductEntity product,ProductProcessEntity process) {
+  /** A Plan's own cloned process — always version 1, keyed by the Plan's own id (see CoreProductProcessClient). */
+  private ProductProcessEntity planProcess(Plan plan) {
+    return mongo.findOne(org.springframework.data.mongodb.core.query.Query.query(
+        org.springframework.data.mongodb.core.query.Criteria.where("product_identifier").is(plan.getId()).and("version").is(1)),ProductProcessEntity.class);
+  }
+  private void requireApprovedSource(PropositionEntity p,Plan plan,ProductEntity product,ProductProcessEntity process) {
     if(product==null || Boolean.TRUE.equals(product.getDeleted()) || !p.getEnterpriseId().equals(product.getEnterpriseId())
-        || process==null || Boolean.TRUE.equals(process.getDeleted()) || !p.getProductId().equals(process.getProductId()) || process.getVersion()!=p.getProductVersion()
+        || plan.getProductVersion()==null
+        || process==null || Boolean.TRUE.equals(process.getDeleted()) || !p.getProductId().equals(process.getProductId()) || process.getVersion()!=plan.getProductVersion()
         || process.getStatus()!=ProductStatusEnum.APPROVED || process.getRevision()==null || process.getDefinition()==null || process.getDefinition().processElementAttribute()==null
         || process.getDefinition().processElementAttribute().size()!=1) throw invalid("Approved typed ProductProcess source is unavailable");
+  }
+  private void requirePlanProcess(Plan plan,ProductProcessEntity process) {
+    if(process==null || Boolean.TRUE.equals(process.getDeleted()) || !plan.getId().equals(process.getProductId())
+        || process.getRevision()==null || process.getDefinition()==null || process.getDefinition().processElementAttribute()==null
+        || process.getDefinition().processElementAttribute().size()!=1) throw invalid("Plan product content is unavailable");
   }
   private void requireDefinition(ProductProcessEntity process,ProductDefinitionAttribute definition) {
     if(definition==null || Boolean.TRUE.equals(definition.getDeleted()) || !process.getId().equals(definition.getProductProcessId())
@@ -122,8 +144,8 @@ public class CatalogData {
         var selected = resolve(actor, new CatalogDtos.Selection(proposition.getIdAsString(), plan.getIdAsString()), type);
         if (selected.partnerIds().isEmpty()) continue;
         result.add(new CatalogDtos.PlanOption(proposition.getIdAsString(), proposition.getDefinition().name(),
-            plan.getIdAsString(), plan.getName(), plan.getVersion(), selected.pin().productId(),
-            selected.pin().productVersion(), plan.getMarketConfiguration() == null ? null : plan.getMarketConfiguration().currency(),
+            plan.getIdAsString(), selected.item().name(), plan.getVersion(), selected.pin().productId(),
+            selected.pin().productVersion(), planCurrency(plan),
             selected.partnerIds()));
       } catch (ResponseStatusException unavailable) { /* Only eligible, scoped options are exposed. */ }
     }
@@ -133,12 +155,28 @@ public class CatalogData {
     return new CatalogDtos.Options(List.of(CatalogTypeEnum.values()),List.of("VOUCHER","COMBO"),ids.stream().map(tenants::propositionReference)
         .map(t->new CatalogDtos.PartnerOption(t.id(),t.name())).toList());
   }
-  private MarketConfigurationResponse price(Plan plan) {
-    var m=plan.getMarketConfiguration();
-    if(m==null || m.currency()==null || m.currency().isBlank() || !m.currency().equals(m.currency().toUpperCase(Locale.ROOT))) throw invalid("Approved Plan MarketConfiguration currency is missing");
-    try { Currency.getInstance(m.currency()); } catch(IllegalArgumentException invalid) { throw invalid("Unsupported MarketConfiguration currency"); }
-    if(java.util.Arrays.asList(m.salePrice(),m.taxRate(),m.surcharge(),m.taxAmount(),m.totalPrice()).stream().anyMatch(v->v==null || v.signum()<0)) throw invalid("MarketConfiguration price components are incomplete");
-    return m; // No pricing recalculation or currency conversion in UC-017.
+  /** Plan's own costing carries a selling price and a margin-stage tax rate, not a precomputed tax amount/total — compute those here (no surcharge concept at this layer, unlike the old Plan-level MarketConfiguration). */
+  private MarketConfigurationResponse price(ProductProcessEntity planProcess) {
+    if(planProcess.getCostingProcess()==null || planProcess.getCostingProcess().processElementAttribute()==null
+        || planProcess.getCostingProcess().processElementAttribute().size()!=1) throw invalid("Plan costing is unavailable");
+    var costing=mongo.findById(planProcess.getCostingProcess().processElementAttribute().get(0),ProductCostingAttribute.class);
+    if(costing==null || costing.getSellingPrice()==null || costing.getCurrency()==null) throw invalid("Plan selling price is required");
+    var currency=costing.getCurrency();
+    int digits;
+    try { digits=Currency.getInstance(currency).getDefaultFractionDigits(); } catch(IllegalArgumentException invalid) { throw invalid("Unsupported Plan currency"); }
+    if(costing.getSellingPrice().signum()<0) throw invalid("Plan selling price cannot be negative");
+    var price=costing.getSellingPrice().setScale(digits,RoundingMode.HALF_UP);
+    var rate=costing.getTax()==null?BigDecimal.ZERO:costing.getTax();
+    var tax=price.multiply(rate).divide(new BigDecimal("100"),digits,RoundingMode.HALF_UP);
+    var surcharge=BigDecimal.ZERO.setScale(digits);
+    return new MarketConfigurationResponse(currency,price,rate,surcharge,tax,price.add(tax).add(surcharge));
+  }
+  private String planCurrency(Plan plan) {
+    var process=planProcess(plan);
+    if(process==null || process.getCostingProcess()==null || process.getCostingProcess().processElementAttribute()==null
+        || process.getCostingProcess().processElementAttribute().isEmpty()) return null;
+    var costing=mongo.findById(process.getCostingProcess().processElementAttribute().get(0),ProductCostingAttribute.class);
+    return costing==null?null:costing.getCurrency();
   }
   static String fingerprint(CatalogDtos.Item item) {
     var price=item.price();
