@@ -1,5 +1,8 @@
 package com.ecofood.app.userACL.controller;
 
+import com.ecofood.app.config.Audited;
+import com.ecofood.core.enums.AuditAction;
+
 import com.ecofood.app.userACL.dto.AddPermissionsToRoleRequest;
 import com.ecofood.app.userACL.dto.AddRolesToGroupRequest;
 import com.ecofood.app.userACL.dto.RoleCreateRequest;
@@ -55,6 +58,7 @@ public class RoleController {
    * set, the new role is also linked into that existing Group's GroupRole
    * doc in the same call (see GroupService.addRolesToGroup).
    */
+  @Audited(AuditAction.CREATE)
   @PostMapping
   public ResponseEntity<RoleResponse> createRole(@Valid @RequestBody RoleCreateRequest request) {
     RoleResponse role = roleService.createRole(request);
@@ -72,6 +76,7 @@ public class RoleController {
   }
 
   /** Updates a role's basic fields and group membership — backs the Edit Role modal's Save action. */
+  @Audited(AuditAction.UPDATE)
   @PutMapping("/{roleId}")
   public ResponseEntity<RoleResponse> updateRole(@PathVariable String roleId, @Valid @RequestBody RoleUpdateRequest request) {
     return ResponseEntity.ok(roleService.updateRole(roleId, request));
@@ -84,6 +89,7 @@ public class RoleController {
   }
 
   /** Adds (never replaces) permissions on a role — backs the Manage Permissions modal's Save action. */
+  @Audited(AuditAction.UPDATE)
   @PostMapping("/{roleId}/permissions")
   public ResponseEntity<RolePermissionResponse> addPermissions(
       @PathVariable String roleId, @Valid @RequestBody AddPermissionsToRoleRequest request) {

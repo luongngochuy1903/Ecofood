@@ -1,5 +1,7 @@
 package com.ecofood.app.orchestrator.controller;
 
+import com.ecofood.app.config.Audited;
+import com.ecofood.core.enums.AuditAction;
 import com.ecofood.core.dto.PageResponse;
 import com.ecofood.core.dto.PlanSaleOrchestratorDirectoryResponse;
 import com.ecofood.core.dto.PlanSaleOrchestratorRequest;
@@ -36,12 +38,14 @@ public class PlanSaleOrchestratorController {
     return service.get(propositionId, id);
   }
 
+  @Audited(AuditAction.CREATE)
   @PostMapping
   public ResponseEntity<PlanSaleOrchestratorResponse> create(
       @PathVariable String propositionId, @Valid @RequestBody PlanSaleOrchestratorRequest r) {
     return ResponseEntity.status(HttpStatus.CREATED).body(service.create(propositionId, r));
   }
 
+  @Audited(AuditAction.UPDATE)
   @PutMapping("/{id}")
   public PlanSaleOrchestratorResponse update(
       @PathVariable String propositionId, @PathVariable String id, @Valid @RequestBody PlanSaleOrchestratorRequest r) {

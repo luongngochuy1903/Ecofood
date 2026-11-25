@@ -1,4 +1,7 @@
 package com.ecofood.app.product.controller;
+
+import com.ecofood.app.config.Audited;
+import com.ecofood.core.enums.AuditAction;
 import com.ecofood.core.dto.*;
 import com.ecofood.core.enums.*;
 import com.ecofood.core.service.ProductQueryService;
@@ -24,16 +27,20 @@ public class ProductController {
   @GetMapping("/{id}") public ProductResponse detail(@PathVariable String id) {
     return productQueryService.getById(id);
   }
+  @Audited(AuditAction.CREATE)
   @PostMapping public ResponseEntity<ProductResponse> create(@Valid @RequestBody ProductCreateRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED).body(productService.create(request));
   }
+  @Audited(AuditAction.UPDATE)
   @PutMapping("/{id}") public ProductResponse update(@PathVariable String id,
       @Valid @RequestBody ProductUpdateRequest request) {
     return productService.update(id,request);
   }
+  @Audited(AuditAction.UPDATE)
   @PostMapping("/{id}/submit") public ProductResponse submit(@PathVariable String id) {
     return productService.submit(id);
   }
+  @Audited(AuditAction.UPDATE)
   @PostMapping("/{id}/processes/{version}/approve") public ProductResponse approve(@PathVariable String id,@PathVariable int version,
       @RequestBody(required=false) ProductApproveRequest request) {
     return productService.approve(id,version,request);
@@ -42,6 +49,7 @@ public class ProductController {
       @PathVariable String id,@PathVariable int version) {
     return productService.pendingPlanApprovals(id,version);
   }
+  @Audited(AuditAction.UPDATE)
   @PostMapping("/{id}/processes/{version}/reject") public ProductResponse reject(@PathVariable String id,@PathVariable int version,
       @Valid @RequestBody ProductDecisionRequest request) {
     return productService.reject(id,version,request);
@@ -55,6 +63,7 @@ public class ProductController {
   @GetMapping("/{id}/processes/{version}") public ProductResponse process(@PathVariable String id,@PathVariable int version) {
     return productQueryService.getVersion(id,version);
   }
+  @Audited(AuditAction.CREATE)
   @PostMapping("/{id}/versions") public ResponseEntity<ProductResponse> newVersion(@PathVariable String id) {
     return ResponseEntity.status(HttpStatus.CREATED).body(productService.newVersion(id));
   }

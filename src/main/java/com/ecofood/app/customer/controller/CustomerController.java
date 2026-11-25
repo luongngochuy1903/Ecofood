@@ -1,5 +1,8 @@
 package com.ecofood.app.customer.controller;
 
+import com.ecofood.app.config.Audited;
+import com.ecofood.core.enums.AuditAction;
+
 import com.ecofood.core.dto.CustomerDtos;
 import com.ecofood.core.service.CustomerQueryService;
 import com.ecofood.core.service.CustomerService;
@@ -16,6 +19,7 @@ public class CustomerController {
   private final CustomerService service;
   private final CustomerQueryService queries;
   @GetMapping public ResponseEntity<CustomerDtos.Profile> profile() { return noStore(service.profile()); }
+  @Audited(AuditAction.UPDATE)
   @PutMapping public ResponseEntity<CustomerDtos.Profile> update(@Valid @RequestBody CustomerDtos.UpdateProfile input) { return noStore(service.update(input)); }
   @GetMapping("/invoices") public ResponseEntity<CustomerDtos.Page<CustomerDtos.OwnedInvoice>> invoices(@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) { return noStore(queries.invoices(page, size)); }
   @GetMapping("/invoices/{id}") public ResponseEntity<CustomerDtos.OwnedInvoice> invoice(@PathVariable String id) { return noStore(queries.detail(id)); }

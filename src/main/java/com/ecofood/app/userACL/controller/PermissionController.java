@@ -1,5 +1,8 @@
 package com.ecofood.app.userACL.controller;
 
+import com.ecofood.app.config.Audited;
+import com.ecofood.core.enums.AuditAction;
+
 import com.ecofood.app.userACL.dto.PermissionCreateRequest;
 import com.ecofood.app.userACL.dto.PermissionResponse;
 import com.ecofood.app.userACL.dto.PermissionSummary;
@@ -32,6 +35,7 @@ public class PermissionController {
 
   private final PermissionService permissionService;
 
+  @Audited(AuditAction.CREATE)
   @PostMapping
   public ResponseEntity<PermissionWithRoleResponse> createPermission(
       @Valid @RequestBody PermissionWithRoleRequest request) {
@@ -39,6 +43,7 @@ public class PermissionController {
   }
 
   /** Creates a standalone Permission, unattached to any Role — backs the "+ New Permission" form. */
+  @Audited(AuditAction.CREATE)
   @PostMapping("/standalone")
   public ResponseEntity<PermissionResponse> createStandalonePermission(
       @Valid @RequestBody PermissionCreateRequest request) {
@@ -58,6 +63,7 @@ public class PermissionController {
   }
 
   /** Updates a permission's basic fields — backs the Edit Permission modal's Save action. */
+  @Audited(AuditAction.UPDATE)
   @PutMapping("/{permissionId}")
   public ResponseEntity<PermissionResponse> updatePermission(
       @PathVariable String permissionId, @Valid @RequestBody PermissionUpdateRequest request) {

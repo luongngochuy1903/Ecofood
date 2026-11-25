@@ -1,5 +1,8 @@
 package com.ecofood.app.tenant.controller;
 
+import com.ecofood.app.config.Audited;
+import com.ecofood.core.enums.AuditAction;
+
 import com.ecofood.core.dto.DomainAvailabilityResponse;
 import com.ecofood.core.dto.PageResponse;
 import com.ecofood.core.dto.TenantLoginInfoResponse;
@@ -31,6 +34,7 @@ public class TenantController {
 
   private final TenantService tenantService;
 
+  @Audited(AuditAction.CREATE)
   @PostMapping
   public ResponseEntity<TenantOnboardResponse> onboardTenant(@Valid @RequestBody TenantOnboardRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED).body(tenantService.onboardTenant(request));
@@ -114,6 +118,7 @@ public class TenantController {
    * TenantService.updateTenant javadoc for why it's this narrow and how it's
    * role-scoped. Authenticated-only, same as /directory and /{id}.
    */
+  @Audited(AuditAction.UPDATE)
   @PutMapping("/{id}")
   public ResponseEntity<TenantResponse> updateTenant(
       @PathVariable String id, @Valid @RequestBody TenantUpdateRequest request) {
