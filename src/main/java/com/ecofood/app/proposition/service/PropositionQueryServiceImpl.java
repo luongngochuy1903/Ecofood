@@ -93,17 +93,10 @@ public class PropositionQueryServiceImpl implements PropositionQueryService {
         var actor = access.current();
         var p = load(id);
         access.read(actor, p);
-        boolean owner = access.owns(actor, p);
         var needle = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
         var all =
                 p.getPlans().stream()
-                        .filter(plan -> !Boolean.TRUE.equals(plan.getDeleted()))
-                        .filter(
-                                plan ->
-                                        owner
-                                                || actor.platform()
-                                                || !Collections.disjoint(
-                                                        plan.getTenantIds(), actor.scope()))
+                        .filter(plan -> access.visiblePlan(actor, p, plan))
                         .map(plan -> mapper.plan(p, plan, actor))
                         .filter(
                                 row ->

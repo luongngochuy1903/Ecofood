@@ -55,7 +55,7 @@ class PlanSaleAccessTest {
             .build();
     p.setId(new ObjectId(PROP));
     when(repo.findById(new ObjectId(PROP))).thenReturn(Optional.of(p));
-    lenient().when(products.getApprovedVersion(PRODUCT, 1)).thenReturn(mock(ProductResponse.class));
+    lenient().when(products.isVersionApproved(PRODUCT, 1)).thenReturn(true);
   }
 
   @Test
@@ -100,6 +100,31 @@ class PlanSaleAccessTest {
       auth.when(AuthenticationContext::getRoles).thenReturn(List.of("ENTERPRISE_ADMIN"));
       assertThrows(ForbiddenException.class, () -> access.currentForProposition(PROP));
     }
+  }
+
+  @Test
+  void tenantDeclaredAsAPropositionLevelDistributionPartnerSeesEveryPlanEvenOnesNotListingItDirectly() {
+    // other.tenantIds deliberately does NOT include TENANT — only the
+    // Proposition's own distributionPartnerIds (set in @BeforeEach) does.
+    var other = Plan.builder().tenantIds(List.of("someone-else")).status(PlanStatusEnum.APPROVED).build();
+    other.setId(new ObjectId(OTHER_PLAN));
+    p.setPlans(List.of(plan, other));
+    var tenant = mock(PropositionTenantReference.class);
+    when(tenant.id()).thenReturn(TENANT);
+    when(props.current())
+        .thenReturn(new PropositionAccess.Actor(tenant, Set.of(TENANT), Set.of(TENANT), false, false));
+    try (var auth = mockStatic(AuthenticationContext.class)) {
+      auth.when(AuthenticationContext::getRoles).thenReturn(List.of("TENANT_ADMIN"));
+      auth.when(AuthenticationContext::getClaims)
+          .thenReturn(Jwts.claims().subject("employee").build());
+      assertEquals(2, access.currentForProposition(PROP).plans().size());
+    }
+  }
+
+  @Test
+  void requireSucceedsForADistributionPartnerEvenWhenThePlanDoesNotListItDirectly() {
+    plan.setTenantIds(List.of("someone-else"));
+    assertSame(plan, access.require(TENANT, PROP, PLAN).plan());
   }
 
   @Test
@@ -153,8 +178,7 @@ class PlanSaleAccessTest {
 
   @Test
   void activeRejectsAPlanWhoseBoundProductVersionIsNoLongerApproved() {
-    when(products.getApprovedVersion(PRODUCT, 1))
-        .thenThrow(new ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "Product version is not approved"));
+    when(products.isVersionApproved(PRODUCT, 1)).thenReturn(false);
     var scope = access.require(TENANT, PROP, PLAN);
     assertThrows(ResponseStatusException.class, () -> access.active(scope));
   }

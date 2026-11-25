@@ -32,10 +32,16 @@ public class PlanSaleOrchestratorServiceImpl implements PlanSaleOrchestratorServ
   private final PlanSaleAccess access;
   private final CoreProductProcessClient productProcesses;
 
+  /**
+   * Any actor who can see this Proposition at all can view every Sale
+   * Orchestrator on it, not only ones created under their own Tenant —
+   * the only scope that matters for viewing is "same Proposition." Editing
+   * stays narrower (see update()/load()).
+   */
   @Override
   public PlanSaleOrchestratorResponse get(String propositionId, String id) {
     var scope = access.currentForProposition(propositionId);
-    var row = load(scope, id);
+    var row = loadForView(scope, id);
     return response(row, scope);
   }
 
@@ -83,10 +89,9 @@ public class PlanSaleOrchestratorServiceImpl implements PlanSaleOrchestratorServ
     var planNames = new HashMap<String, String>();
     for (var plan : scope.plans()) planNames.put(plan.getIdAsString(), planName(plan));
     var needle = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
-    var rows =
-        scope.enterprise()
-            ? repository.findByPropositionId(propositionId)
-            : repository.findByTenantIdAndPropositionId(scope.tenantId(), propositionId);
+    // Same "same Proposition is the only scope" rule as get() — every
+    // participant sees every Sale Orchestrator on this Proposition.
+    var rows = repository.findByPropositionId(propositionId);
     var all =
         rows.stream()
             .map(row -> directoryRow(row, planNames))
@@ -164,7 +169,8 @@ public class PlanSaleOrchestratorServiceImpl implements PlanSaleOrchestratorServ
         row.getCreatedAt(),
         row.getUpdatedAt(),
         row.getCreatedBy(),
-        row.getUpdatedBy());
+        row.getUpdatedBy(),
+        scope.enterprise() || row.getTenantId().equals(scope.tenantId()));
   }
 
   /**
@@ -278,8 +284,9 @@ public class PlanSaleOrchestratorServiceImpl implements PlanSaleOrchestratorServ
   }
 
   /**
-   * A Tenant actor only ever loads its own Orchestrators; an Enterprise
-   * actor owns the whole Proposition, so it can load any Tenant's.
+   * Edit-scoped lookup, used only by update(): a Tenant actor may only load
+   * (and so only edit) its own Orchestrators; an Enterprise actor owns the
+   * whole Proposition, so it can load — and edit — any Tenant's.
    */
   private PlanSaleOrchestrator load(PlanSaleAccess.PropositionScope scope, String id) {
     var found =
@@ -289,6 +296,19 @@ public class PlanSaleOrchestratorServiceImpl implements PlanSaleOrchestratorServ
                 id, scope.tenantId(), scope.proposition().getIdAsString());
     return found.orElseThrow(
         () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Sale Orchestrator not found"));
+  }
+
+  /**
+   * View-scoped lookup, used only by get(): any actor who can see this
+   * Proposition at all (already enforced by access.currentForProposition())
+   * can view any Sale Orchestrator on it, regardless of which Tenant
+   * created it.
+   */
+  private PlanSaleOrchestrator loadForView(PlanSaleAccess.PropositionScope scope, String id) {
+    return repository
+        .findByIdAndPropositionId(id, scope.proposition().getIdAsString())
+        .orElseThrow(
+            () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Sale Orchestrator not found"));
   }
 
   private void revision(PlanSaleOrchestrator row, Long expected) {

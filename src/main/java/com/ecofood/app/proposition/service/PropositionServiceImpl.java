@@ -174,6 +174,7 @@ public class PropositionServiceImpl implements PropositionService {
         if (plan.getStatus() != PlanStatusEnum.PENDING_REVIEW)
             throw PropositionAccess.error(
                     HttpStatus.CONFLICT, "Only Pending Review Plans can be approved");
+        requireApprovedProductVersion(p, plan);
         parties.validate(p);
         var content = productProcesses.get(plan.getIdAsString());
         validation.plan(p, plan, parties.eligible(p), true, content);
@@ -511,6 +512,28 @@ public class PropositionServiceImpl implements PropositionService {
     private String planCurrency(PropositionEntity p, ProductProcessResponse content) {
         var c = costingOf(content);
         return c == null || c.currency() == null ? p.getDefinition().currency() : c.currency();
+    }
+
+    /**
+     * A Plan may not reach APPROVED while the Product version it's bound to
+     * (plan.getProductVersion()) isn't itself Approved — same rule the
+     * submit-transaction flow already enforces live (see
+     * PlanSaleAccess.requireApprovedProductVersion), now enforced at the
+     * point a Plan's own status changes too, not only at sale time.
+     */
+    private void requireApprovedProductVersion(PropositionEntity p, Plan plan) {
+        var productId = p.getProductId();
+        var version = plan.getProductVersion();
+        // isVersionApproved is a system-level check with no ACL-role gate —
+        // the approving actor's own authorization is already checked
+        // separately (access.plan above); this is purely about the
+        // Product's own state, not about who is allowed to approve.
+        if (productId == null
+                || version == null
+                || !products.isVersionApproved(productId.toHexString(), version))
+            throw PropositionAccess.error(
+                    HttpStatus.CONFLICT,
+                    "Plan's bound Product version is unavailable or no longer Approved");
     }
 
     private PropositionDefinition definition(PropositionEntity p, PropositionDefinition d) {
