@@ -69,6 +69,14 @@ public class ProductQueryServiceImpl implements ProductQueryService {
     }
     return productProcessMapper.toResponse(p,v);
   }
+  @Override public boolean isVersionApproved(String id, int versionNo) {
+    if (id == null || !ObjectId.isValid(id)) return false;
+    return products.findById(new ObjectId(id))
+        .filter(p -> !Boolean.TRUE.equals(p.getDeleted()))
+        .flatMap(p -> versions.findByProductIdAndVersion(p.getId(), versionNo))
+        .map(v -> v.getStatus() == ProductStatusEnum.APPROVED)
+        .orElse(false);
+  }
   private ProductEntity findOwned(String id) {
     var actor = authorization.currentRead();
     if (id == null || !ObjectId.isValid(id)) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Product not found");

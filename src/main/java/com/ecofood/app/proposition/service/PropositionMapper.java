@@ -29,13 +29,7 @@ public class PropositionMapper {
                         : eligible.stream().filter(t -> actor.scope().contains(t.id())).toList();
         var plans =
                 p.getPlans().stream()
-                        .filter(plan -> !Boolean.TRUE.equals(plan.getDeleted()))
-                        .filter(
-                                plan ->
-                                        owner
-                                                || actor.platform()
-                                                || !Collections.disjoint(
-                                                        plan.getTenantIds(), actor.scope()))
+                        .filter(plan -> access.visiblePlan(actor, p, plan))
                         .map(plan -> plan(p, plan, actor))
                         .toList();
         var d = p.getDefinition();

@@ -63,12 +63,23 @@ public class PlanSaleAccess {
             .orElseThrow(PlanSaleAccess::missingProposition);
     access.read(actor, p);
     String tenantId = actor.tenant().id();
+    // A Tenant declared as a distribution partner on the Proposition itself
+    // (definition.distributionPartnerIds) gets every Plan in it, not only
+    // ones that separately list it in their own tenantIds — the Proposition-
+    // level partner declaration is the real, sufficient authorization now
+    // (see PlanSaleAccess.require(), which enforces the same rule at the
+    // real submit-transaction sale-eligibility check).
+    boolean partnerOnProposition =
+        p.getDefinition() != null
+            && p.getDefinition().distributionPartnerIds() != null
+            && p.getDefinition().distributionPartnerIds().contains(tenantId);
     var plans =
         p.getPlans().stream()
             .filter(
                 v ->
                     !Boolean.TRUE.equals(v.getDeleted())
                         && (actor.enterprise()
+                            || partnerOnProposition
                             || (v.getTenantIds() != null && v.getTenantIds().contains(tenantId))))
             .toList();
     return new PropositionScope(tenantId, subject, actor.enterprise(), p, plans);
@@ -122,10 +133,13 @@ public class PlanSaleAccess {
     if (p.getDefinition() == null
         || p.getDefinition().distributionPartnerIds() == null
         || !p.getDefinition().distributionPartnerIds().contains(tenantId)) throw missing();
+    // Being a declared distribution partner on the Proposition itself is
+    // sufficient to sell any of its Plans now — Plan.tenantIds is no longer
+    // a required, additional per-Plan restriction on top of that (checked
+    // above); it's already implied by distributionPartnerIds membership.
     String canonicalPlanId = new ObjectId(planId).toHexString();
     var plan =
         p.getPlans().stream()
-            .filter(v -> canonicalPlanId.equals(v.getIdAsString()))
             .filter(
                 v ->
                     !Boolean.TRUE.equals(v.getDeleted()))

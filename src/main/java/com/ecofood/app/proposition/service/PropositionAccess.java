@@ -110,6 +110,23 @@ public class PropositionAccess {
         if (!canRead(a, p)) throw error(HttpStatus.NOT_FOUND, "Proposition not found");
     }
 
+    /**
+     * A Tenant declared as a distribution partner on the Proposition itself
+     * (definition.distributionPartnerIds) can see every Plan in it, not only
+     * ones that separately list it in their own tenantIds — same rule
+     * PlanSaleAccess.currentForProposition()/require() enforce for Sale
+     * Orchestrator scope and the real submit-transaction eligibility check.
+     * Used by both PropositionMapper.response() (the embedded plans list)
+     * and PropositionQueryServiceImpl.planDirectory().
+     */
+    public boolean visiblePlan(Actor a, PropositionEntity p, Plan plan) {
+        if (Boolean.TRUE.equals(plan.getDeleted())) return false;
+        if (owns(a, p) || a.platform()) return true;
+        if (p.getDefinition().distributionPartnerIds().stream().anyMatch(a.readScope()::contains))
+            return true;
+        return !Collections.disjoint(plan.getTenantIds(), a.scope());
+    }
+
     public void owner(Actor a, PropositionEntity p) {
         read(a, p);
         if (!owns(a, p))

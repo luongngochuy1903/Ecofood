@@ -162,6 +162,7 @@ class PropositionApiTest {
                         "Meals",
                         null);
         when(products.getApprovedVersion(product, 1)).thenReturn(productDto);
+        lenient().when(products.isVersionApproved(eq(product), anyInt())).thenReturn(true);
         when(products.getById(product)).thenReturn(productDto);
         when(products.processes(product)).thenReturn(List.of(source));
         when(products.list(any(), any(), any(), any()))
@@ -495,6 +496,28 @@ class PropositionApiTest {
     }
 
     @Test
+    void approvingAPlanIsRejectedWhileItsBoundProductVersionIsNotApproved() throws Exception {
+        String id = create(), path = "/api/v1/propositions/" + id;
+        mvc.perform(
+                        post(path + "/plans")
+                                .header("Authorization", "Bearer " + ownerToken)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(plan(0, "TH", child, "{\"sellingPrice\":25.10}")))
+                .andExpect(status().isCreated());
+        String planId = rows().get(0).getPlans().get(0).getIdAsString();
+        action(path + "/plans/" + planId + "/submit", 200);
+        when(products.isVersionApproved(product, 1)).thenReturn(false);
+        mvc.perform(
+                        post(path + "/plans/" + planId + "/approve")
+                                .header("Authorization", "Bearer " + ownerToken)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"expectedRevision\":2}"))
+                .andExpect(status().isConflict());
+        assertThat(rows().get(0).getPlans().get(0).getStatus())
+                .isEqualTo(PlanStatusEnum.PENDING_REVIEW);
+    }
+
+    @Test
     void planDirectoryListsVisiblePlansAndSupportsSearch() throws Exception {
         String path = "/api/v1/propositions/" + create();
         mvc.perform(post(path + "/plans")
@@ -796,6 +819,27 @@ class PropositionApiTest {
                 .andExpect(jsonPath("$.definition.expectMetrics[1].quarter").value(1))
                 .andExpect(jsonPath("$.definition.expectMetrics[1].year").value(2027))
                 .andExpect(jsonPath("$.definition.expectMetrics[1].revenue").value("0.01"));
+    }
+
+    @Test
+    void aDistributionPartnerSeesEveryPlanEvenOnesNotListingItDirectly() throws Exception {
+        // `partner` is a distributionPartnerId on every createBody() Proposition
+        // (see definition()), but every Plan added below is scoped to `child`
+        // only — `partner` never appears in any individual Plan's tenantIds.
+        String id = create(), path = "/api/v1/propositions/" + id;
+        mvc.perform(
+                        post(path + "/plans")
+                                .header("Authorization", "Bearer " + ownerToken)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(plan(0, "TH", child, "null")))
+                .andExpect(status().isCreated());
+        String partnerToken = token(partner, "TENANT_ADMIN", "TENANT");
+        mvc.perform(get(path).header("Authorization", "Bearer " + partnerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.plans.length()").value(1));
+        mvc.perform(get(path + "/plans/directory").header("Authorization", "Bearer " + partnerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1));
     }
 
     @Test

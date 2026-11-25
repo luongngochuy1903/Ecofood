@@ -1,4 +1,5 @@
 package com.ecofood.app.product.service;
+import com.ecofood.app.proposition.repository.PropositionRepository;
 import com.ecofood.core.client.CoreTenantQueryClient;
 import com.ecofood.core.dto.PartyRelationshipResponse;
 import com.ecofood.core.dto.TenantResponse;
@@ -19,16 +20,23 @@ import org.springframework.web.server.ResponseStatusException;
 public class ProductAuthorization {
   private final ACLService aclService;
   private final CoreTenantQueryClient tenantQueryClient;
+  // Direct repository access (same precedent as CatalogData/PlanSaleAccess),
+  // not the usual Core*Client — going through CorePropositionQueryClient
+  // here would create a circular bean dependency (it resolves to
+  // PropositionQueryServiceImpl, which itself depends on
+  // CoreProductQueryClient -> ProductQueryServiceImpl -> this class).
+  private final PropositionRepository propositions;
 
   /**
    * Read-only Product Library visibility — wider than {@link #requireEnterprise()}:
    * ECO_ADMIN/ECO_PRODUCT_MANAGER (SYSTEM role group) get unrestricted read across
-   * every Enterprise's Products; TENANT_PRODUCT_MANAGER (TENANT role group) gets a
-   * scoped read — their own tenant plus related tenant ids, same resolution
-   * PropositionAccess uses for its own platform/scoped actors. An Enterprise
-   * actor's visibility is unchanged: just its own single Enterprise, via
-   * {@link #requireEnterprise()}. Never used to gate writes —
-   * create/update/submit/approve/reject stay Enterprise-only.
+   * every Enterprise's Products; TENANT_ADMIN/TENANT_PRODUCT_MANAGER (TENANT role
+   * group) get a scoped read — their own tenant plus related tenant ids, same
+   * resolution PropositionAccess uses for its own platform/scoped actors, plus
+   * every Enterprise owning a Proposition their tenant is a distribution partner
+   * on (see scopeOf). An Enterprise actor's visibility is unchanged: just its own
+   * single Enterprise, via {@link #requireEnterprise()}. Never used to gate
+   * writes — create/update/submit/approve/reject stay Enterprise-only.
    *
    * <p>No MASTER_TENANT branch: that role group is never actually granted to
    * any user today (no onboarding path or seed data produces it), so there's
@@ -44,7 +52,7 @@ public class ProductAuthorization {
       return new ReadActor(Set.of(), true);
     }
     if (aclService.hasTenantLevelRole()) {
-      requireRole("TENANT_PRODUCT_MANAGER");
+      requireRole("TENANT_ADMIN", "TENANT_PRODUCT_MANAGER");
       return new ReadActor(scopeOf(requireTenantId()), false);
     }
     return new ReadActor(Set.of(requireEnterprise().toHexString()), false);
@@ -80,6 +88,14 @@ public class ProductAuthorization {
           .map(PartyRelationshipResponse::getToPartyId)
           .filter(Objects::nonNull)
           .forEach(scope::add);
+    // A Distribution Partner isn't organizationally part of the Product's
+    // owning Enterprise's tenant tree at all, so none of the above ever
+    // covers it — but it should still see exactly the Products behind
+    // Propositions it's actually assigned to (never the owning Enterprise's
+    // whole catalog beyond that).
+    propositions
+        .findByDefinitionDistributionPartnerIdsInAndDeletedFalse(List.of(tenantId.toHexString()))
+        .forEach(p -> scope.add(p.getEnterpriseId().toHexString()));
     return Set.copyOf(scope);
   }
 
