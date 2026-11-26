@@ -13,7 +13,6 @@ import com.ecofood.core.dto.CustomerReceiptDtos;
 import com.ecofood.core.enums.TransactionStatus;
 import com.ecofood.core.security.AuthenticationContext;
 import com.ecofood.core.service.CustomerReceiptService;
-import com.ecofood.core.service.UserAccessService;
 import java.time.*;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
@@ -31,11 +30,9 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
   private static final String INVOICE_HOLDER_CUSTOMER_ID = "invoiceHolder.customerId";
   private static final String RECEIPT_REVOKED_AT = "customerReceipt.revokedAt";
   private static final String TENANT_ID = "tenantId";
-  public static final String ISSUE = "CUSTOMER_RECEIPT_ISSUE";
   public static final String CLAIMED = "INVOICE_CLAIMED";
   private final MongoTemplate mongo;
   private final CustomerAccess access;
-  private final UserAccessService users;
   private final CustomerSettings settings;
   private final CustomerReceiptTokens tokens;
   private final CustomerIdentity identity;
@@ -50,9 +47,6 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
     var record = mongo.findById(new ObjectId(user), UserEntity.class);
     if (record == null || Boolean.TRUE.equals(record.getDeleted()) || !CustomerIdentity.belongs(record, tenant)
         || record.getUserCategory() == null || !"PARTNER".equals(record.getUserCategory().getUserCategoryCode())) throw CustomerAccess.denied();
-    var permissions = new HashSet<>(users.resolveAccess(record.getId(), new ObjectId(tenant)).permissions());
-    permissions.retainAll(Optional.ofNullable(AuthenticationContext.getPermissions()).orElse(List.of()));
-    if (!permissions.contains(ISSUE) || !permissions.contains("TRANSACTION_SUBMIT")) throw CustomerAccess.denied();
     return new Seller(user, tenant);
   }
   private Query source(String id, Seller seller) {
