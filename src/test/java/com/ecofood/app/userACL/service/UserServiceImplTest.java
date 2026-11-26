@@ -172,6 +172,15 @@ class UserServiceImplTest {
         .hasMessageContaining(id.toHexString());
   }
 
+  /** createUser's default userCategoryCode is CUSTOMER, which now always resolves/attaches this role. */
+  private void stubCustomerRole() {
+    Role customerRole = Role.builder().name("Customer").code("CUSTOMER").roleType(RoleType.Functional).build();
+    customerRole.setId(new ObjectId());
+    when(roleRepository.findByCode("CUSTOMER")).thenReturn(Optional.of(customerRole));
+    // resolveRoles re-resolves every id (including this one) by findById, not findByCode.
+    when(roleRepository.findById(customerRole.getId())).thenReturn(Optional.of(customerRole));
+  }
+
   private void stubUserSaveAssignsId() {
     when(userRepository.save(any(UserEntity.class)))
         .thenAnswer(
@@ -203,6 +212,7 @@ class UserServiceImplTest {
   @Test
   void createUserMirrorsIntoKeycloakForTheFirstTenantAndBuildsOneRelation() {
     stubUserSaveAssignsId();
+    stubCustomerRole();
     TenantResponse acme = tenant("Acme", null);
     when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
     stubPrimaryKeycloakMirroring(acme, "kc-user-1");
@@ -225,6 +235,7 @@ class UserServiceImplTest {
   @Test
   void createUserOnlyMirrorsTheFirstTenantAssignmentIntoKeycloak() {
     stubUserSaveAssignsId();
+    stubCustomerRole();
     TenantResponse acme = tenant("Acme", null);
     TenantResponse globex = tenant("Globex", null);
     when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
@@ -250,6 +261,7 @@ class UserServiceImplTest {
   @Test
   void createUserDedupesARepeatedTenantIdInTheSameRequest() {
     stubUserSaveAssignsId();
+    stubCustomerRole();
     TenantResponse acme = tenant("Acme", null);
     when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
     stubPrimaryKeycloakMirroring(acme, "kc-user-1");
@@ -271,6 +283,7 @@ class UserServiceImplTest {
   @Test
   void createUserResolvesRolesWhenRoleIdsProvided() {
     stubUserSaveAssignsId();
+    stubCustomerRole();
     TenantResponse acme = tenant("Acme", null);
     when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
     stubPrimaryKeycloakMirroring(acme, "kc-user-1");
@@ -291,12 +304,13 @@ class UserServiceImplTest {
 
     UserResponse response = userService.createUser(request);
 
-    assertThat(response.getTenantAssignments().get(0).getRoleCodes()).containsExactly("VIEWER");
+    assertThat(response.getTenantAssignments().get(0).getRoleCodes()).containsExactly("VIEWER", "CUSTOMER");
   }
 
   @Test
   void createUserAddsEnterpriseRelationWhenTenantHasAnEnterpriseId() {
     stubUserSaveAssignsId();
+    stubCustomerRole();
     ObjectId enterpriseId = new ObjectId();
     TenantResponse acme = tenant("Acme", enterpriseId);
     when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
@@ -325,6 +339,7 @@ class UserServiceImplTest {
   @Test
   void createUserDoesNotAddEnterpriseRelationWhenTenantHasNoEnterpriseId() {
     stubUserSaveAssignsId();
+    stubCustomerRole();
     TenantResponse acme = tenant("Acme", null);
     when(tenantQueryClient.getById(acme.getId())).thenReturn(acme);
     stubPrimaryKeycloakMirroring(acme, "kc-user-1");

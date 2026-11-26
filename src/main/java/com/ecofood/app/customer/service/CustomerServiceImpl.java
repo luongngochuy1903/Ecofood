@@ -9,6 +9,7 @@ import com.ecofood.core.dto.CustomerIdentityScope;
 import com.ecofood.core.service.CustomerInvoiceService;
 import com.ecofood.core.service.CustomerQueryService;
 import com.ecofood.core.service.CustomerService;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -60,9 +61,22 @@ public class CustomerServiceImpl implements CustomerService, CustomerQueryServic
     }
     return invoice;
   }
+  /**
+   * Two distinct ownership signals, matched independently:
+   *  - invoiceHolder.userId — the legacy receipt-claim flow (CustomerReceiptServiceImpl.claim),
+   *    stamped by an already-logged-in Customer, so it's scoped to the tenant they claimed it in.
+   *  - invoiceHolder.customerId — the newer auto-link-at-submit flow
+   *    (BatchTransactionService/BatchSalePlanResolver.matchCustomer), stamped with no Customer
+   *    actually logged in (userId stays null) and NOT scoped to any one tenant, since the whole
+   *    point is one unified Customer identity (the onboarding Tenant) seeing purchases made
+   *    through whichever distribution-partner Tenant actually submitted them. Only applies when
+   *    userId is actually null — the legacy claim flow stamps BOTH fields together (same id), so
+   *    that case falls through to (and must still satisfy) the tenant-scoped clause above.
+   */
   Query owned(CustomerIdentityScope actor) {
-    return Query.query(new Criteria().andOperator(Criteria.where("tenantId").is(actor.tenantId()).and("invoiceHolder.userId").is(actor.userId()),
-        new Criteria().orOperator(Criteria.where("invoiceHolder.customerId").is(null), Criteria.where("invoiceHolder.customerId").is(actor.userId()))));
+    return Query.query(new Criteria().orOperator(
+        Criteria.where("tenantId").is(actor.tenantId()).and("invoiceHolder.userId").is(actor.userId()),
+        Criteria.where("invoiceHolder.customerId").is(actor.userId()).and("invoiceHolder.userId").is(null)));
   }
   @Override
   public Page<OwnedInvoice> invoices(int page, int size) {
@@ -75,8 +89,21 @@ public class CustomerServiceImpl implements CustomerService, CustomerQueryServic
   public OwnedInvoice detail(String id) { return invoice(requireOwned(access.current(), id)); }
   static OwnedInvoice invoice(Invoice i) {
     return new OwnedInvoice(i.getId(), i.getInvoiceNumber(), i.getType(), i.getStatus() == null ? null : i.getStatus().name(), i.getPaymentStatus(),
-        i.getTransactionTime(), i.getReceivedAt(), i.getCurrency(), i.getTotalAmount(), i.getInvoiceDocumentId(),
-        i.getItems() == null ? List.of() : i.getItems().stream().map(item -> new Item(item.productCode(), item.productName(), item.quantity(), item.unitPrice(), item.amount())).toList());
+        i.getTransactionTime(), i.getReceivedAt(), i.getCurrency(), i.getTotalAmount(), i.getInvoiceDocumentId(), items(i));
+  }
+  /**
+   * Legacy one-Plan Invoices carry their line in `items`; PLAN_SALE_BATCH
+   * Invoices (the only kind submit-transaction ever creates — see
+   * Invoice.planLines javadoc) carry it in `planLines` instead. `items` is
+   * only ever both-populated-and-empty for the legacy shape, so checking it
+   * first and falling back to planLines covers both without a type switch.
+   */
+  private static List<Item> items(Invoice i) {
+    if (i.getItems() != null && !i.getItems().isEmpty()) {
+      return i.getItems().stream().map(item -> new Item(item.productCode(), item.productName(), item.quantity(), item.unitPrice(), item.amount())).toList();
+    }
+    return i.getPlanLines() == null ? List.of()
+        : i.getPlanLines().stream().map(line -> new Item(line.planId(), line.planName(), BigDecimal.valueOf(line.quantity()), line.unitPrice(), line.amount())).toList();
   }
   public static ResponseStatusException unavailable() { return new ResponseStatusException(HttpStatus.NOT_FOUND, "Invoice unavailable"); }
 }
