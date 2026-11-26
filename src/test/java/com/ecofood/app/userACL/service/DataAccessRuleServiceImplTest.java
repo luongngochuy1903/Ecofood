@@ -71,9 +71,10 @@ class DataAccessRuleServiceImplTest {
 
   private void setUp() {
     dataAccessRuleService =
-        new DataAccessRuleServiceImpl(
+        org.mockito.Mockito.spy(new DataAccessRuleServiceImpl(
             groupRepository, groupEntityRepository, userGroupEntityRepository, userRepository,
-            tenantQueryClient, sequenceGeneratorService, aclService);
+            tenantQueryClient, sequenceGeneratorService, aclService));
+    org.mockito.Mockito.lenient().doReturn(List.of()).when(dataAccessRuleService).eligibleUsers(anyString());
   }
 
   @AfterEach
@@ -127,9 +128,20 @@ class DataAccessRuleServiceImplTest {
     request.setRuleName("Billing Viewer");
     request.setDescription("Lets partners view billing dashboards.");
     request.setAccessLevel(AccessLevelEnum.FULL_ACCESS);
+    org.mockito.Mockito.lenient().doAnswer(invocation -> request.getUserIds() == null ? List.of() : request.getUserIds().stream().map(id -> com.ecofood.core.dto.UserDirectoryResponse.builder().id(id).build()).toList()).when(dataAccessRuleService).eligibleUsers(tenantId);
     return request;
   }
 
+  @Test
+  void combinedDashboardRuleRejectsLimitedAccess() {
+    setUp();
+    when(aclService.getMaxLevel()).thenReturn(RoleLevel.SYSTEM);
+    var request = baseRequest(new ObjectId().toHexString());
+    request.setAccessEntityType(AccessEntityTypeEnum.ALL_DASHBOARDS);
+    request.setAccessLevel(AccessLevelEnum.LIMITED_ACCESS);
+    assertThatThrownBy(() -> dataAccessRuleService.create(request)).isInstanceOf(BadRequestException.class);
+    verify(groupRepository, never()).save(any(Group.class));
+  }
   @Test
   void createRejectsCustomerLevelCallers() {
     setUp();
@@ -153,6 +165,8 @@ class DataAccessRuleServiceImplTest {
 
     DataAccessRuleResponse response = dataAccessRuleService.create(request);
 
+    // Product retains its original assignment flow rather than dashboard user scoping.
+    verify(dataAccessRuleService, never()).eligibleUsers(anyString());
     assertThat(response.getCode()).isEqualTo("DAR0001");
     assertThat(response.getRuleName()).isEqualTo("Billing Viewer");
     assertThat(response.getBusinessEntityId()).isEqualTo(tenant.getId());

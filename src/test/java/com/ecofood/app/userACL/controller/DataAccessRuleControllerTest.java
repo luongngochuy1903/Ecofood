@@ -38,6 +38,13 @@ class DataAccessRuleControllerTest {
   }
 
   @Test
+  void deleteReturnsNoContentAndDelegatesToService() throws Exception {
+    mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete("/api/v1/data-access-rules/rule-id"))
+        .andExpect(status().isNoContent());
+    org.mockito.Mockito.verify(dataAccessRuleService).delete("rule-id");
+  }
+
+  @Test
   void createReturns201WithTheServiceResponse() throws Exception {
     when(dataAccessRuleService.create(any()))
         .thenReturn(

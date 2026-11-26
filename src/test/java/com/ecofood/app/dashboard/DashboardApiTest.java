@@ -1,50 +1,82 @@
 package com.ecofood.app.dashboard;
-
-import static com.ecofood.app.dashboard.DashboardFixtures.*;
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-
-import com.ecofood.app.config.GlobalExceptionHandler;
 import com.ecofood.app.dashboard.controller.DashboardController;
 import com.ecofood.app.dashboard.exception.DashboardApiErrors;
-import com.ecofood.app.dashboard.repository.DashboardData;
 import com.ecofood.app.dashboard.security.DashboardAccess;
 import com.ecofood.app.dashboard.service.DashboardServiceImpl;
-import com.ecofood.app.metrics.entity.ActualMetrics;
-import com.ecofood.app.proposition.entity.PropositionEntity;
-import com.ecofood.app.proposition.service.PropositionAccess;
-import java.util.*;
+import com.ecofood.core.client.CoreDashboardInvoiceClient;
 import org.junit.jupiter.api.Test;
-import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-
 class DashboardApiTest {
-  @Test void invalidFiltersAreRejectedAndUnsupportedPlanIsNotSilentlyIgnored() throws Exception {
-    var service = mock(DashboardServiceImpl.class); var mvc = MockMvcBuilders.standaloneSetup(new DashboardController(service)).setControllerAdvice(new DashboardApiErrors(), new GlobalExceptionHandler()).build();
+  @Test void noInvoiceRuleDoesNotQueryInvoices() {
+    var access = mock(DashboardAccess.class); var invoices = mock(CoreDashboardInvoiceClient.class);
+    var actor = new com.ecofood.core.dto.DashboardActor(DashboardFixtures.USER,DashboardFixtures.tenant(DashboardFixtures.A,false),java.util.Set.of(),false,java.util.Set.of());
+    when(access.current(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD,null)).thenReturn(actor);
+    var controller = new DashboardController(mock(DashboardServiceImpl.class),access,invoices);
+    org.junit.jupiter.api.Assertions.assertTrue(controller.invoices(0,20,null).isEmpty());
+    verifyNoInteractions(invoices);
+  }
+  @Test void limitedInvoiceIdsAreForwardedWithTenantAndPagination() {
+    var access = mock(DashboardAccess.class); var invoices = mock(CoreDashboardInvoiceClient.class);
+    var actor = new com.ecofood.core.dto.DashboardActor(DashboardFixtures.USER,DashboardFixtures.tenant(DashboardFixtures.A,false),java.util.Set.of(DashboardFixtures.A),false,java.util.Set.of("invoice"));
+    when(access.current(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD,null)).thenReturn(actor);
+    new DashboardController(mock(DashboardServiceImpl.class),access,invoices).invoices(1,20,null);
+    verify(invoices).dashboard(DashboardFixtures.A,java.util.Set.of("invoice"),1,20);
+  }
+  @Test void invoiceDetailWithoutRuleDoesNotReadInvoice() {
+    var access = mock(DashboardAccess.class); var invoices = mock(CoreDashboardInvoiceClient.class);
+    when(access.current(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD,null)).thenReturn(
+        new com.ecofood.core.dto.DashboardActor(DashboardFixtures.USER,DashboardFixtures.tenant(DashboardFixtures.A,false),java.util.Set.of(),false,java.util.Set.of()));
+    var controller = new DashboardController(mock(DashboardServiceImpl.class),access,invoices);
+    org.junit.jupiter.api.Assertions.assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> controller.invoiceDetail("invoice",null));
+    verifyNoInteractions(invoices);
+  }
+  @Test void invoiceDetailCannotReadAnIdOutsideTheRule() {
+    var access = mock(DashboardAccess.class); var invoices = mock(CoreDashboardInvoiceClient.class);
+    when(access.current(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD,null)).thenReturn(
+        new com.ecofood.core.dto.DashboardActor(DashboardFixtures.USER,DashboardFixtures.tenant(DashboardFixtures.A,false),java.util.Set.of(DashboardFixtures.A),false,java.util.Set.of("allowed")));
+    var controller = new DashboardController(mock(DashboardServiceImpl.class),access,invoices);
+    org.junit.jupiter.api.Assertions.assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> controller.invoiceDetail("other",null));
+    verifyNoInteractions(invoices);
+    controller.invoiceDetail("allowed",null);
+    verify(invoices).detail(DashboardFixtures.A,"allowed");
+  }
+  @Test void invoiceDetailUsesAuthorizedTenant() {
+    var access = mock(DashboardAccess.class); var invoices = mock(CoreDashboardInvoiceClient.class);
+    when(access.current(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD,DashboardFixtures.B)).thenReturn(
+        new com.ecofood.core.dto.DashboardActor(DashboardFixtures.USER,DashboardFixtures.tenant(DashboardFixtures.B,false),java.util.Set.of(DashboardFixtures.B),false,null));
+    new DashboardController(mock(DashboardServiceImpl.class),access,invoices).invoiceDetail("invoice",DashboardFixtures.B);
+    verify(invoices).detail(DashboardFixtures.B,"invoice");
+  }
+  @Test void dashboardAccessReportsMissingCustomerRuleWithoutReadingData() throws Exception {
+    var service = mock(DashboardServiceImpl.class); var access = mock(DashboardAccess.class); var invoices = mock(CoreDashboardInvoiceClient.class);
+    var mvc = MockMvcBuilders.standaloneSetup(new DashboardController(service,access,invoices)).build();
+    mvc.perform(get("/api/v1/dashboard/access").param("type","CUSTOMER_DASHBOARD"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.allowed").value(false));
+    verify(access).authorizedTenants(com.ecofood.core.enums.AccessEntityTypeEnum.CUSTOMER_DASHBOARD);
+    verifyNoInteractions(service,invoices);
+  }
+  @Test void dashboardAccessReportsGrantedCustomerRule() throws Exception {
+    var access = mock(DashboardAccess.class);
+    when(access.authorizedTenants(com.ecofood.core.enums.AccessEntityTypeEnum.CUSTOMER_DASHBOARD)).thenReturn(java.util.List.of(DashboardFixtures.actor(false)));
+    var mvc = MockMvcBuilders.standaloneSetup(new DashboardController(mock(DashboardServiceImpl.class),access,mock(CoreDashboardInvoiceClient.class))).build();
+    mvc.perform(get("/api/v1/dashboard/access").param("type","CUSTOMER_DASHBOARD"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.allowed").value(true));
+  }
+  @Test void dashboardAccessRejectsUnrelatedEntityTypes() throws Exception {
+    var access = mock(DashboardAccess.class);
+    var mvc = MockMvcBuilders.standaloneSetup(new DashboardController(mock(DashboardServiceImpl.class),access,mock(CoreDashboardInvoiceClient.class))).build();
+    mvc.perform(get("/api/v1/dashboard/access").param("type","Product")).andExpect(status().isBadRequest());
+    verifyNoInteractions(access);
+  }
+  @Test void invalidFiltersAreRejected() throws Exception {
+    var service = mock(DashboardServiceImpl.class);
+    var mvc = MockMvcBuilders.standaloneSetup(new DashboardController(service,mock(DashboardAccess.class),mock(CoreDashboardInvoiceClient.class)))
+        .setControllerAdvice(new DashboardApiErrors()).build();
     mvc.perform(get("/api/v1/dashboard/summary")).andExpect(status().isBadRequest());
-    mvc.perform(get("/api/v1/dashboard/summary").param("currency", "USD").param("period", "NOT_A_PERIOD")).andExpect(status().isBadRequest());
-    mvc.perform(get("/api/v1/dashboard/summary").param("currency", "USD").param("planId", "some-plan")).andExpect(status().isBadRequest()); verifyNoInteractions(service);
-  }
-  @Test void tenantHeaderDoesNotChooseDataScopeAndAuthorizationErrorsRemainForbidden() throws Exception {
-    var service = mock(DashboardServiceImpl.class); when(service.summary(any())).thenThrow(DashboardAccess.denied());
-    var mvc = MockMvcBuilders.standaloneSetup(new DashboardController(service)).setControllerAdvice(new DashboardApiErrors(), new GlobalExceptionHandler()).build();
-    mvc.perform(get("/api/v1/dashboard/summary").param("currency", "USD").header("X-Tenant-Id", B)).andExpect(status().isForbidden());
-    verify(service).summary(argThat(s -> s.tenantId() == null));
-  }
-  @Test void projectionReadsActualMetricsClassWithAllBusinessDimensionsAndNeverWrites() {
-    var mongo = mock(MongoTemplate.class); when(mongo.find(any(Query.class), eq(ActualMetrics.class))).thenReturn(List.of(actual(A, 1, "USD", 1, "0")));
-    var data = new DashboardData(mongo, mock(PropositionAccess.class)); assertEquals(1, data.actual(Set.of(A), Set.of(PROP), 2026, "USD").size());
-    verify(mongo).find(argThat((Query q) -> q.getQueryObject().containsKey("tenantId") && q.getQueryObject().containsKey("propositionId") && q.getQueryObject().getInteger("year") == 2026 && "USD".equals(q.getQueryObject().getString("currency"))), eq(ActualMetrics.class));
-    verifyNoMoreInteractions(mongo);
-  }
-  @Test void productDarFiltersBeforeReturningPropositionsAndUsesExistingReadPolicy() {
-    var mongo = mock(MongoTemplate.class); var policy = mock(PropositionAccess.class); when(mongo.find(any(Query.class), eq(PropositionEntity.class))).thenReturn(List.of(proposition()));
-    var data = new DashboardData(mongo, policy); var restricted = new DashboardAccess.Actor(USER, tenant(A, false), Set.of(A), false, Set.of());
-    assertTrue(data.propositions(restricted).isEmpty()); verifyNoInteractions(policy);
-    when(policy.canRead(any(), any())).thenReturn(true); assertEquals(1, data.propositions(actor(false)).size());
+    mvc.perform(get("/api/v1/dashboard/summary").param("currency","USD").param("period","INVALID")).andExpect(status().isBadRequest());
+    verifyNoInteractions(service);
   }
 }

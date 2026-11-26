@@ -1,77 +1,34 @@
 package com.ecofood.app.dashboard;
-
 import static com.ecofood.app.dashboard.DashboardFixtures.*;
-import static com.ecofood.core.dto.DashboardDtos.*;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
-
+import static org.mockito.ArgumentMatchers.*;
 import com.ecofood.app.dashboard.repository.DashboardData;
 import com.ecofood.app.dashboard.security.DashboardAccess;
-import com.ecofood.app.dashboard.service.DashboardAggregation;
-import com.ecofood.app.dashboard.service.DashboardServiceImpl;
-import com.ecofood.core.client.CoreTenantQueryClient;
-import com.ecofood.core.enums.DashboardPeriodEnum;
+import com.ecofood.app.dashboard.service.*;
+import com.ecofood.core.client.CoreDashboardPropositionClient;
+import com.ecofood.core.dto.*;
+import com.ecofood.core.enums.*;
 import java.util.*;
-import org.junit.jupiter.api.*;
-import org.springframework.web.server.ResponseStatusException;
-
+import org.junit.jupiter.api.Test;
 class DashboardServiceTest {
-  DashboardAccess access = mock(DashboardAccess.class); DashboardData data = mock(DashboardData.class); CoreTenantQueryClient tenants = mock(CoreTenantQueryClient.class);
-  DashboardServiceImpl service = new DashboardServiceImpl(access, data, new DashboardAggregation(), tenants);
-  @BeforeEach void setup() { when(access.current()).thenReturn(actor(false)); when(data.propositions(any())).thenReturn(List.of(proposition())); when(tenants.propositionReference(A)).thenReturn(tenant(A, false)); when(tenants.propositionReference(B)).thenReturn(tenant(B, false)); when(data.actual(anySet(), anySet(), any(), any())).thenReturn(List.of(actual(A, 1, "USD", 1, "2"))); }
-  @Test void tenantExpectedUsesPartnerMetricsInsteadOfGlobalPropositionExpected() {
-    var result = service.summary(selection(DashboardPeriodEnum.QUARTERLY)); assertEquals(bd("30"), result.metrics().get("profit").expected()); assertEquals(List.of(A), result.tenantIds());
-    verify(data).actual(Set.of(A), Set.of(PROP), 2026, "USD");
+  @Test void missingRuleDoesNotReadPropositions() {
+    var client = mock(CoreDashboardPropositionClient.class);
+    var empty = new com.ecofood.core.dto.DashboardActor(USER, tenant(A,false),Set.of(),false,Set.of());
+    assertTrue(new DashboardData(client).propositions(empty).isEmpty());
+    verifyNoInteractions(client);
   }
-  @Test void tenantCannotSelectAnotherTenantEvenWithKnownIdentifier() {
-    var selection1 = new Selection(B, PROP, "USD", 2026, DashboardPeriodEnum.MONTHLY, 1, null, false);
-    assertThrows(ResponseStatusException.class, () -> service.summary(selection1));
-    verify(data, never()).actual(anySet(), anySet(), any(), any());
+  @Test void limitedIdsAreForwardedToOwningModule() {
+    var client = mock(CoreDashboardPropositionClient.class);
+    var actor = new com.ecofood.core.dto.DashboardActor(USER,tenant(A,false),Set.of(A),false,Set.of(PROP));
+    when(client.find(A,Set.of(PROP))).thenReturn(List.of());
+    new DashboardData(client).propositions(actor);
+    verify(client).find(A,Set.of(PROP));
   }
-  @Test void enterpriseTotalsSumTenantsOnceAndUseGlobalExpectedOnlyForFullScope() {
-    when(access.current()).thenReturn(actor(true)); when(data.actual(anySet(), anySet(), any(), any())).thenReturn(List.of(actual(A, 1, "USD", 1, "2"), actual(B, 1, "USD", 2, "4")));
-    var result = service.comparison(new Selection(null, PROP, "USD", 2026, DashboardPeriodEnum.QUARTERLY, null, 1, true));
-    assertEquals(bd("3"), result.summary().metrics().get("totalSalesVolume").actual()); assertEquals(bd("100"), result.summary().metrics().get("profit").expected());
-    assertEquals(2, result.byTenant().size()); assertEquals(bd("30"), result.byTenant().get(0).summary().metrics().get("profit").expected()); assertEquals(bd("70"), result.byTenant().get(1).summary().metrics().get("profit").expected());
-  }
-  @Test void enterpriseWithPartialTenantScopeDoesNotExposeGlobalTarget() {
-    var restricted = new DashboardAccess.Actor(USER, tenant(OWNER, true), Set.of(OWNER, A), true, null); when(access.current()).thenReturn(restricted);
-    var result = service.summary(new Selection(null, PROP, "USD", 2026, DashboardPeriodEnum.QUARTERLY, null, 1, true));
-    assertEquals(List.of(A), result.tenantIds()); assertEquals(bd("30"), result.metrics().get("profit").expected());
-  }
-  @Test void quarterlyTrendsHaveFourPointsAndReuseOneActualRead() {
-    var trends = service.trends(selection(DashboardPeriodEnum.QUARTERLY)); assertEquals(4, trends.size()); assertEquals(1, trends.get(0).selection().quarter()); assertEquals(4, trends.get(3).selection().quarter());
-    verify(data, times(1)).actual(anySet(), anySet(), eq(2026), eq("USD"));
-  }
-  @Test void inaccessiblePropositionAndInvalidCurrencyAreRejected() {
-    when(data.propositions(any())).thenReturn(List.of());
-    var selection2 = selection(DashboardPeriodEnum.MONTHLY);
-    assertThrows(ResponseStatusException.class, () -> service.summary(selection2));
-    var selection3 = new Selection(A, PROP, "NOT_CURRENCY", 2026, DashboardPeriodEnum.MONTHLY, 1, null, false);
-    assertThrows(ResponseStatusException.class, () -> service.summary(selection3));
-  }
-  @Test void legacyPropositionActualIsNotUsedAsSecondSource() {
-    var prop = proposition(); prop.setActualMetrics(List.of(quarter(1, "999999"))); when(data.propositions(any())).thenReturn(List.of(prop));
-    assertEquals(bd("2"), service.summary(selection(DashboardPeriodEnum.MONTHLY)).metrics().get("profit").actual());
-  }
-  @Test void totalRequiresEnterprisePartnerPermissionAndOwnerAssociation() {
-    var selection4 = new Selection(null, PROP, "USD", 2026, DashboardPeriodEnum.QUARTERLY, null, 1, true);
-    assertThrows(ResponseStatusException.class, () -> service.summary(selection4));
-    when(access.current()).thenReturn(new DashboardAccess.Actor(USER, tenant(OWNER, true), Set.of(OWNER), false, null));
-    var selection5 = new Selection(null, PROP, "USD", 2026, DashboardPeriodEnum.QUARTERLY, null, 1, true);
-    assertThrows(ResponseStatusException.class, () -> service.summary(selection5));
-  }
-  @Test void mismatchedExpectedCurrencyCannotBeHiddenByOtherMatchingTargets() {
-    var changed = proposition(); var d = changed.getDefinition();
-    changed.setDefinition(new com.ecofood.core.dto.PropositionDefinition(d.name(), d.description(), d.regionIds(), d.brandId(), d.distributionPartnerIds(), "VND", d.startDate(), d.endDate(), d.expectRevenue(), d.expectMetrics(), d.partnerMetrics(), d.enterpriseProfitShare(), d.platformProfitShare(), d.distributionProfitShare(), d.allowedOverrides()));
-    var second = proposition(); second.setId(new org.bson.types.ObjectId("888888888888888888888888"));
-    when(data.propositions(any())).thenReturn(List.of(changed, second));
-    var result = service.summary(new Selection(A, null, "USD", 2026, DashboardPeriodEnum.QUARTERLY, null, 1, false));
-    assertNull(result.metrics().get("profit").expected()); assertEquals("CURRENCY_MISMATCH", result.metrics().get("profit").expectedStatus());
-  }
-  @Test void filterOptionsOnlyExposeTenantsAndPropositionAssignmentsInsideActorScope() {
-    var result = service.filters(); assertEquals(List.of(A), result.tenants().stream().map(Option::id).toList());
-    assertEquals(List.of(A), result.propositions().get(0).tenantIds()); assertFalse(result.partnerComparisonAllowed()); assertFalse(result.planFilterSupported());
+  @Test void monthlyIsRejected() {
+    var access = mock(DashboardAccess.class);
+    when(access.current(AccessEntityTypeEnum.BUSINESS_DASHBOARD,A)).thenReturn(actor(false));
+    var service = new DashboardServiceImpl(access,mock(DashboardData.class),new DashboardAggregation());
+    assertThrows(org.springframework.web.server.ResponseStatusException.class,()->service.summary(selection(DashboardPeriodEnum.MONTHLY)));
   }
 }

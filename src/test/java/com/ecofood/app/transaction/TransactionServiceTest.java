@@ -32,6 +32,19 @@ class TransactionServiceTest {
   }
 
   @Test
+  void dashboardDetailUsesExistingTenantScopedInvoiceRead() {
+    var invoice = new Invoice(); invoice.setId("invoice"); invoice.setTenantId("tenant"); invoice.setInvoiceNumber("INV-1");
+    invoice.setItems(java.util.List.of(new com.ecofood.core.dto.InvoiceItemDto("P1","Product",java.math.BigDecimal.ONE,java.math.BigDecimal.TEN,java.math.BigDecimal.TEN)));
+    invoice.setPlanLines(java.util.List.of(new com.ecofood.app.transaction.entity.InvoicePlanLine("line","orchestrator","plan","Plan",1,java.math.BigDecimal.TEN,java.math.BigDecimal.TEN,null,true,java.util.Map.of())));
+    when(repo.findByIdAndTenantId("invoice","tenant")).thenReturn(Optional.of(invoice));
+    var result = service.dashboardDetail("tenant","invoice");
+    assertEquals("INV-1",result.invoice().invoiceNumber());
+    assertEquals("Product",result.items().get(0).productName());
+    assertEquals("Plan",result.planLines().get(0).planName());
+    verify(repo).findByIdAndTenantId("invoice","tenant");
+    assertThrows(ResponseStatusException.class, () -> service.dashboardDetail("other","invoice"));
+  }
+  @Test
   void rejectsInvalidPagination() {
     assertThrows(BadRequestException.class, () -> service.list("tenant", 0, 101));
     assertThrows(BadRequestException.class, () -> service.list("tenant", -1, 10));

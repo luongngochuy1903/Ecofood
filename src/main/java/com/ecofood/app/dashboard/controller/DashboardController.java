@@ -16,6 +16,36 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class DashboardController {
   private final DashboardQueryService service;
+  private final DashboardAccess access;
+  private final com.ecofood.core.client.CoreDashboardInvoiceClient invoices;
+  @GetMapping("/access")
+  public java.util.Map<String, Boolean> dashboardAccess(@RequestParam com.ecofood.core.enums.AccessEntityTypeEnum type) {
+    if (!List.of(com.ecofood.core.enums.AccessEntityTypeEnum.BUSINESS_DASHBOARD,
+        com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD,
+        com.ecofood.core.enums.AccessEntityTypeEnum.CUSTOMER_DASHBOARD).contains(type))
+      throw DashboardAccess.error(org.springframework.http.HttpStatus.BAD_REQUEST, "Invalid dashboard type");
+    return java.util.Map.of("allowed", !access.authorizedTenants(type).isEmpty());
+  }
+  @GetMapping("/invoices/tenants")
+  public List<Option> invoiceTenants() {
+    return access.authorizedTenants(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD).stream()
+        .map(a -> new Option(a.tenant().id(), a.tenant().name())).toList();
+  }
+  @GetMapping("/invoices")
+  public org.springframework.data.domain.Page<com.ecofood.core.dto.DashboardInvoice> invoices(
+      @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size, @RequestParam(required = false) String tenantId) {
+    var actor = access.current(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD, tenantId);
+    if (actor.tenantScope().isEmpty()) return org.springframework.data.domain.Page.empty();
+    return invoices.dashboard(actor.tenant().id(), actor.entityIds(), page, size);
+  }
+  @GetMapping("/invoices/{id}")
+  public com.ecofood.core.dto.DashboardInvoiceDetail invoiceDetail(@PathVariable String id,
+      @RequestParam(required = false) String tenantId) {
+    var actor = access.current(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD, tenantId);
+    if (actor.tenantScope().isEmpty() || actor.entityIds() != null && !actor.entityIds().contains(id))
+      throw DashboardAccess.error(org.springframework.http.HttpStatus.NOT_FOUND, "Invoice not found");
+    return invoices.detail(actor.tenant().id(), id);
+  }
   @GetMapping("/filters") public Filters filters() { return service.filters(); }
   @GetMapping({"/summary", "/widget-data"}) public Summary summary(@RequestParam(required = false) String tenantId,
       @RequestParam(required = false) String propositionId, @RequestParam String currency,

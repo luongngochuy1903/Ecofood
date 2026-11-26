@@ -73,12 +73,46 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
   private final SequenceGeneratorService sequenceGeneratorService;
   private final ACLService aclService;
 
+  private List<ObjectId> eligibleTenantIds(String tenantId) {
+    RoleLevel level = aclService.getMaxLevel();
+    if (!ALLOWED_LEVELS.contains(level)) throw new ForbiddenException("Data access rules denied");
+    if (level != RoleLevel.SYSTEM && !resolveScopedTenantIds(level).contains(new ObjectId(tenantId)))
+      throw new ForbiddenException("Tenant is outside caller scope");
+    var tenant = tenantQueryClient.propositionReference(tenantId);
+    if (tenant.deleted()) throw new BadRequestException("Tenant is deleted");
+    var ids = new java.util.LinkedHashSet<ObjectId>(); ids.add(new ObjectId(tenantId));
+    if (tenant.relationships() != null) tenant.relationships().stream()
+        .filter(r -> "MT".equals(r.getRelationshipTypeCode())).map(r -> r.getToPartyId())
+        .filter(java.util.Objects::nonNull).map(ObjectId::new).forEach(ids::add);
+    return List.copyOf(ids);
+  }
+  @Override public List<com.ecofood.core.dto.UserDirectoryResponse> eligibleUsers(String tenantId) {
+    return userRepository.findDirectory(eligibleTenantIds(tenantId), false, null, Pageable.unpaged()).stream()
+        .filter(u -> !Boolean.TRUE.equals(u.getDeleted()))
+        .map(u -> com.ecofood.core.dto.UserDirectoryResponse.builder().id(u.getIdAsString())
+            .firstName(u.getFirstName()).lastName(u.getLastName()).email(u.getEmail()).build()).toList();
+  }
+  private void validateCombinedDashboardRule(com.ecofood.core.enums.AccessEntityTypeEnum type, AccessLevelEnum level) {
+    if (type == com.ecofood.core.enums.AccessEntityTypeEnum.ALL_DASHBOARDS && level != AccessLevelEnum.FULL_ACCESS)
+      throw new BadRequestException("All Dashboards currently supports Full Access only");
+  }
+  private void validateUsers(String tenantId, List<String> userIds) {
+    var eligible = eligibleUsers(tenantId).stream().map(com.ecofood.core.dto.UserDirectoryResponse::getId).collect(java.util.stream.Collectors.toSet());
+    if (userIds != null && !eligible.containsAll(userIds)) throw new BadRequestException("Users must belong to the selected Tenant or its direct parent");
+  }
+  private String ruleTenant(Group group) {
+    return group.getPartyRelationships().stream().filter(r -> "TENANT".equals(r.getRelationshipTypeCode()))
+        .map(r -> r.getToPartyId().toHexString()).findFirst().orElseThrow();
+  }
   @Override
   public DataAccessRuleResponse create(CreateDataAccessRuleRequest request) {
     if (!ALLOWED_LEVELS.contains(aclService.getMaxLevel())) {
       throw new ForbiddenException("Caller's role level does not grant access to data access rules");
     }
 
+    validateCombinedDashboardRule(request.getAccessEntityType(), request.getAccessLevel());
+    if (request.getAccessEntityType() != com.ecofood.core.enums.AccessEntityTypeEnum.Product)
+      validateUsers(request.getBusinessEntityId(), request.getUserIds());
     TenantResponse tenant = tenantQueryClient.getById(request.getBusinessEntityId());
 
     long sequence = sequenceGeneratorService.generateSequence(Group.SEQUENCE_NAME);
@@ -171,6 +205,9 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
       throw new ForbiddenException("Only the creator of this rule can edit it");
     }
 
+    validateCombinedDashboardRule(request.getAccessEntityType(), request.getAccessLevel());
+    if (request.getAccessEntityType() != com.ecofood.core.enums.AccessEntityTypeEnum.Product)
+      validateUsers(ruleTenant(group), request.getUserIds());
     group.setName(request.getRuleName());
     group.setGroupDescription(request.getDescription());
     group.setAccessLevel(request.getAccessLevel());
@@ -183,10 +220,33 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
     return toDetailResponse(group);
   }
 
+  @Override
+  public void delete(String id) {
+    var level = aclService.getMaxLevel();
+    if (!ALLOWED_LEVELS.contains(level)) throw new ForbiddenException("Data access rules denied");
+    // Allow retrying cleanup of an already-deleted rule after a partial failure.
+    Group group = groupRepository.findById(new ObjectId(id))
+        .filter(g -> g.getGroupType() == GroupType.ACCESS_CONTROL_GROUP)
+        .orElseThrow(() -> new IllegalArgumentException("Data access rule not found: " + id));
+    if (!isOwnedByCaller(group)) throw new ForbiddenException("Only the creator of this rule can delete it");
+    if (level != RoleLevel.SYSTEM && !resolveScopedTenantIds(level).contains(new ObjectId(ruleTenant(group))))
+      throw new ForbiddenException("Tenant is outside caller scope");
+    // Readers ignore deleted groups immediately, even if subsequent cleanup needs a retry.
+    group.setDeleted(true);
+    groupRepository.save(group);
+    for (var membership : userGroupEntityRepository.findAllByGroups_GroupIdentifier(group.getId())) {
+      if (membership.getGroups() != null) {
+        membership.getGroups().removeIf(link -> group.getId().equals(link.getGroupIdentifier()));
+        userGroupEntityRepository.save(membership);
+      }
+    }
+    groupEntityRepository.deleteAll(groupEntityRepository.findAllByGroupIdentifier(group.getId()));
+  }
+
   private Group loadAccessControlGroup(String id) {
     Group group =
         groupRepository.findById(new ObjectId(id)).orElseThrow(() -> new IllegalArgumentException("Data access rule not found: " + id));
-    if (group.getGroupType() != GroupType.ACCESS_CONTROL_GROUP) {
+    if (group.getGroupType() != GroupType.ACCESS_CONTROL_GROUP || Boolean.TRUE.equals(group.getDeleted())) {
       throw new IllegalArgumentException("Data access rule not found: " + id);
     }
     return group;
