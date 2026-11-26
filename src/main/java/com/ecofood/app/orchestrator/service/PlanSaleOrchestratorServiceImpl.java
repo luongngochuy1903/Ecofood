@@ -57,6 +57,7 @@ public class PlanSaleOrchestratorServiceImpl implements PlanSaleOrchestratorServ
     row.setPlanIds(planIds);
     row.setPlanItems(requirePlanItems(request));
     row.setAdditionalInfoFields(requireAdditionalInfoFields(request));
+    row.setCreateCustomer(Boolean.TRUE.equals(request.createCustomer()));
     row.setInvoiceHolder(requireInvoiceHolderFields(request));
     row.setCreatedAt(Instant.now());
     row.setCreatedBy(scope.actor());
@@ -76,6 +77,7 @@ public class PlanSaleOrchestratorServiceImpl implements PlanSaleOrchestratorServ
     row.setPlanIds(planIds);
     row.setPlanItems(requirePlanItems(request));
     row.setAdditionalInfoFields(requireAdditionalInfoFields(request));
+    row.setCreateCustomer(Boolean.TRUE.equals(request.createCustomer()));
     row.setInvoiceHolder(requireInvoiceHolderFields(request));
     row.setUpdatedAt(Instant.now());
     row.setUpdatedBy(scope.actor());
@@ -170,7 +172,8 @@ public class PlanSaleOrchestratorServiceImpl implements PlanSaleOrchestratorServ
         row.getUpdatedAt(),
         row.getCreatedBy(),
         row.getUpdatedBy(),
-        scope.enterprise() || row.getTenantId().equals(scope.tenantId()));
+        scope.enterprise() || row.getTenantId().equals(scope.tenantId()),
+        row.isCreateCustomer());
   }
 
   /**
@@ -199,7 +202,22 @@ public class PlanSaleOrchestratorServiceImpl implements PlanSaleOrchestratorServ
         ? defaultInvoiceHolder() : request.invoiceHolder();
     requireUniqueKeys(fields, Set.of());
     validateDataTypes(fields);
-    return List.copyOf(fields);
+    return List.copyOf(Boolean.TRUE.equals(request.createCustomer()) ? withLockedExternalId(fields) : fields);
+  }
+
+  /**
+   * When createCustomer is enabled, invoiceHolder always carries exactly one
+   * externalId field, forced required — this is the key submit-transaction
+   * matches against Customer.externalIds, so its presence/required-ness is
+   * never left to the request (any externalId field the request submitted
+   * is replaced, not merely validated).
+   */
+  private List<SaleConfigurationField> withLockedExternalId(List<SaleConfigurationField> fields) {
+    var combined = new ArrayList<SaleConfigurationField>(fields.size() + 1);
+    for (var f : fields) if (!"externalId".equals(f.key())) combined.add(f);
+    combined.add(new SaleConfigurationField("externalId", "STRING", "External Id",
+        "Distribution partner's own id for this Customer — matched against Customer.externalIds to auto-link the Invoice.", true));
+    return combined;
   }
 
   /**

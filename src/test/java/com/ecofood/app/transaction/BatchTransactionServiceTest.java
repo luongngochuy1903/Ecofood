@@ -114,6 +114,17 @@ class BatchTransactionServiceTest {
     assertEquals("ACCEPTED",response.transaction().invoices().get(0).result());
     verify(plans).requireInvoiceHolder("orch", Map.of("email","a@b.com"));
   }
+  @Test void acceptedInvoiceIsLinkedToTheMatchedCustomerWhenOneIsFound() {
+    when(plans.matchCustomer("tenant", "orch", Map.of("externalId", "ext-1"))).thenReturn(Optional.of("customer-1"));
+    service.submit("tenant","seller",request(new Receipt(Map.of("externalId","ext-1"),List.of(item("A",1)))));
+    var invoice = invoices.values().iterator().next();
+    assertEquals("customer-1", invoice.getInvoiceHolder().customerId());
+    assertNull(invoice.getInvoiceHolder().userId());
+  }
+  @Test void acceptedInvoiceStaysUnlinkedWhenNoCustomerMatches() {
+    service.submit("tenant","seller",request(new Receipt(Map.of("externalId","ext-1"),List.of(item("A",1)))));
+    assertNull(invoices.values().iterator().next().getInvoiceHolder());
+  }
   @Test void acceptedInvoicePersistsTheReceiptsInvoiceHolderAsOrchestratorPayload() {
     service.submit("tenant","seller",request(new Receipt(Map.of("email","a@b.com"),List.of(item("A",1)))));
     assertEquals(Map.of("email","a@b.com"),invoices.values().iterator().next().getOrchestratorPayload());

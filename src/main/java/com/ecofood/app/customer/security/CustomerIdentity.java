@@ -108,6 +108,19 @@ public class CustomerIdentity implements CustomerIdentityService {
             .set("customerVerifiedEmailHash", CustomerReceiptTokens.hash(email(claims))), CustomerUser.class);
   }
   public static boolean belongs(UserEntity user, String tenant) { return user.getPartyRelationships() != null && user.getPartyRelationships().stream().anyMatch(r -> "TENANT".equals(r.getRelationshipTypeCode()) && new ObjectId(tenant).equals(r.getToPartyId())); }
+  /**
+   * Submit-transaction auto-link: matches a distribution partner's
+   * externalId (carried in the Receipt's invoiceHolder) against Customer
+   * accounts linked to it via the external-customer QR flow. Ambiguous (more
+   * than one match) or no match both return empty — linking is best-effort,
+   * never a submission error.
+   */
+  public Optional<String> matchByExternalId(String tenantId, String externalId) {
+    if (tenantId == null || externalId == null || externalId.isBlank() || !ObjectId.isValid(tenantId)) return Optional.empty();
+    var matches = mongo.find(Query.query(Criteria.where("externalIds").is(externalId).and("deleted").ne(true)
+        .and("partyRelationships").elemMatch(Criteria.where("relationshipTypeCode").is("TENANT").and("toPartyId").is(new ObjectId(tenantId)))), CustomerUser.class);
+    return matches.size() == 1 ? Optional.of(matches.get(0).getIdAsString()) : Optional.empty();
+  }
   private String email(JWTClaimsSet claims) {
     Object raw = claims.getClaim(EMAIL);
     String email = raw instanceof String s ? s.trim().toLowerCase(Locale.ROOT) : "";

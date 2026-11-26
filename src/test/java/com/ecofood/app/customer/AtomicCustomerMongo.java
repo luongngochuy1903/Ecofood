@@ -58,12 +58,18 @@ class AtomicCustomerMongo {
         case "$set" -> put(doc, path, value, false);
         case "$unset" -> put(doc, path, null, true);
         case "$inc" -> put(doc, path, ((Number) Optional.ofNullable(get(doc, path)).orElse(0)).intValue() + ((Number) value).intValue(), false);
+        case "$addToSet" -> addToSet(doc, path, value);
         default -> throw new UnsupportedOperationException(operation.getKey());
       }
     }
   }
   @SuppressWarnings("unchecked") static Object get(Map<String, Object> doc, String path) {
     Object result = doc; for (String segment : path.split("\\.")) { if (!(result instanceof Map)) return null; result = ((Map<String, Object>) result).get(segment); } return result;
+  }
+  @SuppressWarnings("unchecked") static void addToSet(Map<String, Object> doc, String path, Object value) {
+    List<Object> list = new ArrayList<>((List<Object>) Optional.ofNullable(get(doc, path)).orElseGet(List::of));
+    if (!list.contains(value)) list.add(value);
+    put(doc, path, list, false);
   }
   @SuppressWarnings("unchecked") static void put(Map<String, Object> doc, String path, Object value, boolean remove) {
     String[] parts = path.split("\\."); Map<String, Object> target = doc;

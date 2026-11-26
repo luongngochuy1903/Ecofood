@@ -111,7 +111,8 @@ public class BatchTransactionService {
   }
 
   private Invoice prepare(String tenant, String subject, Receipt receipt, Instant now) {
-    var lines = resolveLines(tenant, subject, receipt, now);
+    var resolved = resolveLines(tenant, subject, receipt, now);
+    var lines = resolved.lines();
     var invoice = new Invoice();
     invoice.setId(new ObjectId().toHexString());
     invoice.setTenantId(tenant);
@@ -141,10 +142,20 @@ public class BatchTransactionService {
     // where they're actually kept rather than discarded after validation.
     invoice.setOrchestratorPayload(receipt.invoiceHolder());
     invoice.setPostWorkflowResults(Map.of());
+    // Best-effort auto-link, only when some distinct Orchestrator this
+    // Receipt touched has createCustomer enabled and the submitted
+    // externalId matched exactly one Customer — see
+    // BatchSalePlanResolver.matchCustomer. userId stays null: no Customer is
+    // actually logged in at submit time, only customerId is known.
+    if (resolved.customerId() != null) {
+      invoice.setInvoiceHolder(new Invoice.InvoiceHolder(resolved.customerId(), null));
+    }
     return invoice;
   }
 
-  private List<InvoicePlanLine> resolveLines(String tenant, String subject, Receipt receipt, Instant now) {
+  private record ResolvedLines(List<InvoicePlanLine> lines, String customerId) {}
+
+  private ResolvedLines resolveLines(String tenant, String subject, Receipt receipt, Instant now) {
     var lines = new ArrayList<InvoicePlanLine>();
     String currency = null;
     var items = receipt.items();
@@ -159,9 +170,12 @@ public class BatchTransactionService {
     }
     // invoiceHolder is carried once per Receipt, not per item — validated
     // once per distinct Orchestrator the Receipt's own items resolved to.
-    lines.stream().map(InvoicePlanLine::orchestratorId).distinct()
-        .forEach(orchestratorId -> plans.requireInvoiceHolder(orchestratorId, receipt.invoiceHolder()));
-    return lines;
+    String customerId = null;
+    for (var orchestratorId : lines.stream().map(InvoicePlanLine::orchestratorId).distinct().toList()) {
+      plans.requireInvoiceHolder(orchestratorId, receipt.invoiceHolder());
+      if (customerId == null) customerId = plans.matchCustomer(tenant, orchestratorId, receipt.invoiceHolder()).orElse(null);
+    }
+    return new ResolvedLines(lines, customerId);
   }
 
   private Receipt canonical(Receipt receipt) {
