@@ -31,7 +31,8 @@ public class CustomerReceiptTokens {
     catch (NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
   }
   public static void validate(String token) { if (token == null || !token.matches("[A-Za-z0-9_-]{43}")) throw CustomerServiceImpl.unavailable(); }
-  public String url(String token) { return settings.base() + "/receipt#token=" + token; }
+  public String url(String token) { return url("/receipt", token); }
+  public String url(String path, String token) { return settings.base() + path + "#token=" + token; }
   public String qr(String url) {
     try {
       var bits = new QRCodeWriter().encode(url, BarcodeFormat.QR_CODE, 320, 320);

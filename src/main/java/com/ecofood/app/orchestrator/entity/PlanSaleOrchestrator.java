@@ -32,6 +32,8 @@ public class PlanSaleOrchestrator {
   private List<SaleConfigurationField> planItems = new ArrayList<>();
   private List<SaleConfigurationField> additionalInfoFields = new ArrayList<>();
   private List<SaleConfigurationField> invoiceHolder = new ArrayList<>();
+  /** When true, invoiceHolder always carries a locked, required externalId field used to auto-link a submit-transaction's Invoice to a Customer. */
+  private boolean createCustomer;
   private Instant createdAt, updatedAt;
   private String createdBy, updatedBy;
 }

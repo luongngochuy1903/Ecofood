@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.ecofood.app.config.BadRequestException;
+import com.ecofood.app.customer.security.CustomerIdentity;
 import com.ecofood.app.orchestrator.entity.PlanSaleOrchestrator;
 import com.ecofood.app.orchestrator.repository.PlanSaleOrchestratorRepository;
 import com.ecofood.app.orchestrator.security.PlanSaleAccess;
@@ -28,8 +29,9 @@ class BatchSalePlanResolverTest {
   private final PlanSaleAccess access = mock(PlanSaleAccess.class);
   private final InvoiceSnapshotFactory snapshots = mock(InvoiceSnapshotFactory.class);
   private final CoreProductProcessClient productProcesses = mock(CoreProductProcessClient.class);
+  private final CustomerIdentity identity = mock(CustomerIdentity.class);
   private final BatchSalePlanResolver resolver =
-      new BatchSalePlanResolver(repository, access, snapshots, productProcesses);
+      new BatchSalePlanResolver(repository, access, snapshots, productProcesses, identity);
 
   private PlanSaleOrchestrator row(SaleConfigurationField... additionalInfoFields) {
     var row = new PlanSaleOrchestrator();
@@ -174,6 +176,35 @@ class BatchSalePlanResolverTest {
   void requireInvoiceHolderIsANoOpWhenOrchestratorIsMissing() {
     when(repository.findById("missing")).thenReturn(Optional.empty());
     resolver.requireInvoiceHolder("missing", Map.of());
+  }
+
+  @Test
+  void matchCustomerIsEmptyWhenCreateCustomerIsDisabled() {
+    var row = row();
+    row.setCreateCustomer(false);
+    when(repository.findById("orch")).thenReturn(Optional.of(row));
+    assertEquals(Optional.empty(), resolver.matchCustomer("orch", Map.of("email", "a@b.com")));
+    verifyNoInteractions(identity);
+  }
+
+  @Test
+  void matchCustomerIsEmptyWhenEmailIsMissingOrBlank() {
+    var row = row();
+    row.setCreateCustomer(true);
+    when(repository.findById("orch")).thenReturn(Optional.of(row));
+    assertEquals(Optional.empty(), resolver.matchCustomer("orch", Map.of()));
+    assertEquals(Optional.empty(), resolver.matchCustomer("orch", null));
+    assertEquals(Optional.empty(), resolver.matchCustomer("orch", Map.of("email", "  ")));
+    verifyNoInteractions(identity);
+  }
+
+  @Test
+  void matchCustomerDelegatesToCustomerIdentityWhenCreateCustomerIsEnabled() {
+    var row = row();
+    row.setCreateCustomer(true);
+    when(repository.findById("orch")).thenReturn(Optional.of(row));
+    when(identity.matchByEmail("a@b.com")).thenReturn(Optional.of("customer-1"));
+    assertEquals(Optional.of("customer-1"), resolver.matchCustomer("orch", Map.of("email", "a@b.com")));
   }
 
   @Test

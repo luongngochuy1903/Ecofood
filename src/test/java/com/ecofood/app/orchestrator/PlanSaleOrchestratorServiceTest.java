@@ -46,7 +46,7 @@ class PlanSaleOrchestratorServiceTest {
 
   private PlanSaleOrchestratorRequest request(
       Long expectedRevision, String name, List<String> planIds, List<SaleConfigurationField> additionalInfoFields) {
-    return new PlanSaleOrchestratorRequest(expectedRevision, name, "desc", planIds, null, additionalInfoFields, null);
+    return new PlanSaleOrchestratorRequest(expectedRevision, name, "desc", planIds, null, additionalInfoFields, null, false);
   }
 
   private PlanSaleOrchestratorRequest request(
@@ -57,7 +57,7 @@ class PlanSaleOrchestratorServiceTest {
       List<SaleConfigurationField> additionalInfoFields,
       List<SaleConfigurationField> invoiceHolder) {
     return new PlanSaleOrchestratorRequest(
-        expectedRevision, name, "desc", planIds, planItems, additionalInfoFields, invoiceHolder);
+        expectedRevision, name, "desc", planIds, planItems, additionalInfoFields, invoiceHolder, false);
   }
 
   @BeforeEach
@@ -88,6 +88,34 @@ class PlanSaleOrchestratorServiceTest {
     verify(repo).save(capture.capture());
     assertEquals(TENANT, capture.getValue().getTenantId());
     assertEquals(List.of(PLAN), capture.getValue().getPlanIds());
+  }
+
+  @Test
+  void createCustomerEnabledLocksInvoiceHolderEmailAsRequired() {
+    var planA = plan(PLAN, "PL00001", PlanStatusEnum.APPROVED);
+    when(access.currentForProposition(PROP)).thenReturn(scope(List.of(planA)));
+    when(productProcesses.get(PLAN)).thenReturn(processNamed(PLAN, "Chicken Plan"));
+    var request = new PlanSaleOrchestratorRequest(
+        null, "Sale A", "desc", List.of(PLAN), null, null,
+        List.of(new SaleConfigurationField("email", "STRING", "Email", "", false),
+            new SaleConfigurationField("phoneNumber", "STRING", "Phone", "", false)), true);
+    var response = service.create(PROP, request);
+    assertTrue(response.createCustomer());
+    var email = response.invoiceHolder().stream().filter(f -> f.key().equals("email")).findFirst().orElseThrow();
+    assertTrue(email.required());
+    assertEquals("STRING", email.dataType());
+    // The rest of the submitted field list is untouched.
+    assertTrue(response.invoiceHolder().stream().anyMatch(f -> f.key().equals("phoneNumber") && !f.required()));
+  }
+
+  @Test
+  void createCustomerDisabledLeavesInvoiceHolderEmailOptional() {
+    var planA = plan(PLAN, "PL00001", PlanStatusEnum.APPROVED);
+    when(access.currentForProposition(PROP)).thenReturn(scope(List.of(planA)));
+    when(productProcesses.get(PLAN)).thenReturn(processNamed(PLAN, "Chicken Plan"));
+    var response = service.create(PROP, request(null, "Sale A", List.of(PLAN)));
+    assertFalse(response.createCustomer());
+    assertFalse(response.invoiceHolder().stream().filter(f -> f.key().equals("email")).findFirst().orElseThrow().required());
   }
 
   @Test

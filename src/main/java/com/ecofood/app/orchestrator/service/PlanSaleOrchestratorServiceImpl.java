@@ -57,6 +57,7 @@ public class PlanSaleOrchestratorServiceImpl implements PlanSaleOrchestratorServ
     row.setPlanIds(planIds);
     row.setPlanItems(requirePlanItems(request));
     row.setAdditionalInfoFields(requireAdditionalInfoFields(request));
+    row.setCreateCustomer(Boolean.TRUE.equals(request.createCustomer()));
     row.setInvoiceHolder(requireInvoiceHolderFields(request));
     row.setCreatedAt(Instant.now());
     row.setCreatedBy(scope.actor());
@@ -76,6 +77,7 @@ public class PlanSaleOrchestratorServiceImpl implements PlanSaleOrchestratorServ
     row.setPlanIds(planIds);
     row.setPlanItems(requirePlanItems(request));
     row.setAdditionalInfoFields(requireAdditionalInfoFields(request));
+    row.setCreateCustomer(Boolean.TRUE.equals(request.createCustomer()));
     row.setInvoiceHolder(requireInvoiceHolderFields(request));
     row.setUpdatedAt(Instant.now());
     row.setUpdatedBy(scope.actor());
@@ -170,7 +172,8 @@ public class PlanSaleOrchestratorServiceImpl implements PlanSaleOrchestratorServ
         row.getUpdatedAt(),
         row.getCreatedBy(),
         row.getUpdatedBy(),
-        scope.enterprise() || row.getTenantId().equals(scope.tenantId()));
+        scope.enterprise() || row.getTenantId().equals(scope.tenantId()),
+        row.isCreateCustomer());
   }
 
   /**
@@ -199,7 +202,25 @@ public class PlanSaleOrchestratorServiceImpl implements PlanSaleOrchestratorServ
         ? defaultInvoiceHolder() : request.invoiceHolder();
     requireUniqueKeys(fields, Set.of());
     validateDataTypes(fields);
-    return List.copyOf(fields);
+    return List.copyOf(Boolean.TRUE.equals(request.createCustomer()) ? withLockedCustomerEmail(fields) : fields);
+  }
+
+  /**
+   * When createCustomer is enabled, invoiceHolder's email field is always
+   * forced required — this is the key submit-transaction matches against
+   * the Customer's own email, so its presence/required-ness is never left
+   * to the request. Adds the field (defaulted, like defaultInvoiceHolder's
+   * own shape) if the request somehow omitted it entirely.
+   */
+  private List<SaleConfigurationField> withLockedCustomerEmail(List<SaleConfigurationField> fields) {
+    var combined = new ArrayList<SaleConfigurationField>(fields.size());
+    boolean found = false;
+    for (var f : fields) {
+      if ("email".equals(f.key())) { combined.add(new SaleConfigurationField("email", "STRING", f.shortName(), f.description(), true)); found = true; }
+      else combined.add(f);
+    }
+    if (!found) combined.add(new SaleConfigurationField("email", "STRING", "Email", "", true));
+    return combined;
   }
 
   /**

@@ -1,6 +1,7 @@
 package com.ecofood.app.orchestrator.service;
 
 import com.ecofood.app.config.*;
+import com.ecofood.app.customer.security.CustomerIdentity;
 import com.ecofood.app.orchestrator.entity.PlanSaleOrchestrator;
 import com.ecofood.app.orchestrator.repository.PlanSaleOrchestratorRepository;
 import com.ecofood.app.orchestrator.security.PlanSaleAccess;
@@ -23,6 +24,7 @@ public class BatchSalePlanResolver {
   private final PlanSaleAccess access;
   private final InvoiceSnapshotFactory snapshots;
   private final CoreProductProcessClient productProcesses;
+  private final CustomerIdentity identity;
 
   public InvoicePlanLine resolve(String tenant, String subject, int index,
       BatchTransactionDtos.Item item, Instant receivedAt) {
@@ -119,6 +121,21 @@ public class BatchSalePlanResolver {
       if (value == null)
         throw new BadRequestException("Missing required invoiceHolder field: " + field.key());
     }
+  }
+
+  /**
+   * Best-effort Invoice-to-Customer auto-link: only when the owning
+   * Orchestrator has createCustomer enabled, matches the submitted
+   * invoiceHolder's email against the Customer's own email. No match (or
+   * more than one) returns empty — this never fails the submission, see
+   * CustomerIdentity.matchByEmail.
+   */
+  public Optional<String> matchCustomer(String orchestratorId, Map<String, Object> invoiceHolder) {
+    var row = orchestrators.findById(orchestratorId).orElse(null);
+    if (row == null || !row.isCreateCustomer() || invoiceHolder == null) return Optional.empty();
+    Object raw = invoiceHolder.get("email");
+    if (!(raw instanceof String email) || email.isBlank()) return Optional.empty();
+    return identity.matchByEmail(email);
   }
 
   /** The Plan's own name now lives on its cloned product process, not on the embedded Plan itself. */
