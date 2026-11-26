@@ -202,21 +202,24 @@ public class PlanSaleOrchestratorServiceImpl implements PlanSaleOrchestratorServ
         ? defaultInvoiceHolder() : request.invoiceHolder();
     requireUniqueKeys(fields, Set.of());
     validateDataTypes(fields);
-    return List.copyOf(Boolean.TRUE.equals(request.createCustomer()) ? withLockedExternalId(fields) : fields);
+    return List.copyOf(Boolean.TRUE.equals(request.createCustomer()) ? withLockedCustomerEmail(fields) : fields);
   }
 
   /**
-   * When createCustomer is enabled, invoiceHolder always carries exactly one
-   * externalId field, forced required — this is the key submit-transaction
-   * matches against Customer.externalIds, so its presence/required-ness is
-   * never left to the request (any externalId field the request submitted
-   * is replaced, not merely validated).
+   * When createCustomer is enabled, invoiceHolder's email field is always
+   * forced required — this is the key submit-transaction matches against
+   * the Customer's own email, so its presence/required-ness is never left
+   * to the request. Adds the field (defaulted, like defaultInvoiceHolder's
+   * own shape) if the request somehow omitted it entirely.
    */
-  private List<SaleConfigurationField> withLockedExternalId(List<SaleConfigurationField> fields) {
-    var combined = new ArrayList<SaleConfigurationField>(fields.size() + 1);
-    for (var f : fields) if (!"externalId".equals(f.key())) combined.add(f);
-    combined.add(new SaleConfigurationField("externalId", "STRING", "External Id",
-        "Distribution partner's own id for this Customer — matched against Customer.externalIds to auto-link the Invoice.", true));
+  private List<SaleConfigurationField> withLockedCustomerEmail(List<SaleConfigurationField> fields) {
+    var combined = new ArrayList<SaleConfigurationField>(fields.size());
+    boolean found = false;
+    for (var f : fields) {
+      if ("email".equals(f.key())) { combined.add(new SaleConfigurationField("email", "STRING", f.shortName(), f.description(), true)); found = true; }
+      else combined.add(f);
+    }
+    if (!found) combined.add(new SaleConfigurationField("email", "STRING", "Email", "", true));
     return combined;
   }
 

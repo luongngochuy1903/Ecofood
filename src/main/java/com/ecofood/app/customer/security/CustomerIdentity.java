@@ -109,16 +109,18 @@ public class CustomerIdentity implements CustomerIdentityService {
   }
   public static boolean belongs(UserEntity user, String tenant) { return user.getPartyRelationships() != null && user.getPartyRelationships().stream().anyMatch(r -> "TENANT".equals(r.getRelationshipTypeCode()) && new ObjectId(tenant).equals(r.getToPartyId())); }
   /**
-   * Submit-transaction auto-link: matches a distribution partner's
-   * externalId (carried in the Receipt's invoiceHolder) against Customer
-   * accounts linked to it via the external-customer QR flow. Ambiguous (more
+   * Matches a Customer account by email — used both by
+   * ExternalCustomerServiceImpl.issue() (to avoid creating a duplicate
+   * account for an email that's already been onboarded) and by
+   * submit-transaction auto-link (BatchSalePlanResolver.matchCustomer),
+   * matching a Receipt's invoiceHolder.email against it. Ambiguous (more
    * than one match) or no match both return empty — linking is best-effort,
    * never a submission error.
    */
-  public Optional<String> matchByExternalId(String tenantId, String externalId) {
-    if (tenantId == null || externalId == null || externalId.isBlank() || !ObjectId.isValid(tenantId)) return Optional.empty();
-    var matches = mongo.find(Query.query(Criteria.where("externalIds").is(externalId).and("deleted").ne(true)
-        .and("partyRelationships").elemMatch(Criteria.where("relationshipTypeCode").is("TENANT").and("toPartyId").is(new ObjectId(tenantId)))), CustomerUser.class);
+  public Optional<String> matchByEmail(String email) {
+    if (email == null || email.isBlank()) return Optional.empty();
+    var matches = mongo.find(Query.query(Criteria.where(EMAIL).regex("^" + java.util.regex.Pattern.quote(email.trim()) + "$", "i")
+        .and("deleted").ne(true).and("userCategory.userCategoryCode").is("CUSTOMER")), UserEntity.class);
     return matches.size() == 1 ? Optional.of(matches.get(0).getIdAsString()) : Optional.empty();
   }
   private String email(JWTClaimsSet claims) {

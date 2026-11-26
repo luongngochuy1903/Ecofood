@@ -126,16 +126,16 @@ public class BatchSalePlanResolver {
   /**
    * Best-effort Invoice-to-Customer auto-link: only when the owning
    * Orchestrator has createCustomer enabled, matches the submitted
-   * invoiceHolder's externalId against Customer.externalIds. No match (or
+   * invoiceHolder's email against the Customer's own email. No match (or
    * more than one) returns empty — this never fails the submission, see
-   * CustomerIdentity.matchByExternalId.
+   * CustomerIdentity.matchByEmail.
    */
-  public Optional<String> matchCustomer(String tenant, String orchestratorId, Map<String, Object> invoiceHolder) {
+  public Optional<String> matchCustomer(String orchestratorId, Map<String, Object> invoiceHolder) {
     var row = orchestrators.findById(orchestratorId).orElse(null);
     if (row == null || !row.isCreateCustomer() || invoiceHolder == null) return Optional.empty();
-    Object raw = invoiceHolder.get("externalId");
-    if (!(raw instanceof String externalId) || externalId.isBlank()) return Optional.empty();
-    return identity.matchByExternalId(tenant, externalId);
+    Object raw = invoiceHolder.get("email");
+    if (!(raw instanceof String email) || email.isBlank()) return Optional.empty();
+    return identity.matchByEmail(email);
   }
 
   /** The Plan's own name now lives on its cloned product process, not on the embedded Plan itself. */

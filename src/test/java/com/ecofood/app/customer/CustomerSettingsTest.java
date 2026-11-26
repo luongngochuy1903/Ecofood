@@ -18,7 +18,7 @@ class CustomerSettingsTest {
       "http://food.localhost:3000/, http://food.localhost:3000"
   })
   void trustedOriginsKeepTheirAuthorityAndRemoveOnlyTrailingSlash(String input, String expected) {
-    var settings = new CustomerSettings("", "", input, 24);
+    var settings = new CustomerSettings("", "", input, 24, "");
     assertEquals(expected, settings.base());
   }
 
@@ -29,7 +29,7 @@ class CustomerSettingsTest {
       "https://food.example.org/#fragment", "https://user@food.example.org/"
   })
   void invalidOriginsAreRejectedBeforeNormalization(String input) {
-    var settings = new CustomerSettings("", "", input, 24);
+    var settings = new CustomerSettings("", "", input, 24, "");
     var failure = assertThrows(ResponseStatusException.class, settings::base);
     assertEquals(503, failure.getStatusCode().value());
   }

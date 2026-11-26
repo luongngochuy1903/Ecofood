@@ -183,18 +183,18 @@ class BatchSalePlanResolverTest {
     var row = row();
     row.setCreateCustomer(false);
     when(repository.findById("orch")).thenReturn(Optional.of(row));
-    assertEquals(Optional.empty(), resolver.matchCustomer("tenant", "orch", Map.of("externalId", "ext-1")));
+    assertEquals(Optional.empty(), resolver.matchCustomer("orch", Map.of("email", "a@b.com")));
     verifyNoInteractions(identity);
   }
 
   @Test
-  void matchCustomerIsEmptyWhenExternalIdIsMissingOrBlank() {
+  void matchCustomerIsEmptyWhenEmailIsMissingOrBlank() {
     var row = row();
     row.setCreateCustomer(true);
     when(repository.findById("orch")).thenReturn(Optional.of(row));
-    assertEquals(Optional.empty(), resolver.matchCustomer("tenant", "orch", Map.of()));
-    assertEquals(Optional.empty(), resolver.matchCustomer("tenant", "orch", null));
-    assertEquals(Optional.empty(), resolver.matchCustomer("tenant", "orch", Map.of("externalId", "  ")));
+    assertEquals(Optional.empty(), resolver.matchCustomer("orch", Map.of()));
+    assertEquals(Optional.empty(), resolver.matchCustomer("orch", null));
+    assertEquals(Optional.empty(), resolver.matchCustomer("orch", Map.of("email", "  ")));
     verifyNoInteractions(identity);
   }
 
@@ -203,8 +203,8 @@ class BatchSalePlanResolverTest {
     var row = row();
     row.setCreateCustomer(true);
     when(repository.findById("orch")).thenReturn(Optional.of(row));
-    when(identity.matchByExternalId("tenant", "ext-1")).thenReturn(Optional.of("customer-1"));
-    assertEquals(Optional.of("customer-1"), resolver.matchCustomer("tenant", "orch", Map.of("externalId", "ext-1")));
+    when(identity.matchByEmail("a@b.com")).thenReturn(Optional.of("customer-1"));
+    assertEquals(Optional.of("customer-1"), resolver.matchCustomer("orch", Map.of("email", "a@b.com")));
   }
 
   @Test

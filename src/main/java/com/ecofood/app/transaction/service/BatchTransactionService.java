@@ -144,7 +144,7 @@ public class BatchTransactionService {
     invoice.setPostWorkflowResults(Map.of());
     // Best-effort auto-link, only when some distinct Orchestrator this
     // Receipt touched has createCustomer enabled and the submitted
-    // externalId matched exactly one Customer — see
+    // email matched exactly one Customer — see
     // BatchSalePlanResolver.matchCustomer. userId stays null: no Customer is
     // actually logged in at submit time, only customerId is known.
     if (resolved.customerId() != null) {
@@ -173,7 +173,7 @@ public class BatchTransactionService {
     String customerId = null;
     for (var orchestratorId : lines.stream().map(InvoicePlanLine::orchestratorId).distinct().toList()) {
       plans.requireInvoiceHolder(orchestratorId, receipt.invoiceHolder());
-      if (customerId == null) customerId = plans.matchCustomer(tenant, orchestratorId, receipt.invoiceHolder()).orElse(null);
+      if (customerId == null) customerId = plans.matchCustomer(orchestratorId, receipt.invoiceHolder()).orElse(null);
     }
     return new ResolvedLines(lines, customerId);
   }

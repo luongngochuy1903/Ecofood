@@ -74,7 +74,7 @@ class CustomerIdentityTest {
     assertNull(service.guardExchange(claims(true, "staff-subject")));
   }
   @Test void signupPolicyIsExplicitAndNoEmailIndexIsCreatedWhenDisabled() {
-    var disabled = new CustomerIdentity(mongo, tenants, verifier, new CustomerSettings("", "", "", 24));
+    var disabled = new CustomerIdentity(mongo, tenants, verifier, new CustomerSettings("", "", "", 24, ""));
     var bootstrap5 = new CustomerIdentityDtos.Bootstrap("kc-token", TENANT, true);
     assertThrows(ResponseStatusException.class, () -> disabled.bootstrap(bootstrap5)); verify(mongo, never()).insert(any());
   }

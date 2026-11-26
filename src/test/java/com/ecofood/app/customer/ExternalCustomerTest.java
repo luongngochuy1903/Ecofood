@@ -5,115 +5,49 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-import com.ecofood.app.customer.entity.CustomerUser;
-import com.ecofood.app.customer.entity.ExternalCustomerLink;
-import com.ecofood.app.customer.repository.ExternalCustomerLinkRepository;
-import com.ecofood.app.customer.security.CustomerAccess;
 import com.ecofood.app.customer.security.CustomerIdentity;
 import com.ecofood.app.customer.security.CustomerReceiptTokens;
 import com.ecofood.app.customer.service.ExternalCustomerServiceImpl;
-import com.ecofood.app.userACL.entity.UserCategory;
-import com.ecofood.core.dto.CustomerIdentityDtos;
+import com.ecofood.core.client.CoreUserClient;
 import com.ecofood.core.dto.ExternalCustomerDtos;
-import com.ecofood.core.security.AuthenticationContext;
-import java.util.List;
-import org.bson.types.ObjectId;
-import org.junit.jupiter.api.*;
-import org.mockito.MockedStatic;
-import org.springframework.data.mongodb.core.query.*;
-import org.springframework.web.server.ResponseStatusException;
+import com.ecofood.core.dto.UserCreateRequest;
+import com.ecofood.core.dto.UserResponse;
+import java.util.Optional;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class ExternalCustomerTest {
-  AtomicCustomerMongo db;
-  ExternalCustomerServiceImpl service;
-  CustomerAccess access;
-  CustomerIdentity identity;
-  ExternalCustomerLinkRepository repository;
-  ThreadLocal<CustomerAccess.Actor> actors = ThreadLocal.withInitial(() -> actor(A));
-  MockedStatic<AuthenticationContext> authentication;
-
-  @BeforeEach
-  void setup() throws Exception {
-    db = new AtomicCustomerMongo();
-    access = mock(CustomerAccess.class);
-    identity = mock(CustomerIdentity.class);
-    repository = mock(ExternalCustomerLinkRepository.class);
-    service = new ExternalCustomerServiceImpl(db.mongo, repository, settings(), new CustomerReceiptTokens(settings()), identity, access);
-    when(access.current()).thenAnswer(ignored -> actors.get());
-    when(identity.config(TENANT)).thenReturn(new CustomerIdentityDtos.LoginConfig(TENANT, "test", "test-public", true));
-    when(repository.findByTenantIdAndExternalIdAndRevokedAtIsNullAndLinkedCustomerIdIsNull(anyString(), anyString()))
-        .thenAnswer(call -> db.find(Query.query(Criteria.where("tenantId").is(call.getArgument(0))
-            .and("externalId").is(call.getArgument(1)).and("revokedAt").is(null).and("linkedCustomerId").is(null)), ExternalCustomerLink.class)
-            .stream().findFirst());
-    when(repository.findByTokenHashAndRevokedAtIsNull(anyString()))
-        .thenAnswer(call -> db.find(Query.query(Criteria.where("tokenHash").is(call.getArgument(0)).and("revokedAt").is(null)), ExternalCustomerLink.class)
-            .stream().findFirst());
-    var seller = user(SELLER);
-    seller.setUserCategory(UserCategory.builder().userCategoryCode("PARTNER").build());
-    db.insert(seller);
-    db.insert(user(A));
-    authentication = mockStatic(AuthenticationContext.class);
-    authentication.when(AuthenticationContext::getUserId).thenReturn(new ObjectId(SELLER));
-    authentication.when(AuthenticationContext::getTenantId).thenReturn(new ObjectId(TENANT));
-  }
-
-  @AfterEach
-  void close() {
-    authentication.close();
-    actors.remove();
-  }
-
-  ExternalCustomerDtos.Issued issue(String externalId) { return service.issue(new ExternalCustomerDtos.IssueRequest(externalId)); }
-  String token(ExternalCustomerDtos.Issued issued) { return issued.url().substring(issued.url().indexOf("#token=") + 7); }
+  CoreUserClient users = mock(CoreUserClient.class);
+  CustomerIdentity identity = mock(CustomerIdentity.class);
+  CustomerReceiptTokens tokens = new CustomerReceiptTokens(settings());
+  ExternalCustomerServiceImpl service = new ExternalCustomerServiceImpl(users, identity, settings(), tokens);
 
   @Test
-  void issueGeneratesAQrAndViewSucceedsBeforeAnyoneLinks() {
-    var issued = issue("ext-1");
-    assertEquals("ext-1", issued.externalId());
-    assertTrue(issued.url().contains("/external-customer#token="));
-    var config = service.view(token(issued));
-    assertEquals(TENANT, config.tenantId());
+  void issueCreatesACustomerUnderTheOnboardingTenantWhenEmailIsNew() {
+    when(identity.matchByEmail("new@example.org")).thenReturn(Optional.empty());
+    when(users.createUser(any())).thenReturn(UserResponse.builder().userId("u1").email("new@example.org").build());
+
+    var result = service.issue(new ExternalCustomerDtos.IssueRequest("New@Example.org"));
+
+    assertEquals("new@example.org", result.email());
+    assertTrue(result.loginUrl().contains("/customer/login?tenant=" + TENANT));
+    assertTrue(result.qrPngBase64().startsWith("iVBOR"));
+
+    var captor = ArgumentCaptor.forClass(UserCreateRequest.class);
+    verify(users).createUser(captor.capture());
+    assertEquals("new@example.org", captor.getValue().getUsername());
+    assertEquals("new@example.org", captor.getValue().getEmail());
+    assertEquals(1, captor.getValue().getTenantAssignments().size());
+    assertEquals(TENANT, captor.getValue().getTenantAssignments().get(0).getTenantId());
   }
 
   @Test
-  void reissuingTheSameExternalIdReturnsTheSameTokenWhileStillUnlinked() {
-    var first = issue("ext-1");
-    var again = issue("ext-1");
-    assertEquals(first.url(), again.url());
-    assertEquals(first.expiresAt(), again.expiresAt());
-  }
+  void issueSkipsCreatingADuplicateAccountWhenTheEmailAlreadyHasOne() {
+    when(identity.matchByEmail("existing@example.org")).thenReturn(Optional.of("u1"));
 
-  @Test
-  void linkAppendsExternalIdToTheCustomersOwnExternalIdsAndIsIdempotent() {
-    var token = token(issue("ext-1"));
-    var result = service.link(token);
-    assertEquals("ext-1", result.externalId());
-    var saved = db.converter.read(CustomerUser.class, db.raw(CustomerUser.class, new ObjectId(A)));
-    assertEquals(List.of("ext-1"), saved.getExternalIds());
-    // Linking again with the same already-linked actor replays successfully.
-    assertEquals("ext-1", service.link(token).externalId());
-  }
+    var result = service.issue(new ExternalCustomerDtos.IssueRequest("existing@example.org"));
 
-  @Test
-  void anotherCustomerCannotLinkAnAlreadyLinkedToken() {
-    var token = token(issue("ext-1"));
-    service.link(token);
-    actors.set(actor(B));
-    assertThrows(ResponseStatusException.class, () -> service.link(token));
-  }
-
-  @Test
-  void viewFailsOnceTheTokenIsLinked() {
-    var token = token(issue("ext-1"));
-    service.link(token);
-    assertThrows(ResponseStatusException.class, () -> service.view(token));
-  }
-
-  @Test
-  void revokeStopsTheSellerFromReusingAndBlocksView() {
-    var token = token(issue("ext-1"));
-    service.revoke("ext-1");
-    assertThrows(ResponseStatusException.class, () -> service.view(token));
-    assertThrows(ResponseStatusException.class, () -> service.revoke("ext-1"));
+    assertEquals("existing@example.org", result.email());
+    verifyNoInteractions(users);
   }
 }

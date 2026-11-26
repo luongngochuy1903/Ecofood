@@ -91,30 +91,31 @@ class PlanSaleOrchestratorServiceTest {
   }
 
   @Test
-  void createCustomerEnabledLocksARequiredExternalIdInvoiceHolderField() {
+  void createCustomerEnabledLocksInvoiceHolderEmailAsRequired() {
     var planA = plan(PLAN, "PL00001", PlanStatusEnum.APPROVED);
     when(access.currentForProposition(PROP)).thenReturn(scope(List.of(planA)));
     when(productProcesses.get(PLAN)).thenReturn(processNamed(PLAN, "Chicken Plan"));
     var request = new PlanSaleOrchestratorRequest(
         null, "Sale A", "desc", List.of(PLAN), null, null,
-        List.of(new SaleConfigurationField("email", "STRING", "Email", "", false)), true);
+        List.of(new SaleConfigurationField("email", "STRING", "Email", "", false),
+            new SaleConfigurationField("phoneNumber", "STRING", "Phone", "", false)), true);
     var response = service.create(PROP, request);
     assertTrue(response.createCustomer());
-    var externalId = response.invoiceHolder().stream().filter(f -> f.key().equals("externalId")).findFirst().orElseThrow();
-    assertTrue(externalId.required());
-    assertEquals("STRING", externalId.dataType());
-    // The submitted field list is otherwise preserved alongside the locked one.
-    assertTrue(response.invoiceHolder().stream().anyMatch(f -> f.key().equals("email")));
+    var email = response.invoiceHolder().stream().filter(f -> f.key().equals("email")).findFirst().orElseThrow();
+    assertTrue(email.required());
+    assertEquals("STRING", email.dataType());
+    // The rest of the submitted field list is untouched.
+    assertTrue(response.invoiceHolder().stream().anyMatch(f -> f.key().equals("phoneNumber") && !f.required()));
   }
 
   @Test
-  void createCustomerDisabledLeavesInvoiceHolderUntouched() {
+  void createCustomerDisabledLeavesInvoiceHolderEmailOptional() {
     var planA = plan(PLAN, "PL00001", PlanStatusEnum.APPROVED);
     when(access.currentForProposition(PROP)).thenReturn(scope(List.of(planA)));
     when(productProcesses.get(PLAN)).thenReturn(processNamed(PLAN, "Chicken Plan"));
     var response = service.create(PROP, request(null, "Sale A", List.of(PLAN)));
     assertFalse(response.createCustomer());
-    assertTrue(response.invoiceHolder().stream().noneMatch(f -> f.key().equals("externalId")));
+    assertFalse(response.invoiceHolder().stream().filter(f -> f.key().equals("email")).findFirst().orElseThrow().required());
   }
 
   @Test
