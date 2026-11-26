@@ -11,7 +11,7 @@ import com.ecofood.app.metrics.service.MongoMetricsTransactions;
 import com.ecofood.app.orchestrator.service.BatchSalePlanResolver;
 import com.ecofood.app.notification.service.SaleConfirmationHandoff;
 import com.ecofood.app.config.*;
-import com.ecofood.core.service.PropositionService;
+import com.ecofood.app.proposition.service.PropositionSalesMetrics;
 import jakarta.validation.Validation;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -30,9 +30,9 @@ class BatchTransactionServiceTest {
   private final MongoOperations ops=mock(MongoOperations.class);
   private final BatchSalePlanResolver plans=mock(BatchSalePlanResolver.class);
   private final SaleConfirmationHandoff confirmations=mock(SaleConfirmationHandoff.class);
-  private final PropositionService propositions=mock(PropositionService.class);
+  private final PropositionSalesMetrics metrics=mock(PropositionSalesMetrics.class);
   private final jakarta.validation.ValidatorFactory validation=Validation.buildDefaultValidatorFactory();
-  private final BatchTransactionService service=new BatchTransactionService(transactions,plans,confirmations,propositions,validation.getValidator());
+  private final BatchTransactionService service=new BatchTransactionService(transactions,plans,confirmations,metrics,validation.getValidator());
   private final Map<String,Invoice> invoices=new HashMap<>();
   private final Map<String,InvoiceBatchSubmission> events=new HashMap<>();
   private boolean failEvent;
@@ -114,22 +114,38 @@ class BatchTransactionServiceTest {
     assertEquals("ACCEPTED",response.transaction().invoices().get(0).result());
     verify(plans).requireInvoiceHolder("orch", Map.of("email","a@b.com"));
   }
+  @Test void acceptedInvoiceIsLinkedToTheMatchedCustomerWhenOneIsFound() {
+    when(plans.matchCustomer("orch", Map.of("email", "a@b.com"))).thenReturn(Optional.of("customer-1"));
+    service.submit("tenant","seller",request(new Receipt(Map.of("email","a@b.com"),List.of(item("A",1)))));
+    var invoice = invoices.values().iterator().next();
+    assertEquals("customer-1", invoice.getInvoiceHolder().customerId());
+    assertNull(invoice.getInvoiceHolder().userId());
+  }
+  @Test void acceptedInvoiceStaysUnlinkedWhenNoCustomerMatches() {
+    service.submit("tenant","seller",request(new Receipt(Map.of("email","a@b.com"),List.of(item("A",1)))));
+    assertNull(invoices.values().iterator().next().getInvoiceHolder());
+  }
   @Test void acceptedInvoicePersistsTheReceiptsInvoiceHolderAsOrchestratorPayload() {
     service.submit("tenant","seller",request(new Receipt(Map.of("email","a@b.com"),List.of(item("A",1)))));
     assertEquals(Map.of("email","a@b.com"),invoices.values().iterator().next().getOrchestratorPayload());
   }
-  @Test void acceptedLineRecordsItsSaleAmountAsActualMetricsOnTheResolvedProposition() {
+  @Test void acceptedInvoicesAndMetricsUseTheSameMongoTransaction() {
     service.submit("tenant","seller",request(new Receipt(null,List.of(item("A",2)))));
-    var captor=ArgumentCaptor.forClass(Instant.class);
-    verify(propositions).recordActualSale(eq("prop"),captor.capture(),
-        argThat(v->v.compareTo(new BigDecimal("100000"))==0),argThat(v->v.compareTo(BigDecimal.ZERO)==0),
-        argThat(v->v.compareTo(BigDecimal.ZERO)==0),argThat(v->v.compareTo(new BigDecimal("100000"))==0));
-    assertNotNull(captor.getValue());
+    verify(metrics).record(eq(ops), argThat(rows -> rows.size() == 1
+        && rows.get(0).getTotalAmount().compareTo(new BigDecimal("100000")) == 0));
   }
   @Test void identicalRetrySubmitDoesNotRecordActualMetricsAgain() {
     service.submit("tenant","seller",request(new Receipt(null,List.of(item("A",1)))));
-    clearInvocations(propositions);
+    clearInvocations(metrics);
     service.submit("tenant","seller",request(new Receipt(null,List.of(item("A",1)))));
-    verifyNoInteractions(propositions);
+    verifyNoInteractions(metrics);
+  }
+  @Test void metricsFailureRollsBackTheBatchInsteadOfReturningAcceptedWithMissingActuals() {
+    doThrow(new IllegalStateException("metrics unavailable")).when(metrics).record(eq(ops), anyList());
+    assertThrows(IllegalStateException.class,
+        () -> service.submit("tenant", "seller", request(new Receipt(null, List.of(item("A", 1))))));
+    assertTrue(invoices.isEmpty());
+    assertTrue(events.isEmpty());
+    verifyNoInteractions(confirmations);
   }
 }

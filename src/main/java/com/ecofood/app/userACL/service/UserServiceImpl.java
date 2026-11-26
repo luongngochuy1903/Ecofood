@@ -185,10 +185,15 @@ public class UserServiceImpl implements UserService {
         relations.add(buildEnterpriseRelation(enterpriseQueryClient.getById(tenant.getEnterpriseId())));
       }
 
+      List<String> effectiveRoleIds =
+          assignment.getRoleIds() != null ? new ArrayList<>(assignment.getRoleIds()) : new ArrayList<>();
+      if (userCategory == UserCategoryEnum.CUSTOMER) {
+        effectiveRoleIds.add(customerRoleId());
+      }
       List<String> roleCodes =
-          assignment.getRoleIds() != null && !assignment.getRoleIds().isEmpty()
-              ? resolveRoles(user.getId(), new ObjectId(tenant.getId()), assignment.getRoleIds())
-              : List.of();
+          effectiveRoleIds.isEmpty()
+              ? List.of()
+              : resolveRoles(user.getId(), new ObjectId(tenant.getId()), effectiveRoleIds);
 
       assignmentResponses.add(
           TenantAssignmentResponse.builder()
@@ -442,6 +447,15 @@ public class UserServiceImpl implements UserService {
    * Role's canonical id string, so a repeated roleId in the request
    * collapses to one entry rather than producing a duplicate.
    */
+  /** Every Customer account must carry the "CUSTOMER" role, regardless of what roleIds the caller passed. */
+  private String customerRoleId() {
+    return roleRepository
+        .findByCode("CUSTOMER")
+        .orElseThrow(() -> new IllegalStateException("Role not found: CUSTOMER"))
+        .getId()
+        .toHexString();
+  }
+
   private List<String> resolveRoles(ObjectId userId, ObjectId tenantId, List<String> roleIds) {
     UserRole userRole =
         userRoleRepository

@@ -5,7 +5,6 @@ import com.ecofood.app.orchestrator.security.PlanSaleAccess;
 import com.ecofood.app.proposition.entity.Plan;
 import com.ecofood.app.transaction.entity.InvoiceSnapshot;
 import com.ecofood.core.client.CoreProductProcessClient;
-import com.ecofood.core.client.CoreProductQueryClient;
 import com.ecofood.core.dto.PreparedSaleTransaction;
 import com.ecofood.core.dto.ProductCostingAttributeResponse;
 import com.ecofood.core.dto.ProductProcessResponse;
@@ -17,6 +16,10 @@ import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
+import org.bson.Document;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 
 /**
  * Prices invoices from the Plan's own costing now — a Plan is a full,
@@ -31,13 +34,13 @@ public class InvoiceSnapshotFactory {
   private static final ZoneId ACCOUNTING_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
   private final PlanSaleAccess access;
   private final CoreProductProcessClient productProcesses;
-  private final CoreProductQueryClient products;
+  private final MongoTemplate mongo;
 
   public InvoiceSnapshot capture(String tenant, PreparedSaleTransaction prepared, Instant receivedAt) {
     var binding = prepared.binding();
     if (!Objects.equals(tenant, binding.tenantId()))
       throw new ForbiddenException("Invalid snapshot Tenant");
-    // Reuse the existing tenant/Plan membership lookup, without reading the live Product catalog.
+    // Verify Proposition distribution before reading any sale snapshot metadata.
     var scope = access.require(tenant, binding.propositionId(), binding.planId());
     var proposition = scope.proposition();
     var plan = scope.plan();
@@ -51,15 +54,7 @@ public class InvoiceSnapshotFactory {
         || definition.distributionProfitShare() == null) missing.add("PROFIT_SHARE_MISSING");
     var accountingDate = receivedAt.atZone(ACCOUNTING_ZONE);
     var productId = proposition.getProductId() == null ? null : proposition.getProductId().toHexString();
-    // The Plan's own bound Product version — the Proposition no longer pins
-    // one — resolved live rather than cached, same reasoning as CatalogData.
-    var sourceProcessId = productId == null || plan.getProductVersion() == null
-        ? null
-        : products.processes(productId).stream()
-            .filter(x -> x.version() == plan.getProductVersion())
-            .findFirst()
-            .map(com.ecofood.core.dto.ProductProcessResponse::id)
-            .orElse(null);
+    var sourceProcessId = sourceProcessId(scope);
     return new InvoiceSnapshot(
         1, proposition.getIdAsString(), proposition.getRevision(), tenant,
         binding.distributionPartnerId(), plan.getIdAsString(), plan.getVersion(),
@@ -81,6 +76,19 @@ public class InvoiceSnapshotFactory {
         prepared.transaction().currency(), receivedAt, ACCOUNTING_ZONE.getId(),
         accountingDate.getMonthValue(), accountingDate.getYear(), "MISSING_DATA", missing,
         null, null, null);
+  }
+
+  /** Internal metadata only, after distribution authorization; Product Library roles do not gate sales. */
+  private String sourceProcessId(PlanSaleAccess.Scope scope) {
+    var productId = scope.proposition().getProductId();
+    var version = scope.plan().getProductVersion();
+    if (productId == null || version == null) return null;
+    var query = Query.query(Criteria.where("product_identifier").is(productId).and("version").is(version));
+    query.fields().include("_id");
+    var process = mongo.findOne(query, Document.class, "product_process");
+    if (process == null) process = mongo.findOne(query, Document.class, "product_version");
+    return process == null || process.getObjectId("_id") == null
+        ? null : process.getObjectId("_id").toHexString();
   }
 
   private ProductProcessResponse planProcess(Plan plan, List<String> missing) {

@@ -20,7 +20,6 @@ import com.ecofood.app.userACL.entity.UserCategory;
 import com.ecofood.core.dto.CustomerIdentityDtos;
 import com.ecofood.core.dto.CustomerReceiptDtos;
 import com.ecofood.core.security.AuthenticationContext;
-import com.ecofood.core.service.UserAccessService;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
@@ -36,15 +35,13 @@ class CustomerReceiptTest {
   ThreadLocal<CustomerAccess.Actor> actors = ThreadLocal.withInitial(() -> actor(A));
   MockedStatic<AuthenticationContext> authentication;
   @BeforeEach void setup() throws Exception {
-    db = new AtomicCustomerMongo(); access = mock(CustomerAccess.class); identity = mock(CustomerIdentity.class); var users = mock(UserAccessService.class);
+    db = new AtomicCustomerMongo(); access = mock(CustomerAccess.class); identity = mock(CustomerIdentity.class);
     var mail = new NotificationSettings("sender@example.org", true, 3, ""); handoff = new CustomerClaimHandoff(db.mongo, mail);
-    service = new CustomerReceiptServiceImpl(db.mongo, access, users, settings(), new CustomerReceiptTokens(settings()), identity, mail, handoff);
+    service = new CustomerReceiptServiceImpl(db.mongo, access, settings(), new CustomerReceiptTokens(settings()), identity, mail, handoff);
     when(access.current()).thenAnswer(ignored -> actors.get());
     when(identity.config(TENANT)).thenReturn(new CustomerIdentityDtos.LoginConfig(TENANT, "test", "test-public", true));
-    when(users.resolveAccess(any(), any())).thenReturn(new UserAccessService.UserAccessClaims(List.of(), List.of(CustomerReceiptServiceImpl.ISSUE, "TRANSACTION_SUBMIT"), List.of()));
     var seller = user(SELLER); seller.setUserCategory(UserCategory.builder().userCategoryCode("PARTNER").build()); db.insert(seller); db.insert(invoice());
     authentication = mockStatic(AuthenticationContext.class); authentication.when(AuthenticationContext::getUserId).thenReturn(new ObjectId(SELLER)); authentication.when(AuthenticationContext::getTenantId).thenReturn(new ObjectId(TENANT));
-    authentication.when(AuthenticationContext::getPermissions).thenReturn(List.of(CustomerReceiptServiceImpl.ISSUE, "TRANSACTION_SUBMIT"));
   }
   @AfterEach void close() { authentication.close(); actors.remove(); }
   CustomerReceiptDtos.Issued issue() { return service.issue(INVOICE, new CustomerReceiptDtos.IssueRequest("f9cb5497-2ba8-4bf2-9457-494ef47e98d4")); }

@@ -20,8 +20,8 @@ class CustomerQrTest {
     assertEquals(url, new MultiFormatReader().decode(new BinaryBitmap(new HybridBinarizer(source))).getText()); assertFalse(url.contains(INVOICE));
   }
   @Test void insecureOriginAndWeakSigningKeyFailClosed() {
-    var weak = new CustomerSettings(TENANT, "short", "http://untrusted.example.org", 24);
+    var weak = new CustomerSettings(TENANT, "short", "http://untrusted.example.org", 24, TENANT);
     assertThrows(org.springframework.web.server.ResponseStatusException.class, weak::receiptKey); assertThrows(org.springframework.web.server.ResponseStatusException.class, weak::base);
-    assertDoesNotThrow(() -> new CustomerSettings("", "", "http://localhost:5173", 24).base());
+    assertDoesNotThrow(() -> new CustomerSettings("", "", "http://localhost:5173", 24, "").base());
   }
 }

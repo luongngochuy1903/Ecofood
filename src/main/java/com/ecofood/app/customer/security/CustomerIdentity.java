@@ -108,6 +108,21 @@ public class CustomerIdentity implements CustomerIdentityService {
             .set("customerVerifiedEmailHash", CustomerReceiptTokens.hash(email(claims))), CustomerUser.class);
   }
   public static boolean belongs(UserEntity user, String tenant) { return user.getPartyRelationships() != null && user.getPartyRelationships().stream().anyMatch(r -> "TENANT".equals(r.getRelationshipTypeCode()) && new ObjectId(tenant).equals(r.getToPartyId())); }
+  /**
+   * Matches a Customer account by email — used both by
+   * ExternalCustomerServiceImpl.issue() (to avoid creating a duplicate
+   * account for an email that's already been onboarded) and by
+   * submit-transaction auto-link (BatchSalePlanResolver.matchCustomer),
+   * matching a Receipt's invoiceHolder.email against it. Ambiguous (more
+   * than one match) or no match both return empty — linking is best-effort,
+   * never a submission error.
+   */
+  public Optional<String> matchByEmail(String email) {
+    if (email == null || email.isBlank()) return Optional.empty();
+    var matches = mongo.find(Query.query(Criteria.where(EMAIL).regex("^" + java.util.regex.Pattern.quote(email.trim()) + "$", "i")
+        .and("deleted").ne(true).and("userCategory.userCategoryCode").is("CUSTOMER")), UserEntity.class);
+    return matches.size() == 1 ? Optional.of(matches.get(0).getIdAsString()) : Optional.empty();
+  }
   private String email(JWTClaimsSet claims) {
     Object raw = claims.getClaim(EMAIL);
     String email = raw instanceof String s ? s.trim().toLowerCase(Locale.ROOT) : "";

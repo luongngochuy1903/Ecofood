@@ -13,13 +13,22 @@ public class CustomerSettings {
   private final String receiptSecret;
   private final String publicBase;
   public final int receiptHours;
+  private final String onboardingTenantId;
   public CustomerSettings(@Value("${ecofood.customer.registration-tenants:}") String tenants,
       @Value("${ecofood.customer.receipt-secret:}") String secret,
       @Value("${ecofood.customer.public-base-url:}") String base,
-      @Value("${ecofood.customer.receipt-hours:24}") int hours) {
+      @Value("${ecofood.customer.receipt-hours:24}") int hours,
+      @Value("${ecofood.customer.onboarding-tenant-id:}") String onboardingTenantId) {
     registrationTenants = tenants; receiptSecret = secret; publicBase = base; receiptHours = Math.max(1, Math.min(168, hours));
+    this.onboardingTenantId = onboardingTenantId;
   }
   public boolean registrationAllowed(String tenant) { return Arrays.stream(registrationTenants.split(",")).map(String::trim).anyMatch(tenant::equals); }
+  /** The fixed tenant distribution-partner-onboarded Customers are created under — see ExternalCustomerServiceImpl. */
+  public String onboardingTenantId() {
+    if (onboardingTenantId == null || onboardingTenantId.isBlank())
+      throw unavailable("Configure CUSTOMER_ONBOARDING_TENANT_ID with an already-onboarded Tenant id");
+    return onboardingTenantId;
+  }
   public byte[] receiptKey() {
     try { byte[] key = Base64.getDecoder().decode(receiptSecret); if (key.length >= 32) return key; }
     catch (IllegalArgumentException ignored) {

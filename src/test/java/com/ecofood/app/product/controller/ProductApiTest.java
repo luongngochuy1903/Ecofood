@@ -272,10 +272,11 @@ class ProductApiTest {
        "costing":{"ingredientCost":50000,"packagingCost":5000,"laborCost":10000,"operationCost":3000,"marketingFee":2000,"targetMargin":30,"tax":10},
        "pricing":{"sellingPrice":120000,"costPrice":999999,"currency":"VND"}}
       """))
-        .andExpect(status().isCreated()).andExpect(jsonPath("$.costing.totalCost").value(70000))
-        .andExpect(jsonPath("$.costing.basePrice").value(110000)).andExpect(jsonPath("$.pricing.costPrice").value(70000))
+        .andExpect(status().isCreated()).andExpect(jsonPath("$.costing.ingredientCost").value(0))
+        .andExpect(jsonPath("$.costing.totalCost").value(20000))
+        .andExpect(jsonPath("$.costing.basePrice").value(31428.57)).andExpect(jsonPath("$.pricing.costPrice").value(20000))
         .andExpect(jsonPath("$.productProcess[0].definition.processElementAttribute[0].productName").value("Chicken"))
-        .andExpect(jsonPath("$.productProcess[0].overview.processElementAttribute[0].totalCost").value(70000));
+        .andExpect(jsonPath("$.productProcess[0].overview.processElementAttribute[0].totalCost").value(20000));
     String code = codeFrom(created);
     assertThat(definitions).hasSize(1);assertThat(costings).hasSize(1);assertThat(overviews).hasSize(1);
     ProductEntity root=products.values().iterator().next();String base="/api/v1/products/"+root.getIdAsString();
@@ -286,12 +287,13 @@ class ProductApiTest {
     mvc.perform(post(base+"/versions").header("Authorization","Bearer "+token)).andExpect(status().isCreated());
     mvc.perform(put(base).header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON).content("""
       {"name":"New chicken","code":"%s","category":"Meals","expectedRevision":0,
-       "costing":{"ingredientCost":80000},"pricing":{"sellingPrice":140000,"currency":"VND"}}
+       "costing":{"ingredientCost":80000,"packagingCost":8000},"pricing":{"sellingPrice":140000,"currency":"VND"}}
       """.formatted(code)))
-        .andExpect(status().isOk()).andExpect(jsonPath("$.costing.totalCost").value(80000));
+        .andExpect(status().isOk()).andExpect(jsonPath("$.costing.ingredientCost").value(0))
+        .andExpect(jsonPath("$.costing.totalCost").value(8000));
     mvc.perform(get(base+"/processes/1").header("Authorization","Bearer "+token))
         .andExpect(status().isOk()).andExpect(jsonPath("$.name").value("Chicken"))
-        .andExpect(jsonPath("$.status").value("APPROVED")).andExpect(jsonPath("$.costing.totalCost").value(70000));
+        .andExpect(jsonPath("$.status").value("APPROVED")).andExpect(jsonPath("$.costing.totalCost").value(20000));
     mvc.perform(get(base).header("Authorization","Bearer "+token))
         .andExpect(status().isOk()).andExpect(jsonPath("$.productProcess.length()").value(2))
         .andExpect(jsonPath("$.productProcess[0].overview.processElementAttribute[0].productName").value("New chicken"));

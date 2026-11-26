@@ -42,7 +42,7 @@ class PlanSaleOrchestratorControllerTest {
         "orch", 0L, PROP, "Sale A", "desc",
         List.of(new PlanSaleOrchestratorResponse.PlanRef(PLAN, "PL00001", "Chicken Plan", null)),
         List.of(), List.of(), List.of(),
-        Instant.now(), Instant.now(), "employee", "employee", true);
+        Instant.now(), Instant.now(), "employee", "employee", true, false);
   }
 
   @Test

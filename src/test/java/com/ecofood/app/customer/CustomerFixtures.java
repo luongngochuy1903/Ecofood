@@ -17,7 +17,7 @@ import org.bson.types.ObjectId;
 
 final class CustomerFixtures {
   static final String TENANT = "111111111111111111111111", OTHER_TENANT = "222222222222222222222222", A = "333333333333333333333333", B = "444444444444444444444444", SELLER = "555555555555555555555555", INVOICE = "666666666666666666666666";
-  static CustomerSettings settings() { return new CustomerSettings(TENANT, Base64.getEncoder().encodeToString("unit-test-customer-receipt-secret-32-bytes".getBytes()), "https://customer.example.test", 24); }
+  static CustomerSettings settings() { return new CustomerSettings(TENANT, Base64.getEncoder().encodeToString("unit-test-customer-receipt-secret-32-bytes".getBytes()), "https://customer.example.test", 24, TENANT); }
   static CustomerUser user(String id) {
     var user = new CustomerUser(); user.setId(new ObjectId(id)); user.setUsername("customer-" + id); user.setEmail(id + "@example.org"); user.setFirstName("First"); user.setLastName("Last");
     user.setExternalLoginId("kc-" + id); user.setCustomerEmailVerifiedAt(Instant.now()); user.setCustomerProfileRevision(0L);

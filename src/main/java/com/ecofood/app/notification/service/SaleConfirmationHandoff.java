@@ -82,7 +82,7 @@ public class SaleConfirmationHandoff {
     long rejected = batch.results().stream().filter(r -> !"ACCEPTED".equals(r.result())).count();
     return "EcoFood đã tiếp nhận thành công " + batch.invoiceIds().size() + " hóa đơn"
         + ". Số hóa đơn bị từ chối: " + rejected
-        + ". KPI được xử lý bất đồng bộ; email này không xác nhận KPI đã hoàn tất.";
+        + ". Số liệu thực tế đã được ghi nhận cùng giao dịch.";
   }
 
   private void insertNoticeIdempotently(Notification notice) {

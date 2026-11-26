@@ -23,6 +23,20 @@ import org.springframework.data.mongodb.core.index.IndexOperations;
 import org.springframework.data.mongodb.core.mapping.MongoMappingContext;
 
 class MetricsMongoMappingTest {
+  @Test
+  void propositionMonthlyActualsKeepTenantCurrencyAndNegativeProfitOnMongoRoundTrip() {
+    var p = new com.ecofood.app.proposition.entity.PropositionEntity();
+    p.setId(new org.bson.types.ObjectId());
+    p.setActualMetricsVersion(1);
+    var row = new com.ecofood.core.dto.EconomicMetricsRequest(11, 2026, bd("2"), bd("-5"),
+        bd("0"), bd("50"), null, bd("100"), "partner", "USD");
+    p.setActualMetrics(List.of(row));
+    var bson = new Document();
+    converter().write(p, bson);
+    var restored = converter().read(com.ecofood.app.proposition.entity.PropositionEntity.class, bson);
+    assertEquals(List.of(row), restored.getActualMetrics());
+    assertEquals(1, restored.getActualMetricsVersion());
+  }
   private MappingMongoConverter converter() {
     var conversions = new com.ecofood.app.proposition.service.PropositionMongoConfiguration()
         .propositionMongoConversions();
@@ -70,20 +84,16 @@ class MetricsMongoMappingTest {
   }
 
   @Test
-  void uniqueIndexExactlyMatchesTenantMonthlyCurrencyBusinessGrain() throws Exception {
+  void startupDoesNotCreateStandaloneActualMetricsCollectionOrIndexes() throws Exception {
     var mongo = mock(MongoTemplate.class);
     var metrics = mock(IndexOperations.class);
     var submissions = mock(IndexOperations.class);
     var invoices = mock(IndexOperations.class);
-    when(mongo.indexOps(ActualMetrics.class)).thenReturn(metrics);
     when(mongo.indexOps(Submission.class)).thenReturn(submissions);
     when(mongo.indexOps(Invoice.class)).thenReturn(invoices);
     new ActualMetricsMongoConfig().actualMetricsIndexes(mongo).run(null);
-    var index = org.mockito.ArgumentCaptor.forClass(IndexDefinition.class);
-    verify(metrics).ensureIndex(index.capture());
-    assertEquals(List.of("propositionId", "tenantId", "year", "month", "currency"),
-        index.getValue().getIndexKeys().keySet().stream().toList());
-    assertEquals(true, index.getValue().getIndexOptions().getBoolean("unique"));
+    verify(mongo, never()).indexOps(ActualMetrics.class);
+    verifyNoInteractions(metrics);
   }
   @Test
   void sharedBatchEnvelopeAndMultiContributionMarkerRoundTripWithoutParallelCollection() {
