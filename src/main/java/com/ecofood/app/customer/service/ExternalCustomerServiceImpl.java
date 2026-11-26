@@ -3,6 +3,7 @@ package com.ecofood.app.customer.service;
 import com.ecofood.app.customer.config.CustomerSettings;
 import com.ecofood.app.customer.security.CustomerIdentity;
 import com.ecofood.app.customer.security.CustomerReceiptTokens;
+import com.ecofood.app.userACL.entity.UserEntity;
 import com.ecofood.core.client.CoreUserClient;
 import com.ecofood.core.dto.ExternalCustomerDtos;
 import com.ecofood.core.dto.TenantAssignmentRequest;
@@ -12,6 +13,11 @@ import com.ecofood.core.service.ExternalCustomerService;
 import java.util.List;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
+import org.bson.types.ObjectId;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 
 /**
@@ -29,6 +35,7 @@ public class ExternalCustomerServiceImpl implements ExternalCustomerService {
   private final CustomerIdentity identity;
   private final CustomerSettings settings;
   private final CustomerReceiptTokens tokens;
+  private final MongoTemplate mongo;
 
   @Override
   public ExternalCustomerDtos.Issued issue(ExternalCustomerDtos.IssueRequest request) {
@@ -38,7 +45,7 @@ public class ExternalCustomerServiceImpl implements ExternalCustomerService {
     // second account — Keycloak/Mongo would both reject the duplicate
     // username/email outright, and this Customer already has one.
     if (identity.matchByEmail(email).isEmpty()) {
-      users.createUser(
+      var created = users.createUser(
           UserCreateRequest.builder()
               .username(email)
               .email(email)
@@ -46,6 +53,17 @@ public class ExternalCustomerServiceImpl implements ExternalCustomerService {
               .tenantAssignments(
                   List.of(TenantAssignmentRequest.builder().tenantId(tenantId).build()))
               .build());
+      // CoreUserClient.createUser always persists a plain UserEntity — but
+      // CustomerIdentity.bootstrap()/CustomerAccess.current() both query
+      // specifically against CustomerUser.class, which Spring Data Mongo
+      // restricts to documents whose _class discriminator is CustomerUser
+      // (or a subtype). Re-stamp it here so this account's first real login
+      // is actually found by that existing code, queried against the root
+      // UserEntity type so this plain-UserEntity document is still matched.
+      mongo.updateFirst(
+          Query.query(Criteria.where("_id").is(new ObjectId(created.getUserId()))),
+          new Update().set("_class", "com.ecofood.app.customer.CustomerUser").set("customerProfileRevision", 0L),
+          UserEntity.class);
     }
     String loginUrl = settings.base() + "/customer/login?tenant=" + tenantId;
     return new ExternalCustomerDtos.Issued(email, loginUrl, tokens.qr(loginUrl));
