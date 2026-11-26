@@ -44,7 +44,7 @@ class ExternalCustomerTest {
     var result = service.issue(new ExternalCustomerDtos.IssueRequest("New@Example.org"));
 
     assertEquals("new@example.org", result.email());
-    assertTrue(result.loginUrl().contains("/customer/login?tenant=" + TENANT));
+    assertEquals(settings().base() + "/customer", result.loginUrl());
     assertTrue(result.qrPngBase64().startsWith("iVBOR"));
 
     var captor = ArgumentCaptor.forClass(UserCreateRequest.class);

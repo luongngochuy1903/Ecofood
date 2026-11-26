@@ -65,7 +65,7 @@ public class ExternalCustomerServiceImpl implements ExternalCustomerService {
           new Update().set("_class", "com.ecofood.app.customer.CustomerUser").set("customerProfileRevision", 0L),
           UserEntity.class);
     }
-    String loginUrl = settings.base() + "/customer/login?tenant=" + tenantId;
+    String loginUrl = settings.base() + "/customer";
     return new ExternalCustomerDtos.Issued(email, loginUrl, tokens.qr(loginUrl));
   }
 }
