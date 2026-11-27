@@ -72,6 +72,9 @@ public class DashboardAccessService implements com.ecofood.core.service.Dashboar
         grant == null ? Set.of() : grant.full() ? null : grant.ids());
   }
   public List<com.ecofood.core.dto.DashboardActor> authorizedTenants(AccessEntityTypeEnum type) {
+    return tenantOptions(type).stream().filter(actor -> !actor.tenantScope().isEmpty()).toList();
+  }
+  public List<com.ecofood.core.dto.DashboardActor> tenantOptions(AccessEntityTypeEnum type) {
     com.ecofood.core.dto.DashboardActor session = current();
     Set<String> candidates = new LinkedHashSet<>(); candidates.add(session.tenant().id());
     if (session.tenant().scopedTenantIds() != null) candidates.addAll(session.tenant().scopedTenantIds());
@@ -83,7 +86,7 @@ public class DashboardAccessService implements com.ecofood.core.service.Dashboar
             "MT".equals(r.getRelationshipTypeCode()) && session.tenant().id().equals(r.getToPartyId()))) continue;
       }
       com.ecofood.core.dto.DashboardActor actor = current(type, id);
-      if (!actor.tenantScope().isEmpty()) result.add(actor);
+      result.add(actor);
     }
     return List.copyOf(result);
   }
@@ -95,7 +98,9 @@ public class DashboardAccessService implements com.ecofood.core.service.Dashboar
     for (var link : membership.getGroups()) {
       var group = scopedGroup(tenant, link.getTenantIdentifier(), link.getGroupIdentifier());
       if (group == null) continue;
-      var type = group.getAccessEntityType();
+      var types = group.getAccessEntityTypes() != null ? group.getAccessEntityTypes() : List.of(group.getAccessEntityType());
+      for (var type : types) {
+      if (type == null) continue;
       var old = result.get(type);
       Set<String> ids = new HashSet<>(old == null ? Set.of() : old.ids());
       boolean full = (old != null && old.full()) || group.getAccessLevel() == AccessLevelEnum.FULL_ACCESS;
@@ -103,6 +108,7 @@ public class DashboardAccessService implements com.ecofood.core.service.Dashboar
         for (var entities : mongo.find(Query.query(Criteria.where("groupIdentifier").is(group.getId()).and("accessEntityType").is(type).and("deleted").ne(true)), GroupEntity.class))
           if (entities.getEntityIds() != null) entities.getEntityIds().forEach(id -> ids.add(id.toHexString()));
       result.put(type, new Grant(full, Set.copyOf(ids)));
+      }
     }
     // A combined rule grants each dashboard within this rule's Tenant only.
     var all = result.get(AccessEntityTypeEnum.ALL_DASHBOARDS);
@@ -116,7 +122,7 @@ public class DashboardAccessService implements com.ecofood.core.service.Dashboar
     if (!tenant.equals(linkedTenant) || groupId == null) return null;
     var group = mongo.findById(groupId, Group.class);
     if (group == null || Boolean.TRUE.equals(group.getDeleted()) || group.getGroupType() != GroupType.ACCESS_CONTROL_GROUP
-        || group.getAccessEntityType() == null || group.getPartyRelationships() == null
+        || (group.getAccessEntityTypes() == null ? group.getAccessEntityType() == null : group.getAccessEntityTypes().isEmpty()) || group.getPartyRelationships() == null
         || group.getPartyRelationships().stream().noneMatch(r -> "TENANT".equals(r.getRelationshipTypeCode()) && tenant.equals(r.getToPartyId()))) return null;
     return group;
   }

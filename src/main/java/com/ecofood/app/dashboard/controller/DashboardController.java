@@ -51,27 +51,30 @@ public class DashboardController {
       @RequestParam(required = false) String propositionId, @RequestParam String currency,
       @RequestParam(required = false) Integer year, @RequestParam(defaultValue = "QUARTERLY") DashboardPeriodEnum period,
       @RequestParam(required = false) Integer month, @RequestParam(required = false) Integer quarter,
-      @RequestParam(defaultValue = "false") boolean propositionTotal, @RequestParam(required = false) String planId) {
-    rejectPlan(planId); return service.summary(selection(tenantId, propositionId, currency, year, period, new PeriodInput(month, quarter), propositionTotal));
+      @RequestParam(defaultValue = "false") boolean propositionTotal, @RequestParam(required = false) String planId,
+      @RequestParam(required = false) List<String> tenantIds) {
+    rejectPlan(planId); return service.summary(selection(tenantId, propositionId, currency, year, period, new PeriodInput(month, quarter), propositionTotal, tenantIds));
   }
   @GetMapping("/trends") public List<Summary> trends(@RequestParam(required = false) String tenantId,
       @RequestParam(required = false) String propositionId, @RequestParam String currency,
       @RequestParam(required = false) Integer year, @RequestParam(defaultValue = "QUARTERLY") DashboardPeriodEnum period,
       @RequestParam(required = false) Integer month, @RequestParam(required = false) Integer quarter,
-      @RequestParam(defaultValue = "false") boolean propositionTotal, @RequestParam(required = false) String planId) {
-    rejectPlan(planId); return service.trends(selection(tenantId, propositionId, currency, year, period, new PeriodInput(month, quarter), propositionTotal));
+      @RequestParam(defaultValue = "false") boolean propositionTotal, @RequestParam(required = false) String planId,
+      @RequestParam(required = false) List<String> tenantIds) {
+    rejectPlan(planId); return service.trends(selection(tenantId, propositionId, currency, year, period, new PeriodInput(month, quarter), propositionTotal, tenantIds));
   }
   @GetMapping("/comparison") public Comparison comparison(@RequestParam(required = false) String tenantId,
       @RequestParam(required = false) String propositionId, @RequestParam String currency,
       @RequestParam(required = false) Integer year, @RequestParam(defaultValue = "QUARTERLY") DashboardPeriodEnum period,
       @RequestParam(required = false) Integer month, @RequestParam(required = false) Integer quarter,
-      @RequestParam(defaultValue = "false") boolean propositionTotal, @RequestParam(required = false) String planId) {
-    rejectPlan(planId); return service.comparison(selection(tenantId, propositionId, currency, year, period, new PeriodInput(month, quarter), propositionTotal));
+      @RequestParam(defaultValue = "false") boolean propositionTotal, @RequestParam(required = false) String planId,
+      @RequestParam(required = false) List<String> tenantIds) {
+    rejectPlan(planId); return service.comparison(selection(tenantId, propositionId, currency, year, period, new PeriodInput(month, quarter), propositionTotal, tenantIds));
   }
   private record PeriodInput(Integer month, Integer quarter) {}
 
   private Selection selection(String tenant, String prop, String currency, Integer year,
-      DashboardPeriodEnum period, PeriodInput input, boolean total) {
+      DashboardPeriodEnum period, PeriodInput input, boolean total, List<String> tenantIds) {
     LocalDate today = LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh"));
     int resolvedYear = year == null ? today.getYear() : year;
     Integer month = null;
@@ -82,7 +85,7 @@ public class DashboardController {
     if (period == DashboardPeriodEnum.QUARTERLY) {
       quarter = input.quarter() == null ? (today.getMonthValue() - 1) / 3 + 1 : input.quarter();
     }
-    return new Selection(blank(tenant), blank(prop), currency, resolvedYear, period, month, quarter, total);
+    return new Selection(blank(tenant), blank(prop), currency, resolvedYear, period, month, quarter, total, tenantIds);
   }
   private String blank(String value) { return value == null || value.isBlank() ? null : value; }
   private void rejectPlan(String plan) {

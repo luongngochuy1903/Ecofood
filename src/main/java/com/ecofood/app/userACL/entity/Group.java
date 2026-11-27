@@ -70,6 +70,10 @@ public class Group extends BaseEntity {
   @Field("access_entity_type")
   private AccessEntityTypeEnum accessEntityType;
 
+  /** Null for legacy single-type rules; authoritative when present. */
+  @Field("access_entity_types")
+  private List<AccessEntityTypeEnum> accessEntityTypes;
+
   @Field("party_to_party_relation")
   @Builder.Default
   private List<PartyToPartyRelationship> partyRelationships = new ArrayList<>();

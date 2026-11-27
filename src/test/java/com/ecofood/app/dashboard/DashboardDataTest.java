@@ -6,10 +6,14 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.ecofood.app.dashboard.repository.DashboardData;
-import com.ecofood.app.metrics.entity.ActualMetrics;
+import com.ecofood.app.dashboard.service.DashboardAggregation;
 import com.ecofood.app.proposition.entity.PropositionEntity;
-import com.ecofood.app.proposition.service.PropositionAccess;
+import com.ecofood.app.proposition.service.DashboardPropositionQueryServiceImpl;
+import com.ecofood.core.client.CoreDashboardPropositionClient;
+import com.ecofood.core.dto.DashboardActor;
+import com.ecofood.core.dto.DashboardDtos.Selection;
 import com.ecofood.core.dto.EconomicMetricsRequest;
+import com.ecofood.core.enums.DashboardPeriodEnum;
 import java.util.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -17,31 +21,45 @@ import org.springframework.data.mongodb.core.query.Query;
 
 class DashboardDataTest {
   private final MongoTemplate mongo = mock(MongoTemplate.class);
-  private final DashboardData data = new DashboardData(mongo, mock(PropositionAccess.class));
+  private final CoreDashboardPropositionClient client = mock(CoreDashboardPropositionClient.class);
+  private final DashboardData data = new DashboardData(client);
+  private final DashboardPropositionQueryServiceImpl query = new DashboardPropositionQueryServiceImpl(mongo);
 
-  private EconomicMetricsRequest row(String tenant, String currency, int month) {
-    return new EconomicMetricsRequest(month, 2026, bd("2"), bd("-5"), bd("0"), bd("50"),
+  private EconomicMetricsRequest row(String tenant, String currency, int year) {
+    return new EconomicMetricsRequest(11, year, bd("2"), bd("-5"), bd("0"), bd("50"),
         null, bd("100"), tenant, currency);
   }
 
   @Test
-  void readsPropositionActualsAndSeparatesTenantCurrencyAndYear() {
+  void readsPropositionActualsThroughCoreAndSeparatesTenantCurrencyAndYear() {
     var p = proposition();
-    p.setActualMetrics(List.of(row(A, "USD", 11), row(A, "VND", 11), row(B, "USD", 11), quarter(4, "9999")));
+    p.setActualMetrics(List.of(row(A, "USD", 2026), row(A, "VND", 2026),
+        row(B, "USD", 2026), row(A, "USD", 2025)));
     when(mongo.find(any(Query.class), eq(PropositionEntity.class))).thenReturn(List.of(p));
-    var rows = data.actual(Set.of(A), Set.of(PROP), 2026, "USD");
-    assertEquals(1, rows.size());
-    assertEquals(2, rows.get(0).totalSalesVolume());
-    assertEquals(bd("-5"), rows.get(0).profit());
-    assertEquals("USD", rows.get(0).currency());
-    assertTrue(data.actual(Set.of(A), Set.of(PROP), 2027, "USD").isEmpty());
-    verify(mongo, never()).find(any(Query.class), eq(ActualMetrics.class));
+    when(client.find(A, Set.of(PROP))).thenAnswer(ignored -> query.find(A, Set.of(PROP)));
+    var actor = new DashboardActor(USER, tenant(A, false), Set.of(A), false, Set.of(PROP));
+    var propositions = data.propositions(actor);
+    assertTrue(propositions.get(0).actualMetrics().stream().allMatch(r -> A.equals(r.tenantId())));
+
+    var aggregation = new DashboardAggregation();
+    var summary = aggregation.embedded(new Selection(A, PROP, "USD", 2026,
+        DashboardPeriodEnum.YEARLY, null, null, false), A, propositions);
+    assertEquals(bd("2"), summary.metrics().get("totalSalesVolume").actual());
+    assertEquals(bd("-5"), summary.metrics().get("profit").actual());
+    assertEquals("USD", summary.metrics().get("profit").unit());
+    var absent = aggregation.embedded(new Selection(A, PROP, "USD", 2027,
+        DashboardPeriodEnum.YEARLY, null, null, false), A, propositions);
+    assertNull(absent.metrics().get("profit").actual());
+    verify(client).find(A, Set.of(PROP));
+    verify(mongo).find(any(Query.class), eq(PropositionEntity.class));
+    verifyNoMoreInteractions(mongo);
   }
 
   @Test
   void emptyScopeDoesNotReadAnyCollection() {
-    assertTrue(data.actual(Set.of(), Set.of(PROP), null, null).isEmpty());
-    assertTrue(data.actual(Set.of(A), Set.of(), null, null).isEmpty());
-    verifyNoInteractions(mongo);
+    var actor = new DashboardActor(USER, tenant(A, false), Set.of(), false, Set.of());
+    assertTrue(data.propositions(actor).isEmpty());
+    assertTrue(query.find(A, Set.of()).isEmpty());
+    verifyNoInteractions(client, mongo);
   }
 }

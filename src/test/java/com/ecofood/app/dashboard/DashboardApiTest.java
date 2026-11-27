@@ -71,6 +71,13 @@ class DashboardApiTest {
     mvc.perform(get("/api/v1/dashboard/access").param("type","Product")).andExpect(status().isBadRequest());
     verifyNoInteractions(access);
   }
+  @Test void summaryAcceptsMultipleCheckboxTenantIds() throws Exception {
+    var service = mock(DashboardServiceImpl.class);
+    var mvc = MockMvcBuilders.standaloneSetup(new DashboardController(service,mock(DashboardAccess.class),mock(CoreDashboardInvoiceClient.class))).build();
+    mvc.perform(get("/api/v1/dashboard/summary").param("tenantIds",DashboardFixtures.A+","+DashboardFixtures.B+","+DashboardFixtures.A).param("currency","USD"))
+        .andExpect(status().isOk());
+    verify(service).summary(org.mockito.ArgumentMatchers.argThat(s -> s.tenantId() == null && s.tenantIds().equals(java.util.List.of(DashboardFixtures.A,DashboardFixtures.B))));
+  }
   @Test void invalidFiltersAreRejected() throws Exception {
     var service = mock(DashboardServiceImpl.class);
     var mvc = MockMvcBuilders.standaloneSetup(new DashboardController(service,mock(DashboardAccess.class),mock(CoreDashboardInvoiceClient.class)))

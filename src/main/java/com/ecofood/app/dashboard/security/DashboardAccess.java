@@ -12,6 +12,7 @@ public class DashboardAccess {
   private final CoreDashboardAccessClient client;
   public DashboardActor current() { return client.current(); }
   public DashboardActor current(AccessEntityTypeEnum type, String tenant) { return client.current(type, tenant); }
+  public List<DashboardActor> tenantOptions(AccessEntityTypeEnum type) { return client.tenantOptions(type); }
   public List<DashboardActor> authorizedTenants(AccessEntityTypeEnum type) { return client.authorizedTenants(type); }
   public static ResponseStatusException denied() { return error(HttpStatus.FORBIDDEN, "Dashboard access denied"); }
   public static ResponseStatusException error(HttpStatus status, String message) { return new ResponseStatusException(status, message); }

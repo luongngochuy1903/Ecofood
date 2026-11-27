@@ -22,6 +22,6 @@ public class DashboardPropositionQueryServiceImpl implements DashboardPropositio
         .map(p -> new DashboardProposition(p.getIdAsString(), p.getDefinition().name(), p.getDefinition().currency(),
             p.getActualMetrics() == null ? List.of() : p.getActualMetrics().stream().filter(r -> r.tenantId() == null || tenant.equals(r.tenantId()))
                 .map(r -> new com.ecofood.core.dto.EconomicMetricsRequest(r.month(), r.year(), r.totalSalesVolume(), r.profit(), r.ingredientCost(),
-                    r.platformCost(), r.quarter(), r.revenue(), tenant, r.currency() == null ? p.getDefinition().currency() : r.currency())).toList())).toList();
+                    r.platformCost(), r.quarter(), r.revenue(), r.tenantId(), r.currency() == null ? p.getDefinition().currency() : r.currency())).toList())).toList();
   }
 }

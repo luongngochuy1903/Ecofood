@@ -41,14 +41,16 @@ class DashboardAccessTest {
   }
   @AfterEach void close() { token.close(); }
   @Test void adminWithoutRuleHasEmptyDataScope() { assertTrue(access.current().tenantScope().isEmpty()); }
-  private void grant(AccessEntityTypeEnum type, AccessLevelEnum level) {
+  private Group grant(AccessEntityTypeEnum type, AccessLevelEnum level) {
     ObjectId id = new ObjectId();
     var membership = UserGroupEntity.builder().userIdentifier(new ObjectId(USER)).groups(List.of(UserGroupEntity.EmbeddedRestrictionGroup.builder()
         .groupIdentifier(id).tenantIdentifier(new ObjectId(A)).build())).build();
     when(mongo.findOne(any(Query.class),eq(UserGroupEntity.class))).thenReturn(membership);
-    when(mongo.findById(id,Group.class)).thenReturn(Group.builder().groupType(GroupType.ACCESS_CONTROL_GROUP)
+    var group = Group.builder().groupType(GroupType.ACCESS_CONTROL_GROUP)
         .accessEntityType(type).accessLevel(level).partyRelationships(List.of(PartyToPartyRelationship.builder()
-        .relationshipTypeCode("TENANT").toPartyId(new ObjectId(A)).build())).build());
+        .relationshipTypeCode("TENANT").toPartyId(new ObjectId(A)).build())).build();
+    when(mongo.findById(id,Group.class)).thenReturn(group);
+    return group;
   }
   @Test void fullBusinessRuleDoesNotGrantInvoiceData() {
     grant(AccessEntityTypeEnum.BUSINESS_DASHBOARD, AccessLevelEnum.FULL_ACCESS);
@@ -72,6 +74,40 @@ class DashboardAccessTest {
     grant(AccessEntityTypeEnum.ALL_DASHBOARDS, AccessLevelEnum.FULL_ACCESS);
     when(tenants.propositionReference(B)).thenReturn(tenant(B,false));
     assertThrows(ResponseStatusException.class, () -> access.current(AccessEntityTypeEnum.INVOICE_DASHBOARD, B));
+  }
+  @Test void checkedTypesGrantOnlyThoseDashboardsAndUncheckingRevokesAccess() {
+    var group = grant(null, AccessLevelEnum.FULL_ACCESS);
+    group.setAccessEntityTypes(List.of(AccessEntityTypeEnum.BUSINESS_DASHBOARD, AccessEntityTypeEnum.INVOICE_DASHBOARD));
+    assertEquals(Set.of(A), access.current().tenantScope());
+    assertEquals(Set.of(A), access.current(AccessEntityTypeEnum.INVOICE_DASHBOARD).tenantScope());
+    assertTrue(access.current(AccessEntityTypeEnum.CUSTOMER_DASHBOARD).tenantScope().isEmpty());
+    group.setAccessEntityTypes(List.of(AccessEntityTypeEnum.BUSINESS_DASHBOARD));
+    assertTrue(access.current(AccessEntityTypeEnum.INVOICE_DASHBOARD).tenantScope().isEmpty());
+  }
+  @Test void explicitSelectionsOverrideAnyStaleLegacyAllValue() {
+    var group = grant(AccessEntityTypeEnum.ALL_DASHBOARDS, AccessLevelEnum.FULL_ACCESS);
+    group.setAccessEntityTypes(List.of(AccessEntityTypeEnum.BUSINESS_DASHBOARD));
+    assertTrue(access.current(AccessEntityTypeEnum.INVOICE_DASHBOARD).tenantScope().isEmpty());
+    group.setAccessEntityTypes(List.of());
+    assertTrue(access.current().tenantScope().isEmpty());
+  }
+  @Test void enterpriseOptionsContainItsChildrenButOnlyGrantedChildrenAreAccessible() {
+    var parent = new com.ecofood.core.dto.PropositionTenantReference(A,"Enterprise",ENTERPRISE,PartnerTypeEnum.ENTERPRISE,TenantTypeEnum.MASTER_TENANT,List.of(A,B,OWNER,PRODUCT),List.of(),false);
+    when(tenants.propositionReference(A)).thenReturn(parent);
+    var relation = new com.ecofood.core.dto.PartyRelationshipResponse(A,"MT","Enterprise");
+    when(tenants.propositionReference(B)).thenReturn(new com.ecofood.core.dto.PropositionTenantReference(B,"B",null,PartnerTypeEnum.BRAND,TenantTypeEnum.SUB_TENANT,List.of(B),List.of(relation),false));
+    when(tenants.propositionReference(OWNER)).thenReturn(new com.ecofood.core.dto.PropositionTenantReference(OWNER,"C",null,PartnerTypeEnum.BRAND,TenantTypeEnum.SUB_TENANT,List.of(OWNER),List.of(relation),false));
+    when(tenants.propositionReference(PRODUCT)).thenReturn(new com.ecofood.core.dto.PropositionTenantReference(PRODUCT,"Other enterprise child",null,PartnerTypeEnum.BRAND,TenantTypeEnum.SUB_TENANT,List.of(PRODUCT),List.of(),false));
+    var id = new ObjectId();
+    when(mongo.findOne(any(Query.class),eq(UserGroupEntity.class))).thenReturn(UserGroupEntity.builder().userIdentifier(new ObjectId(USER))
+        .groups(List.of(UserGroupEntity.EmbeddedRestrictionGroup.builder().groupIdentifier(id).tenantIdentifier(new ObjectId(B)).build())).build());
+    when(mongo.findById(id,Group.class)).thenReturn(Group.builder().groupType(GroupType.ACCESS_CONTROL_GROUP).accessEntityType(AccessEntityTypeEnum.BUSINESS_DASHBOARD)
+        .accessLevel(AccessLevelEnum.FULL_ACCESS).partyRelationships(List.of(PartyToPartyRelationship.builder().relationshipTypeCode("TENANT").toPartyId(new ObjectId(B)).build())).build());
+    var options = access.tenantOptions(AccessEntityTypeEnum.BUSINESS_DASHBOARD);
+    assertEquals(List.of(A,B,OWNER),options.stream().map(a -> a.tenant().id()).toList());
+    assertTrue(options.get(0).tenantScope().isEmpty()); assertEquals(Set.of(B),options.get(1).tenantScope());
+    assertTrue(options.get(2).tenantScope().isEmpty());
+    assertEquals(List.of(B),access.authorizedTenants(AccessEntityTypeEnum.BUSINESS_DASHBOARD).stream().map(a -> a.tenant().id()).toList());
   }
   @Test void rolesUseRequiredSuffixes() {
     assertTrue(DashboardAccessService.managerRole("tenant_admin"));

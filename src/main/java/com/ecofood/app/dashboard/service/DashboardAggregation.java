@@ -9,9 +9,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class DashboardAggregation {
   public Summary embedded(Selection selection, String tenant, List<com.ecofood.core.dto.DashboardProposition> propositions) {
+    return embedded(selection, Set.of(tenant), propositions);
+  }
+  public Summary embedded(Selection selection, Set<String> tenants, List<com.ecofood.core.dto.DashboardProposition> propositions) {
     List<EconomicMetricsRequest> rows = propositions.stream().filter(p -> p.actualMetrics() != null)
-        .flatMap(p -> p.actualMetrics().stream()).filter(r -> tenant.equals(r.tenantId())
-            && Objects.equals(r.year(), selection.year()) && selection.currency().equals(r.currency())
+        .flatMap(p -> p.actualMetrics().stream()).filter(r -> r.tenantId() == null || tenants.contains(r.tenantId()))
+        .filter(r -> Objects.equals(r.year(), selection.year()) && selection.currency().equals(r.currency())
             && (selection.period() == DashboardPeriodEnum.YEARLY
                 || Objects.equals(r.quarter(), selection.quarter())
                 || r.month() != null && selection.months().contains(r.month()))).toList();
@@ -27,6 +30,6 @@ public class DashboardAggregation {
       metrics.put(name, new Metric(actual, null, null, null, null, rows.isEmpty() ? "NO_RECORDED_TRANSACTIONS" : complete ? "COMPLETE" : "INCOMPLETE",
           "NOT_CONFIGURED", name.equals("totalSalesVolume") ? "PLAN" : selection.currency(), "ACTUAL", 0, 0));
     });
-    return new Summary(selection, List.of(tenant), metrics, null, "Asia/Ho_Chi_Minh", List.of());
+    return new Summary(selection, tenants.stream().sorted().toList(), metrics, null, "Asia/Ho_Chi_Minh", List.of());
   }
 }
