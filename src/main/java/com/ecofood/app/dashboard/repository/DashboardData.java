@@ -28,7 +28,14 @@ public class DashboardData {
     if (enterprise && actor.tenant().enterpriseId() != null && org.bson.types.ObjectId.isValid(actor.tenant().enterpriseId()))
       scope.add(Criteria.where("enterpriseId").is(new org.bson.types.ObjectId(actor.tenant().enterpriseId())));
     Query query = Query.query(new Criteria().andOperator(Criteria.where("deleted").ne(true), new Criteria().orOperator(scope.toArray(Criteria[]::new))));
-    var libraryActor = new PropositionAccess.Actor(actor.tenant(), actor.tenantScope(), Set.copyOf(read), enterprise, actor.tenant().partnerType() == PartnerTypeEnum.ECO);
+    // Dashboard keeps the pre-existing single-enterprise scope here — only the
+    // Product/Proposition directory reads (PropositionAccess.current()) widen
+    // to owned REGIONAL_ENTERPRISE children; the Mongo query above already
+    // independently filters by the caller's own enterpriseId.
+    Set<String> enterpriseRead = enterprise && actor.tenant().enterpriseId() != null
+        ? Set.of(actor.tenant().enterpriseId()) : Set.of();
+    var libraryActor = new PropositionAccess.Actor(actor.tenant(), actor.tenantScope(), Set.copyOf(read), enterprise,
+        actor.tenant().partnerType() == PartnerTypeEnum.ECO, enterpriseRead);
     return mongo.find(query, PropositionEntity.class).stream()
         .filter(p -> p.getDefinition() != null && (!enterprise || p.getEnterpriseId() != null))
         .filter(p -> actor.productIds() == null || (p.getProductId() != null && actor.productIds().contains(p.getProductId().toHexString())))

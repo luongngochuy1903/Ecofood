@@ -217,7 +217,7 @@ class PropositionApiTest {
                             settings.put(p.getEnterpriseId(), doc);
                             return p;
                         });
-        var access = new PropositionAccess(tenants, new ACLService());
+        var access = new PropositionAccess(tenants, new ACLService(), enterprises);
         var parties = new PropositionParties(tenants);
         var currencies = new PropositionCurrencies(currencyRepo);
         var validation =
