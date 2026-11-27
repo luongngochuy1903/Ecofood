@@ -30,8 +30,8 @@ public class PropositionQueryServiceImpl implements PropositionQueryService {
         var scope = List.copyOf(actor.readScope());
         var candidates =
                 actor.enterprise()
-                        ? repository.findByEnterpriseIdAndDeletedFalse(
-                                new ObjectId(actor.tenant().enterpriseId()))
+                        ? repository.findByEnterpriseIdInAndDeletedFalse(
+                                actor.enterpriseReadScope().stream().map(ObjectId::new).toList())
                         : actor.platform()
                                 ? repository.findByDeletedFalse()
                                 : repository

@@ -23,7 +23,7 @@ class PropositionMapperTest {
       access, mock(PropositionParties.class), mock(PropositionCurrencies.class), productProcesses, userQueryClient);
 
   private PropositionAccess.Actor actor() {
-    return new PropositionAccess.Actor(null, java.util.Set.of(), java.util.Set.of(), true, true);
+    return new PropositionAccess.Actor(null, java.util.Set.of(), java.util.Set.of(), true, true, java.util.Set.of());
   }
 
   private ProductProcessResponse emptyContent() {

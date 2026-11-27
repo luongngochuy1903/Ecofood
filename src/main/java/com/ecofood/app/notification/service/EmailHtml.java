@@ -8,7 +8,12 @@ public final class EmailHtml {
   private EmailHtml() {}
   public static final String PREFIX = "<!DOCTYPE html>\n<!-- ecofood:complaint-email:v1 -->";
   public static boolean supported(String type, String content) {
-    return ("COMPLAINT_CREATED".equals(type) || "COMPLAINT_RESOLVED".equals(type)) && content != null && content.startsWith(PREFIX);
+    // The matching template resource (templates/email/layout/base-email.html)
+    // is plain text on disk, so its line endings follow whatever the checkout
+    // used (e.g. CRLF on Windows with core.autocrlf=true) — normalize before
+    // comparing so this check doesn't depend on that.
+    return ("COMPLAINT_CREATED".equals(type) || "COMPLAINT_RESOLVED".equals(type))
+        && content != null && content.replace("\r\n", "\n").startsWith(PREFIX);
   }
   public static String escape(String value) { return HtmlUtils.htmlEscape(value == null ? "" : value, "UTF-8"); }
   public static String plainText(String html) {
