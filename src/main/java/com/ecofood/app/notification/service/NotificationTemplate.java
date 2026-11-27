@@ -10,10 +10,10 @@ import org.springframework.web.server.ResponseStatusException;
 @Component
 public class NotificationTemplate {
   public static final Set<String> INVOICE_FIELDS = Set.of("invoiceNumber", "propositionId", "planId", "totalAmount", "currency", "receivedAt", "submissionId", "eventType", "tenantId");
-  public static final Set<String> COMPLAINT_FIELDS = Set.of("submissionId", "eventType", "tenantId", "complaintId", "complaintSubject", "complaintType", "complaintStatus", "resolution");
+  public static final Set<String> COMPLAINT_FIELDS = Set.of("submissionId", "eventType", "tenantId", "complaintId", "complaintSubject", "complaintType", "complaintStatus", "resolution", "complaintDescription");
   public static final Set<String> FIELDS = Set.of("invoiceNumber", "propositionId", "planId",
       "totalAmount", "currency", "receivedAt", "submissionId", "eventType", "tenantId",
-      "complaintId", "complaintSubject", "complaintType", "complaintStatus", "resolution");
+      "complaintId", "complaintSubject", "complaintType", "complaintStatus", "resolution", "complaintDescription");
   private static final Pattern TOKEN = Pattern.compile("\\{([A-Za-z][A-Za-z0-9]*)}");
   public void validateForEvent(String event, String subject, String content) {
     validate(subject,content);

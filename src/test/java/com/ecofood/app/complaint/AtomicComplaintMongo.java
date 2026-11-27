@@ -37,6 +37,11 @@ class AtomicComplaintMongo {
   synchronized Map<Object, Document> rows(Class<?> type) { return collections.computeIfAbsent(name(type), ignored -> new LinkedHashMap<>()); }
   synchronized <T> T insert(T object) {
     Document doc = new Document(); converter.write(object, doc);
+    if(object instanceof Complaint && doc.get("customerComplaintSlot")!=null && rows(Complaint.class).values().stream()
+        .anyMatch(row->Objects.equals(row.get("customerId"),doc.get("customerId"))
+            && Objects.equals(row.get("customerComplaintSlot"),doc.get("customerComplaintSlot")))) {
+      throw new DuplicateKeyException("uq_complaint_customer_slot");
+    }
     if (rows(object.getClass()).putIfAbsent(doc.get("_id"), doc) != null) throw new DuplicateKeyException("duplicate"); return object;
   }
   Document query(Query q, Class<?> type) { return new QueryMapper(converter).getMappedObject(q.getQueryObject(), context.getRequiredPersistentEntity(type)); }

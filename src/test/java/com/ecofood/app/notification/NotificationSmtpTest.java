@@ -18,6 +18,27 @@ import org.springframework.mail.*;
 import org.springframework.mail.javamail.JavaMailSender;
 
 class NotificationSmtpTest {
+  @Test void complaintHtmlUsesUtf8AlternativeAndRetriesReuseFrozenContent() throws Exception {
+    var sender=mock(JavaMailSender.class);
+    when(sender.createMimeMessage()).thenAnswer(call -> new MimeMessage(Session.getInstance(new Properties())));
+    var notice=delivery(); notice.setType("COMPLAINT_RESOLVED");
+    String html=com.ecofood.app.notification.service.EmailHtml.PREFIX+"\n<html><body><h1>Complaint resolved</h1><p>Xin chào &amp; thank you</p><a href=\"https://tenant.example.org/customer/complaints?complaintId=1\">View Resolution</a></body></html>";
+    notice.setContent(html);
+    var smtp=new SmtpNotificationSender(provider(sender)); smtp.send(notice); smtp.send(notice);
+    var capture=org.mockito.ArgumentCaptor.forClass(MimeMessage.class); verify(sender,times(2)).send(capture.capture());
+    for(var message:capture.getAllValues()) {
+      message.saveChanges(); var parts=new java.util.HashMap<String,String>(); collectParts(message,parts);
+      assertEquals(html,parts.get("text/html")); assertTrue(parts.get("text/plain").contains("Xin chào & thank you"));
+      assertTrue(parts.get("text/plain").contains("https://tenant.example.org/customer/complaints?complaintId=1"));
+      assertEquals(notice.getSendTo(),message.getAllRecipients()[0].toString());
+    }
+    assertEquals(html,notice.getContent());
+  }
+  private void collectParts(jakarta.mail.Part part,java.util.Map<String,String> result) throws Exception {
+    if(part.isMimeType("multipart/*")) { var multi=(jakarta.mail.Multipart)part.getContent(); for(int i=0;i<multi.getCount();i++) collectParts(multi.getBodyPart(i),result); }
+    else if(part.isMimeType("text/html")) result.put("text/html",(String)part.getContent());
+    else if(part.isMimeType("text/plain")) result.put("text/plain",(String)part.getContent());
+  }
   @SuppressWarnings("unchecked") ObjectProvider<JavaMailSender> provider(JavaMailSender sender) {
     var provider = (ObjectProvider<JavaMailSender>) mock(ObjectProvider.class); when(provider.getIfAvailable()).thenReturn(sender); return provider;
   }

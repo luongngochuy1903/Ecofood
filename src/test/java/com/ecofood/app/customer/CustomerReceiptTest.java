@@ -68,7 +68,7 @@ class CustomerReceiptTest {
   @Test void anotherCustomerCannotClaimOrReadLinkedInvoiceAndPublicLinkStopsWorking() {
     var token = token(issue()); service.claim(token); actors.set(actor(B));
     assertThrows(ResponseStatusException.class, () -> service.claim(token)); assertThrows(ResponseStatusException.class, () -> service.view(token));
-    var history = new CustomerServiceImpl(access, db.mongo); assertTrue(history.invoices(0, 20).content().isEmpty()); assertThrows(ResponseStatusException.class, () -> history.detail(INVOICE));
+    var history = new CustomerServiceImpl(access, db.mongo, mock(com.ecofood.core.client.CoreTenantQueryClient.class)); assertTrue(history.invoices(0, 20).content().isEmpty()); assertThrows(ResponseStatusException.class, () -> history.detail(INVOICE));
   }
   @Test void concurrentCustomersOnlyOneWinsAndOneNotificationIsCreated() throws Exception {
     var token = token(issue()); var pool = Executors.newFixedThreadPool(2); var start = new CountDownLatch(1);

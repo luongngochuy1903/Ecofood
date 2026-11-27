@@ -7,9 +7,8 @@ import java.util.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.*;
-import org.springframework.stereotype.Component;
 
-@Component
+/** Legacy adapter retained for compatibility tests; intentionally excluded from Spring event sources. */
 @RequiredArgsConstructor
 public class InvoiceNotificationSource implements NotificationEventSource {
   private final MongoTemplate mongo;

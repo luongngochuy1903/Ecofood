@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<!-- ecofood:complaint-email:v1 -->
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{title}}</title></head>
+<body style="margin:0;padding:0;background-color:#F4F7FB;font-family:Arial,Helvetica,sans-serif;color:#17263B;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#F4F7FB;"><tr><td align="center" style="padding:24px 12px;">
+<!--[if mso]><table role="presentation" width="600" cellspacing="0" cellpadding="0"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;background-color:#FFFFFF;border:1px solid #E5EAF1;border-radius:10px;table-layout:fixed;">
+{{header}}
+<tr><td style="padding:32px 24px 8px;text-align:center;"><span style="display:inline-block;background-color:{{statusBackground}};color:{{statusColor}};padding:8px 14px;border-radius:6px;font-size:13px;font-weight:bold;">{{statusLabel}}</span><h1 style="margin:20px 0 8px;font-size:25px;line-height:1.3;color:#17263B;">{{title}}</h1><p style="margin:0;color:#64748B;font-size:14px;line-height:1.7;">{{subtitle}}</p></td></tr>
+<tr><td style="padding:24px;font-size:14px;line-height:1.8;overflow-wrap:anywhere;word-break:break-word;"><p style="margin:0 0 16px;">{{greeting}}</p>{{introduction}}{{information}}{{content}}{{closing}}{{action}}<p style="margin:24px 0 0;">Best regards,<br><strong>Customer Care Team</strong><br>{{brandName}}</p></td></tr>
+{{footer}}
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td></tr></table></body></html>

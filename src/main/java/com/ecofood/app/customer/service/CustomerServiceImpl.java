@@ -6,6 +6,7 @@ import com.ecofood.app.customer.entity.CustomerUser;
 import com.ecofood.app.customer.security.CustomerAccess;
 import com.ecofood.app.transaction.entity.Invoice;
 import com.ecofood.core.dto.CustomerIdentityScope;
+import com.ecofood.core.client.CoreTenantQueryClient;
 import com.ecofood.core.service.CustomerInvoiceService;
 import com.ecofood.core.service.CustomerQueryService;
 import com.ecofood.core.service.CustomerService;
@@ -28,6 +29,7 @@ public class CustomerServiceImpl implements CustomerService, CustomerQueryServic
   private static final String CUSTOMER_PROFILE_REVISION = "customerProfileRevision";
   private final CustomerAccess access;
   private final MongoTemplate mongo;
+  private final CoreTenantQueryClient tenants;
   @Override
   public Profile profile() { return profile(access.current()); }
   private Profile profile(CustomerAccess.Actor actor) {
@@ -86,10 +88,19 @@ public class CustomerServiceImpl implements CustomerService, CustomerQueryServic
     return new Page<>(rows.stream().limit(size).map(CustomerServiceImpl::invoice).toList(), page, size, rows.size() > size);
   }
   @Override
-  public OwnedInvoice detail(String id) { return invoice(requireOwned(access.current(), id)); }
+  public OwnedInvoice detail(String id) {
+    var owned=requireOwned(access.current(),id);
+    var view=invoice(owned);
+    return new OwnedInvoice(view.id(),view.invoiceNumber(),view.type(),view.status(),view.paymentStatus(),view.transactionTime(),view.receivedAt(),
+        view.currency(),view.totalAmount(),view.invoiceDocumentId(),view.items(),owned.getTenantId(),tenantName(owned.getTenantId()));
+  }
+  private String tenantName(String id) {
+    try { var tenant=tenants.propositionReference(id); return tenant==null?null:tenant.name(); }
+    catch(IllegalArgumentException missingTenant) { return null; }
+  }
   static OwnedInvoice invoice(Invoice i) {
     return new OwnedInvoice(i.getId(), i.getInvoiceNumber(), i.getType(), i.getStatus() == null ? null : i.getStatus().name(), i.getPaymentStatus(),
-        i.getTransactionTime(), i.getReceivedAt(), i.getCurrency(), i.getTotalAmount(), i.getInvoiceDocumentId(), items(i));
+        i.getTransactionTime(), i.getReceivedAt(), i.getCurrency(), i.getTotalAmount(), i.getInvoiceDocumentId(), items(i), i.getTenantId(), null);
   }
   /**
    * Legacy one-Plan Invoices carry their line in `items`; PLAN_SALE_BATCH

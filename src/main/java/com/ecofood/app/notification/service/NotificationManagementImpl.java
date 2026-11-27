@@ -5,6 +5,7 @@ import com.ecofood.app.notification.entity.Notification;
 import com.ecofood.app.notification.entity.NotificationRule;
 import com.ecofood.app.notification.integration.NotificationDirectory;
 import com.ecofood.app.notification.security.NotificationAccess;
+import com.ecofood.app.submission.entity.Submission;
 import com.ecofood.core.dto.NotificationDtos;
 import com.ecofood.core.service.NotificationManagementService;
 import java.time.Instant;
@@ -33,7 +34,7 @@ public class NotificationManagementImpl implements NotificationManagementService
   @Override
   public Map<String, Object> capabilities() {
     var scope = access.current();
-    return Map.of("manage", scope.manage(), "read", scope.read(), "retry", scope.retry());
+    return Map.of("manage", false, "read", scope.read(), "retry", scope.retry());
   }
   @Override
   public Map<String, Object> options() {
@@ -45,13 +46,13 @@ public class NotificationManagementImpl implements NotificationManagementService
       var claims = directory.claims(user, scope.tenant()); roles.addAll(claims.roles()); permissions.addAll(claims.permissions());
       return Map.of("id", user.getIdAsString(), "email", Optional.ofNullable(user.getEmail()).orElse(""));
     }).toList();
-    return Map.of("events", List.of("INVOICE_PAID", "COMPLAINT_CREATED", "COMPLAINT_RESOLVED"), "placeholders", NotificationTemplate.FIELDS,
+    return Map.of("events", List.of("COMPLAINT_CREATED", "COMPLAINT_RESOLVED"), "placeholders", NotificationTemplate.COMPLAINT_FIELDS,
         "users", people, "roles", roles, "permissions", permissions, "approvedEmails", settings.approved(scope.tenant()));
   }
   @Override
   public List<NotificationRule> rules() {
     var scope = access.current(); scope.requireManage();
-    return mongo.find(Query.query(Criteria.where(TENANT_ID).is(scope.tenant())).with(Sort.by(Sort.Direction.DESC, "updatedAt")).limit(100), NotificationRule.class);
+    return mongo.find(Query.query(Criteria.where(TENANT_ID).is(scope.tenant()).and("eventType").in("COMPLAINT_CREATED", "COMPLAINT_RESOLVED")).with(Sort.by(Sort.Direction.DESC, "updatedAt")).limit(100), NotificationRule.class);
   }
   @Override
   public NotificationRule rule(String id) { var s = access.current(); s.requireManage(); return findRule(id, s.tenant()); }
@@ -62,7 +63,7 @@ public class NotificationManagementImpl implements NotificationManagementService
   @Override
   public NotificationRule save(String id, NotificationDtos.RuleRequest input) {
     var scope = access.current(); scope.requireManage();
-    if (input == null || input.name() == null || input.name().isBlank() || input.name().length() > 150 || !Set.of("INVOICE_PAID", "COMPLAINT_CREATED", "COMPLAINT_RESOLVED").contains(input.eventType() == null ? "" : input.eventType())) throw NotificationTemplate.bad("Tên hoặc sự kiện không hợp lệ");
+    if (input == null || input.name() == null || input.name().isBlank() || input.name().length() > 150 || !Set.of("COMPLAINT_CREATED", "COMPLAINT_RESOLVED").contains(input.eventType() == null ? "" : input.eventType())) throw NotificationTemplate.bad("Tên hoặc sự kiện không hợp lệ");
     templates.validateForEvent(input.eventType(), input.subject(), input.content()); recipients.validate(input.recipients(), scope.tenant());
     recipients.validateEvent(input.eventType(), input.recipients(), scope.tenant());
     if (input.enabled() && !NotificationSettings.validEmail(settings.from)) throw NotificationTemplate.bad("Cần cấu hình NOTIFICATION_FROM hợp lệ trước khi bật rule");
@@ -83,6 +84,7 @@ public class NotificationManagementImpl implements NotificationManagementService
   @Override
   public NotificationRule enable(String id, NotificationDtos.EnabledRequest request) {
     var scope = access.current(); scope.requireManage(); var rule = findRule(id, scope.tenant());
+    if (request != null && request.enabled() && "INVOICE_PAID".equals(rule.getEventType())) throw NotificationTemplate.bad("INVOICE_PAID rules are no longer supported");
     if (rule.getEventType() != null && rule.getEventType().startsWith("COMPLAINT_")) recipients.validateEvent(rule.getEventType(), rule.getRecipients(), scope.tenant());
     if (request == null) throw NotificationTemplate.bad("Thiếu cấu hình trạng thái");
     if (request.enabled() && !NotificationSettings.validEmail(settings.from)) throw NotificationTemplate.bad("Cần cấu hình NOTIFICATION_FROM hợp lệ trước khi bật rule");
@@ -114,7 +116,9 @@ public class NotificationManagementImpl implements NotificationManagementService
       }
       query.addCriteria(period); }
     var rows = mongo.find(query.with(Sort.by(Sort.Direction.DESC, "createdAt", "id")).skip((long) page * size).limit(size + 1), Notification.class);
-    return new NotificationDtos.Page<>(List.copyOf(rows.subList(0, Math.min(size, rows.size()))), page, size, rows.size() > size);
+    var content=List.copyOf(rows.subList(0, Math.min(size, rows.size())));
+    attachComplaintReferences(content,scope.tenant());
+    return new NotificationDtos.Page<>(content, page, size, rows.size() > size);
   }
   @Override
   public Notification detail(String id) {
@@ -123,11 +127,25 @@ public class NotificationManagementImpl implements NotificationManagementService
     if (result == null) {
       throw missing();
     }
+    attachComplaintReferences(List.of(result),scope.tenant());
     return result;
+  }
+  private void attachComplaintReferences(List<Notification> notifications,String tenant) {
+    var ids=notifications.stream().filter(n->Set.of("COMPLAINT_CREATED","COMPLAINT_RESOLVED").contains(Objects.toString(n.getType(),"")))
+        .map(Notification::getSubmissionId).filter(Objects::nonNull).distinct().toList();
+    if(ids.isEmpty()) return;
+    var events=mongo.find(Query.query(Criteria.where("_id").in(ids).and(TENANT_ID).is(tenant).and("sourceType").is("COMPLAINT")),Submission.class);
+    Map<String,Submission> sources=new HashMap<>();
+    for(var event:events) if(tenant.equals(event.tenantId()) && "COMPLAINT".equals(event.sourceType())) sources.put(event.id(),event);
+    for(var notice:notifications) {
+      var event=sources.get(notice.getSubmissionId());
+      if(event!=null && tenant.equals(notice.getTenantId()) && Objects.equals(event.event(),notice.getType())) notice.setComplaintId(event.sourceId());
+    }
   }
   @Override
   public Notification retry(String id, NotificationDtos.RetryRequest input) {
     var scope = access.current(); scope.requireRetry(); var current = detail(id);
+    if ("INVOICE_PAID".equals(current.getType())) throw NotificationTemplate.bad("INVOICE_PAID notifications are no longer supported");
     if (!"FAILED".equals(current.getStatus())) throw new ResponseStatusException(HttpStatus.CONFLICT, "Chỉ retry Notification FAILED");
     if (current.isDeliveryUncertain() && (input == null || !input.acknowledgeDuplicateRisk())) throw NotificationTemplate.bad("Cần xác nhận nguy cơ gửi trùng vì kết quả SMTP trước đó chưa xác định");
     var result = mongo.findAndModify(Query.query(Criteria.where("_id").is(id).and(TENANT_ID).is(scope.tenant()).and(STATUS).is("FAILED").and("totalAttempts").is(current.getTotalAttempts())),
