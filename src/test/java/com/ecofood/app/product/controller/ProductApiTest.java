@@ -94,17 +94,17 @@ class ProductApiTest {
     when(processRepository.findByProductIdOrderByVersionDesc(any())).thenAnswer(i -> versions.stream()
         .filter(v -> v.getProductId().equals(i.getArgument(0)))
         .sorted(Comparator.comparingInt(ProductProcessEntity::getVersion).reversed()).map(this::storedProcess).toList());
+    com.ecofood.core.client.CoreEnterpriseQueryClient enterpriseQueryClient =
+        mock(com.ecofood.core.client.CoreEnterpriseQueryClient.class);
+    when(enterpriseQueryClient.getById(any())).thenReturn(
+        com.ecofood.core.dto.EnterpriseResponse.builder().enterpriseId("e").enterpriseCompanyName("Test Enterprise").build());
     ProductAuthorization authorization = new ProductAuthorization(new ACLService(), tenants,
-        mock(com.ecofood.app.proposition.repository.PropositionRepository.class));
+        enterpriseQueryClient, mock(com.ecofood.app.proposition.repository.PropositionRepository.class));
     com.ecofood.core.service.SequenceGeneratorService sequenceGeneratorService =
         mock(com.ecofood.core.service.SequenceGeneratorService.class);
     java.util.concurrent.atomic.AtomicLong sequence = new java.util.concurrent.atomic.AtomicLong();
     when(sequenceGeneratorService.generateSequence(ProductEntity.SEQUENCE_NAME))
         .thenAnswer(i -> sequence.incrementAndGet());
-    com.ecofood.core.client.CoreEnterpriseQueryClient enterpriseQueryClient =
-        mock(com.ecofood.core.client.CoreEnterpriseQueryClient.class);
-    when(enterpriseQueryClient.getById(any())).thenReturn(
-        com.ecofood.core.dto.EnterpriseResponse.builder().enterpriseId("e").enterpriseCompanyName("Test Enterprise").build());
     com.ecofood.core.client.CoreUserQueryClient userQueryClient =
         mock(com.ecofood.core.client.CoreUserQueryClient.class);
     when(userQueryClient.getById(any())).thenReturn(

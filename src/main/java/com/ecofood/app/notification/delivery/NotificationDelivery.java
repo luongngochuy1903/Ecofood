@@ -28,7 +28,6 @@ public class NotificationDelivery {
   private final NotificationSettings settings;
   @Scheduled(fixedDelayString = "${ecofood.notification.delivery-poll-ms:5000}", initialDelayString = "${ecofood.notification.initial-delay-ms:20000}")
   public void poll() {
-    if (!settings.deliveryEnabled) return;
     try {
       // Never automatically resend an expired SMTP attempt with an unknown external outcome.
       mongo.updateMulti(Query.query(Criteria.where(STATUS).is(PROCESSING).and(LEASE_UNTIL).lte(Instant.now())),

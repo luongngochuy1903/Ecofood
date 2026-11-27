@@ -1,6 +1,7 @@
 package com.ecofood.app.proposition.service;
 
 import com.ecofood.app.proposition.entity.*;
+import com.ecofood.core.client.CoreEnterpriseQueryClient;
 import com.ecofood.core.client.CoreTenantQueryClient;
 import com.ecofood.core.dto.*;
 import com.ecofood.core.enums.*;
@@ -18,13 +19,22 @@ import org.springframework.web.server.ResponseStatusException;
 public class PropositionAccess {
     private final CoreTenantQueryClient tenants;
     private final ACLService acl;
+    private final CoreEnterpriseQueryClient enterprises;
 
+    /**
+     * enterpriseReadScope is the caller's own enterpriseId plus every
+     * enterpriseId it OWNS (its REGIONAL_ENTERPRISE children — see
+     * CoreEnterpriseQueryClient.ownedEnterpriseIds); read-only widening, never
+     * consulted by owns()/manages(), which stay strict to the caller's single
+     * enterpriseId so edit/manage authority is unaffected.
+     */
     public record Actor(
             PropositionTenantReference tenant,
             Set<String> scope,
             Set<String> readScope,
             boolean enterprise,
-            boolean platform) {}
+            boolean platform,
+            Set<String> enterpriseReadScope) {}
 
     public Actor current() {
         if (AuthenticationContext.getToken() == null)
@@ -78,7 +88,14 @@ public class PropositionAccess {
                     .map(PartyRelationshipResponse::getToPartyId)
                     .filter(Objects::nonNull)
                     .forEach(read::add);
-        return new Actor(tenant, Set.copyOf(scope), Set.copyOf(read), enterprise, platform);
+        var enterpriseRead = new HashSet<String>();
+        if (enterprise && tenant.enterpriseId() != null) {
+            enterpriseRead.add(tenant.enterpriseId());
+            var owned = enterprises.ownedEnterpriseIds(tenant.enterpriseId());
+            if (owned != null) enterpriseRead.addAll(owned);
+        }
+        return new Actor(
+                tenant, Set.copyOf(scope), Set.copyOf(read), enterprise, platform, Set.copyOf(enterpriseRead));
     }
 
     public Actor enterprise() {
@@ -97,6 +114,9 @@ public class PropositionAccess {
         if (Boolean.TRUE.equals(p.getDeleted())) return false;
         return owns(a, p)
                 || a.platform()
+                || (a.enterprise()
+                        && p.getEnterpriseId() != null
+                        && a.enterpriseReadScope().contains(p.getEnterpriseId().toHexString()))
                 || (p.getDefinition().brandId() != null
                         && a.readScope().contains(p.getDefinition().brandId()))
                 || p.getDefinition().distributionPartnerIds().stream()

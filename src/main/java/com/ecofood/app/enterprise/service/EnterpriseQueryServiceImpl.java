@@ -1,9 +1,12 @@
 package com.ecofood.app.enterprise.service;
 
 import com.ecofood.core.dto.EnterpriseResponse;
+import com.ecofood.core.enums.RelationshipTypeEnum;
 import com.ecofood.core.service.EnterpriseQueryService;
 import com.ecofood.app.enterprise.entity.EnterpriseEntity;
 import com.ecofood.app.enterprise.repository.EnterpriseRepository;
+import java.util.List;
+import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
@@ -30,5 +33,21 @@ public class EnterpriseQueryServiceImpl implements EnterpriseQueryService {
         .enterpriseId(enterprise.getIdAsString())
         .enterpriseCompanyName(enterprise.getPartyName())
         .build();
+  }
+
+  @Override
+  public List<String> ownedEnterpriseIds(String enterpriseId) {
+    if (enterpriseId == null || !ObjectId.isValid(enterpriseId)) return List.of();
+    return enterpriseRepository
+        .findById(new ObjectId(enterpriseId))
+        .map(EnterpriseEntity::getPartyRelationships)
+        .map(
+            relationships ->
+                relationships.stream()
+                    .filter(r -> RelationshipTypeEnum.OWN.getCode().equals(r.getRelationshipTypeCode()))
+                    .map(r -> r.getToPartyId() == null ? null : r.getToPartyId().toHexString())
+                    .filter(Objects::nonNull)
+                    .toList())
+        .orElse(List.of());
   }
 }

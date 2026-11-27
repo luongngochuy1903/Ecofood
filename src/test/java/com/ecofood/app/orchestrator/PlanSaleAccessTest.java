@@ -111,7 +111,7 @@ class PlanSaleAccessTest {
     when(props.current())
         .thenReturn(
             new PropositionAccess.Actor(
-                tenant, Set.of(TENANT, "child"), Set.of(TENANT), false, false));
+                tenant, Set.of(TENANT, "child"), Set.of(TENANT), false, false, Set.of()));
     try (var auth = mockStatic(AuthenticationContext.class)) {
       auth.when(AuthenticationContext::getRoles).thenReturn(List.of("TENANT_ADMIN"));
       auth.when(AuthenticationContext::getClaims)
@@ -136,7 +136,7 @@ class PlanSaleAccessTest {
     var tenant = mock(PropositionTenantReference.class);
     when(tenant.id()).thenReturn(TENANT);
     when(props.current())
-        .thenReturn(new PropositionAccess.Actor(tenant, Set.of(TENANT), Set.of(TENANT), false, false));
+        .thenReturn(new PropositionAccess.Actor(tenant, Set.of(TENANT), Set.of(TENANT), false, false, Set.of()));
     try (var auth = mockStatic(AuthenticationContext.class)) {
       auth.when(AuthenticationContext::getRoles).thenReturn(List.of("TENANT_ADMIN"));
       auth.when(AuthenticationContext::getClaims)
@@ -159,7 +159,7 @@ class PlanSaleAccessTest {
     var enterpriseTenant = mock(PropositionTenantReference.class);
     when(enterpriseTenant.id()).thenReturn("enterprise-tenant");
     when(props.current())
-        .thenReturn(new PropositionAccess.Actor(enterpriseTenant, Set.of(), Set.of(), true, false));
+        .thenReturn(new PropositionAccess.Actor(enterpriseTenant, Set.of(), Set.of(), true, false, Set.of()));
     try (var auth = mockStatic(AuthenticationContext.class)) {
       auth.when(AuthenticationContext::getClaims)
           .thenReturn(Jwts.claims().subject("employee").build());
@@ -179,7 +179,7 @@ class PlanSaleAccessTest {
     var platformTenant = mock(PropositionTenantReference.class);
     when(platformTenant.id()).thenReturn("eco-tenant");
     when(props.current())
-        .thenReturn(new PropositionAccess.Actor(platformTenant, Set.of(), Set.of(), false, true));
+        .thenReturn(new PropositionAccess.Actor(platformTenant, Set.of(), Set.of(), false, true, Set.of()));
     try (var auth = mockStatic(AuthenticationContext.class)) {
       auth.when(AuthenticationContext::getRoles).thenReturn(List.of("ECO_ADMIN"));
       assertThrows(ForbiddenException.class, () -> access.currentForProposition(PROP));

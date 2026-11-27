@@ -32,6 +32,21 @@ import org.springframework.web.server.ResponseStatusException;
 
 class ComplaintAccessTest {
   static PropositionTenantReference tenant(String id,PartnerTypeEnum type) { return new PropositionTenantReference(id,"Tenant",null,type,TenantTypeEnum.STANDALONE,List.of(),List.of(),false); }
+  @Test void permissionedPartnerHandlerCanEnterWorkspaceWithoutAdminOrAssignPowers() {
+    var directory=mock(NotificationDirectory.class); var tenants=mock(CoreTenantQueryClient.class);
+    var access=new ComplaintAccess(directory,tenants,mock(MongoTemplate.class)); var user=new UserEntity(); user.setId(new ObjectId(OTHER));
+    user.setUserCategory(UserCategory.builder().userCategoryCode("PARTNER").build());
+    when(directory.user(OTHER,TENANT)).thenReturn(user); when(tenants.propositionReference(TENANT)).thenReturn(tenant(TENANT,PartnerTypeEnum.BRAND));
+    when(directory.claims(user,TENANT)).thenReturn(new UserAccessClaims(List.of("TENANT_STAFF"),List.of(ComplaintAccess.READ,ComplaintAccess.MANAGE,ComplaintAccess.ASSIGN),List.of()));
+    try(var token=mockStatic(AuthenticationContext.class)) {
+      token.when(AuthenticationContext::getUserId).thenReturn(new ObjectId(OTHER)); token.when(AuthenticationContext::getTenantId).thenReturn(new ObjectId(TENANT));
+      token.when(AuthenticationContext::getRoles).thenReturn(List.of("TENANT_STAFF")); token.when(AuthenticationContext::getPermissions).thenReturn(List.of(ComplaintAccess.READ,ComplaintAccess.MANAGE,ComplaintAccess.ASSIGN));
+      var actor=access.current(); assertFalse(actor.administrator()); assertFalse(actor.assign()); assertTrue(actor.manage());
+      assertTrue(access.eligibleHandler(OTHER,TENANT,ComplaintTypeEnum.TENANT)); assertFalse(access.eligible(OTHER,TENANT,ComplaintTypeEnum.TENANT));
+      assertFalse(access.eligibleHandler(OTHER,OTHER,ComplaintTypeEnum.TENANT));
+      user.setUserCategory(UserCategory.builder().userCategoryCode("CUSTOMER").build()); assertThrows(ResponseStatusException.class,access::current);
+    }
+  }
   @Test void tenantAdminRequiresLiveRoleTokenPermissionMembershipAndCannotAcquireEcoAccess() {
     var directory=mock(NotificationDirectory.class); var tenants=mock(CoreTenantQueryClient.class); var mongo=mock(MongoTemplate.class);
     var access=new ComplaintAccess(directory,tenants,mongo); var user=new UserEntity(); user.setId(new ObjectId(ADMIN));

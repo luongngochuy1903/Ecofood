@@ -33,7 +33,7 @@ class NotificationPipelineTest {
   NotificationEmailSender sender;
   @BeforeEach void setup() throws Exception {
     db = new AtomicNotificationMongo(); recipients = mock(NotificationRecipients.class); sender = mock(NotificationEmailSender.class);
-    processor = new NotificationProcessor(db.mongo, List.of(new InvoiceNotificationSource(db.mongo)), recipients, new NotificationTemplate(), settings());
+    processor = new NotificationProcessor(db.mongo, List.of(new InvoiceNotificationSource(db.mongo)), recipients, new NotificationTemplate(), settings(), mock(com.ecofood.app.notification.service.ComplaintEmailRenderer.class));
     delivery = new NotificationDelivery(db.mongo, sender, recipients, settings());
     db.insert(event()); db.insert(invoice());
     when(recipients.resolve(any(), any())).thenReturn(List.of(new NotificationRecipients.Recipient("customer@example.org", USER)));

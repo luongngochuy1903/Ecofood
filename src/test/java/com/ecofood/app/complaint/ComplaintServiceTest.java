@@ -79,6 +79,114 @@ class ComplaintServiceTest {
     var create4 = new ComplaintDtos.Create(i.complaintType(),i.invoiceId(),"Changed",i.description(),i.requestId());
     assertThrows(ResponseStatusException.class,()-> service.create(create4));
   }
+  @Test void customerCanSubmitThreeComplaintsWithoutWaitingForEarlierOnesToBeProcessed() {
+    var first=service.create(input(ComplaintTypeEnum.ECOSYSTEM));
+    var second=service.create(input(ComplaintTypeEnum.ECOSYSTEM));
+    var third=service.create(input(ComplaintTypeEnum.TENANT));
+    assertEquals(3,db.rows(Complaint.class).size());
+    for(var c:List.of(first,second,third)) assertEquals(ComplaintStatusEnum.SUBMITTED,c.getStatus());
+    assertEquals(3,db.rows(Submission.class).size());
+  }
+  @Test void unrelatedDatabaseConstraintIsNotReportedAsStaleComplaintState() {
+    doThrow(new org.springframework.dao.DuplicateKeyException("legacy unique index")).when(db.mongo).insert(any(Complaint.class));
+    var error=assertThrows(ResponseStatusException.class,()->service.create(input(ComplaintTypeEnum.ECOSYSTEM)));
+    assertEquals(HttpStatus.CONFLICT,error.getStatusCode());
+    assertEquals("Complaint storage constraint conflict; check complaint collection indexes",error.getReason());
+    assertTrue(db.rows(Submission.class).isEmpty());
+  }
+  @Test void fourthComplaintIsRejectedButIdenticalRetryStillReturnsExistingComplaint() {
+    submit(); submit(); var input=input(ComplaintTypeEnum.ECOSYSTEM); var third=service.create(input);
+    var error=assertThrows(ResponseStatusException.class,()->service.create(input(ComplaintTypeEnum.ECOSYSTEM)));
+    assertEquals(HttpStatus.TOO_MANY_REQUESTS,error.getStatusCode());
+    assertEquals(third.getId(),service.create(input).getId());
+    assertEquals(3,db.rows(Complaint.class).size()); assertEquals(3,db.rows(Submission.class).size());
+    when(customers.current()).thenReturn(new CustomerAccess.Actor(OTHER,TENANT,null));
+    assertNotNull(service.create(input(ComplaintTypeEnum.ECOSYSTEM)));
+  }
+  @Test void historicalCompletedComplaintDoesNotConsumeCapacityAndActiveLegacyRowsStillCount() {
+    var first=submit(); db.raw(Complaint.class,first.getId()).remove("customerComplaintSlot");
+    db.raw(Complaint.class,first.getId()).put("status","CLOSED");
+    var second=submit(); var third=submit();
+    assertEquals(1,second.getCustomerComplaintSlot()); assertEquals(2,third.getCustomerComplaintSlot());
+    db.raw(Complaint.class,third.getId()).remove("customerComplaintSlot");
+    var fourth=submit(); assertEquals(2,fourth.getCustomerComplaintSlot());
+    var error=assertThrows(ResponseStatusException.class,()->service.create(input(ComplaintTypeEnum.ECOSYSTEM)));
+    assertEquals(HttpStatus.TOO_MANY_REQUESTS,error.getStatusCode());
+    assertEquals(4,db.rows(Complaint.class).size());
+  }
+  @Test void resolvedAndClosedComplaintsReleaseSlotsWhilePreservingHistoryAndIdempotency() {
+    var original=input(ComplaintTypeEnum.TENANT); var first=service.create(original); var second=submit(); var third=submit();
+    first=action(action(first,"accept",null),"transition",ComplaintStatusEnum.RESOLVED);
+    second=action(action(second,"accept",null),"transition",ComplaintStatusEnum.RESOLVED);
+    assertNull(first.getCustomerComplaintSlot()); assertNull(second.getCustomerComplaintSlot());
+    var fourth=submit(); var fifth=submit();
+    assertEquals(Set.of(1,2,3),Set.of(third.getCustomerComplaintSlot(),fourth.getCustomerComplaintSlot(),fifth.getCustomerComplaintSlot()));
+    first=action(first,"transition",ComplaintStatusEnum.CLOSED);
+    assertEquals(ComplaintStatusEnum.CLOSED,db.findByIdForTest(first.getId()).getStatus());
+    assertEquals(4,db.findByIdForTest(first.getId()).getEvents().size());
+    assertEquals(first.getId(),service.create(original).getId());
+    assertThrows(ResponseStatusException.class,()->submit());
+    assertEquals(5,db.rows(Complaint.class).size());
+    assertEquals(fourth.getCustomerComplaintSlot(),db.findByIdForTest(fourth.getId()).getCustomerComplaintSlot());
+  }
+  @Test void existingCompletedSlotsAreReleasedLazilyForTheirOwnAccountOnly() {
+    var first=submit(); var second=submit(); var active=submit();
+    db.raw(Complaint.class,first.getId()).put("status","RESOLVED");
+    db.raw(Complaint.class,second.getId()).put("status","CLOSED");
+    when(customers.current()).thenReturn(new CustomerAccess.Actor(OTHER,TENANT,null));
+    var other=service.create(input(ComplaintTypeEnum.ECOSYSTEM));
+    when(customers.current()).thenReturn(new CustomerAccess.Actor(USER,TENANT,null));
+    var fourth=submit(); var fifth=submit();
+    assertNull(db.findByIdForTest(first.getId()).getCustomerComplaintSlot());
+    assertNull(db.findByIdForTest(second.getId()).getCustomerComplaintSlot());
+    assertNotNull(db.findByIdForTest(other.getId()).getCustomerComplaintSlot());
+    assertNotNull(active.getCustomerComplaintSlot()); assertNotNull(fourth); assertNotNull(fifth);
+    assertThrows(ResponseStatusException.class,()->submit());
+  }
+  @Test void allThreeUnfinishedStatusesCountTowardTheSameAccountLimit() {
+    var first=submit(); var second=submit(); submit();
+    action(first,"accept",null);
+    action(action(second,"accept",null),"transition",ComplaintStatusEnum.WAITING_REPORTER);
+    var error=assertThrows(ResponseStatusException.class,()->submit());
+    assertEquals(HttpStatus.TOO_MANY_REQUESTS,error.getStatusCode());
+    assertTrue(error.getReason().contains("3 active complaints"));
+  }
+  @Test void simultaneousSubmissionsAfterResolutionCannotOverfillReleasedCapacity() throws Exception {
+    var first=submit(); var second=submit(); submit();
+    action(action(first,"accept",null),"transition",ComplaintStatusEnum.RESOLVED);
+    action(action(second,"accept",null),"transition",ComplaintStatusEnum.RESOLVED);
+    var pool=Executors.newFixedThreadPool(8); var start=new CountDownLatch(1);
+    try {
+      List<Future<Boolean>> results=new ArrayList<>();
+      for(int i=0;i<8;i++) results.add(pool.submit(()->{
+        start.await();
+        try { submit(); return true; }
+        catch(ResponseStatusException error) { assertEquals(HttpStatus.TOO_MANY_REQUESTS,error.getStatusCode()); return false; }
+      }));
+      start.countDown(); int accepted=0; for(var result:results) if(result.get()) accepted++;
+      assertEquals(2,accepted); assertEquals(5,db.rows(Complaint.class).size());
+      assertEquals(7,db.rows(Submission.class).size());
+    } finally { pool.shutdownNow(); }
+  }
+  @Test void knownQuotaCollisionCanRetryEvenIfTheOtherComplaintHasAlreadyReleasedItsSlot() {
+    doThrow(new org.springframework.dao.DuplicateKeyException("uq_complaint_customer_slot dup key"))
+        .doAnswer(a -> db.insert(a.getArgument(0))).when(db.mongo).insert(any(Complaint.class));
+    var complaint=submit();
+    assertNotNull(complaint); assertEquals(1,db.rows(Complaint.class).size()); assertEquals(1,db.rows(Submission.class).size());
+  }
+  @Test void simultaneousSubmissionsNeverExceedThreeComplaintsPerAccount() throws Exception {
+    var pool=Executors.newFixedThreadPool(8); var start=new CountDownLatch(1);
+    try {
+      List<Future<Boolean>> results=new ArrayList<>();
+      for(int i=0;i<8;i++) results.add(pool.submit(()->{
+        start.await();
+        try { service.create(input(ComplaintTypeEnum.ECOSYSTEM)); return true; }
+        catch(ResponseStatusException error) { assertEquals(HttpStatus.TOO_MANY_REQUESTS,error.getStatusCode()); return false; }
+      }));
+      start.countDown(); int accepted=0; for(var result:results) if(result.get()) accepted++;
+      assertEquals(3,accepted); assertEquals(3,db.rows(Complaint.class).size()); assertEquals(3,db.rows(Submission.class).size());
+    } finally { pool.shutdownNow(); }
+  }
   @Test void sourcePersistsWhenSubmissionInsertFailsAndRecoveryIsIdempotent() {
     doThrow(new DataAccessResourceFailureException("offline")).doAnswer(a->db.insert(a.getArgument(0))).when(db.mongo).insert(any(Submission.class));
     var c=submit(); assertEquals(1,db.rows(Complaint.class).size()); assertTrue(db.rows(Submission.class).isEmpty());
@@ -150,13 +258,44 @@ class ComplaintServiceTest {
     var complaintId6 = c.getId();
     var action2 = new ComplaintDtos.Action(c.getRevision(),"assign",null,OTHER);
     assertThrows(ResponseStatusException.class,()-> service.action(complaintId6, "assign", action2));
-    when(admins.eligible(OTHER,TENANT,ComplaintTypeEnum.TENANT)).thenReturn(true);
+    when(admins.eligibleHandler(OTHER,TENANT,ComplaintTypeEnum.TENANT)).thenReturn(true);
     var assigned=service.action(c.getId(),"assign",new ComplaintDtos.Action(c.getRevision(),"assign",null,OTHER)); assertEquals(OTHER,assigned.getAssignedTo()); assertEquals("ASSIGNED",assigned.getEvents().get(1).eventType());
     assertTrue(assigned.getEvents().get(1).note().contains("UNASSIGNED -> "+OTHER));
     when(admins.current()).thenReturn(new ComplaintAccess.Actor(ADMIN,TENANT,List.of(ComplaintTypeEnum.TENANT),true,false));
     var complaintId7 = c.getId();
     var action3 = new ComplaintDtos.Action(assigned.getRevision(),"assign",null,ADMIN);
     assertThrows(ResponseStatusException.class,()-> service.action(complaintId7, "assign", action3));
+  }
+  @Test void delegationGivesOneHandlerExclusiveControlAndSupportReturnsControlToAdmin() {
+    var complaint=submit();
+    when(admins.eligibleHandler(OTHER,TENANT,ComplaintTypeEnum.TENANT)).thenReturn(true);
+    var delegated=service.action(complaint.getId(),"assign",new ComplaintDtos.Action(complaint.getRevision(),"Please investigate",null,OTHER));
+    assertEquals(OTHER,delegated.getAssignedTo()); assertEquals(ADMIN,delegated.getAdminOwnerId());
+    assertEquals(ComplaintStatusEnum.IN_PROGRESS,delegated.getStatus());
+    assertFalse(service.adminDetail(delegated.getId()).handling().respond());
+    assertThrows(ResponseStatusException.class,()->action(delegated,"respond",null));
+    assertThrows(ResponseStatusException.class,()->action(delegated,"transition",ComplaintStatusEnum.RESOLVED));
+    assertThrows(ResponseStatusException.class,()->service.action(delegated.getId(),"assign",new ComplaintDtos.Action(delegated.getRevision(),"Take it back",null,ADMIN)));
+    when(admins.current()).thenReturn(new ComplaintAccess.Actor(OTHER,TENANT,List.of(ComplaintTypeEnum.TENANT),true,false,false));
+    assertEquals(1,service.adminList(null,null,0,20).content().size());
+    var handling=service.adminDetail(delegated.getId()).handling(); assertTrue(handling.respond()); assertTrue(handling.requestSupport()); assertFalse(handling.assign());
+    var replied=action(delegated,"respond",null);
+    when(admins.supportAdmin(any())).thenReturn(ADMIN);
+    var returned=service.action(replied.getId(),"request-support",new ComplaintDtos.Action(replied.getRevision(),"Need admin assistance",null,null));
+    assertEquals(ADMIN,returned.getAssignedTo()); assertEquals("SUPPORT_REQUESTED",returned.getEvents().get(returned.getEvents().size()-1).eventType());
+    assertTrue(service.adminList(null,null,0,20).content().isEmpty());
+    assertThrows(ResponseStatusException.class,()->service.adminDetail(returned.getId()));
+    assertThrows(ResponseStatusException.class,()->action(returned,"respond",null));
+    when(admins.current()).thenReturn(new ComplaintAccess.Actor(ADMIN,TENANT,List.of(ComplaintTypeEnum.TENANT),true,true));
+    assertTrue(service.adminDetail(returned.getId()).handling().respond());
+    assertFalse(service.adminDetail(returned.getId()).handling().requestSupport());
+    assertNotNull(action(returned,"respond",null));
+  }
+  @Test void handlerCannotReadComplaintsAssignedToSomeoneElse() {
+    var complaint=action(submit(),"accept",null);
+    when(admins.current()).thenReturn(new ComplaintAccess.Actor(OTHER,TENANT,List.of(ComplaintTypeEnum.TENANT),true,false,false));
+    assertTrue(service.adminList(null,null,0,20).content().isEmpty());
+    assertThrows(ResponseStatusException.class,()->service.adminDetail(complaint.getId()));
   }
   @Test void concurrentAcceptanceCommitsExactlyOneTransitionAndAudit() throws Exception {
     var c=submit(); ExecutorService pool=Executors.newFixedThreadPool(2); var start=new CountDownLatch(1);
@@ -172,7 +311,7 @@ class ComplaintServiceTest {
     assertThrows(ResponseStatusException.class,()-> service.create(argument1)); assertTrue(db.rows(Complaint.class).isEmpty());
   }
   @Test void realUc021OwnershipGuardRejectsUnownedOtherOwnerAndCrossTenantInvoices() {
-    var realInvoices=new CoreCustomerInvoiceClient(new com.ecofood.app.customer.service.CustomerServiceImpl(customers,db.mongo));
+    var realInvoices=new CoreCustomerInvoiceClient(new com.ecofood.app.customer.service.CustomerServiceImpl(customers,db.mongo,mock(com.ecofood.core.client.CoreTenantQueryClient.class)));
     var guarded=new ComplaintServiceImpl(db.mongo,customers,realInvoices,admins,handoff,mock(NotificationDirectory.class));
     var i=new Invoice(); i.setId("invoice"); i.setTenantId(TENANT); db.insert(i);
     var request=input(ComplaintTypeEnum.TENANT);

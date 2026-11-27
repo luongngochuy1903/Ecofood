@@ -14,6 +14,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 public class Notification implements NotificationView {
   @Id private String id;
   private String submissionId;
+  @org.springframework.data.annotation.Transient private String complaintId;
   private String tenantId;
   private String ruleId;
   private String type;

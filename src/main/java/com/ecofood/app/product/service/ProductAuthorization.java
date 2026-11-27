@@ -1,5 +1,6 @@
 package com.ecofood.app.product.service;
 import com.ecofood.app.proposition.repository.PropositionRepository;
+import com.ecofood.core.client.CoreEnterpriseQueryClient;
 import com.ecofood.core.client.CoreTenantQueryClient;
 import com.ecofood.core.dto.PartyRelationshipResponse;
 import com.ecofood.core.dto.TenantResponse;
@@ -20,6 +21,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class ProductAuthorization {
   private final ACLService aclService;
   private final CoreTenantQueryClient tenantQueryClient;
+  private final CoreEnterpriseQueryClient enterpriseQueryClient;
   // Direct repository access (same precedent as CatalogData/PlanSaleAccess),
   // not the usual Core*Client — going through CorePropositionQueryClient
   // here would create a circular bean dependency (it resolves to
@@ -34,9 +36,11 @@ public class ProductAuthorization {
    * group) get a scoped read — their own tenant plus related tenant ids, same
    * resolution PropositionAccess uses for its own platform/scoped actors, plus
    * every Enterprise owning a Proposition their tenant is a distribution partner
-   * on (see scopeOf). An Enterprise actor's visibility is unchanged: just its own
-   * single Enterprise, via {@link #requireEnterprise()}. Never used to gate
-   * writes — create/update/submit/approve/reject stay Enterprise-only.
+   * on (see scopeOf). An Enterprise actor's visibility is its own Enterprise plus
+   * every Enterprise it OWNS (its REGIONAL_ENTERPRISE children — see
+   * CoreEnterpriseQueryClient.ownedEnterpriseIds); {@link #requireEnterprise()}
+   * itself stays a single, strict id and is still what gates every write — never
+   * widened, since create/update/submit/approve/reject stay Enterprise-only.
    *
    * <p>No MASTER_TENANT branch: that role group is never actually granted to
    * any user today (no onboarding path or seed data produces it), so there's
@@ -55,7 +59,11 @@ public class ProductAuthorization {
       requireRole("TENANT_ADMIN", "TENANT_PRODUCT_MANAGER");
       return new ReadActor(scopeOf(requireTenantId()), false);
     }
-    return new ReadActor(Set.of(requireEnterprise().toHexString()), false);
+    var enterpriseId = requireEnterprise().toHexString();
+    var scope = new HashSet<>(Set.of(enterpriseId));
+    var owned = enterpriseQueryClient.ownedEnterpriseIds(enterpriseId);
+    if (owned != null) scope.addAll(owned);
+    return new ReadActor(Set.copyOf(scope), false);
   }
 
   public boolean canRead(ReadActor actor, ObjectId productEnterpriseId) {

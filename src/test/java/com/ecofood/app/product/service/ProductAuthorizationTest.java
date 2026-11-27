@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 import com.ecofood.app.proposition.repository.PropositionRepository;
+import com.ecofood.core.client.CoreEnterpriseQueryClient;
 import com.ecofood.core.client.CoreTenantQueryClient;
 import com.ecofood.core.dto.PropositionTenantReference;
 import com.ecofood.core.dto.TenantResponse;
@@ -22,8 +23,9 @@ import org.springframework.web.server.ResponseStatusException;
 class ProductAuthorizationTest {
   private final CoreTenantQueryClient tenants = mock(CoreTenantQueryClient.class);
   private final PropositionRepository propositions = mock(PropositionRepository.class);
+  private final CoreEnterpriseQueryClient enterprises = mock(CoreEnterpriseQueryClient.class);
   private final ProductAuthorization authorization =
-      new ProductAuthorization(new ACLService(), tenants, propositions);
+      new ProductAuthorization(new ACLService(), tenants, enterprises, propositions);
   private final ObjectId tenant = new ObjectId();
 
   @AfterEach void cleanup() { AuthenticationContext.unload(); }
@@ -122,13 +124,26 @@ class ProductAuthorizationTest {
     assertThat(authorization.canRead(actor, new ObjectId())).isFalse();
   }
 
-  @Test void enterpriseActorCurrentReadIsScopedToItsOwnEnterpriseOnly() {
+  @Test void enterpriseActorCurrentReadIsScopedToItsOwnEnterpriseWhenItOwnsNoRegionalEnterprise() {
     authenticate("ENTERPRISE", "ENTERPRISE_PRODUCT_MANAGER");
     var owner = new ObjectId();
     when(tenants.getById(tenant.toHexString())).thenReturn(TenantResponse.builder().enterpriseId(owner.toHexString()).build());
+    when(enterprises.ownedEnterpriseIds(owner.toHexString())).thenReturn(List.of());
     var actor = authorization.currentRead();
     assertThat(actor.platform()).isFalse();
     assertThat(authorization.canRead(actor, owner)).isTrue();
+    assertThat(authorization.canRead(actor, new ObjectId())).isFalse();
+  }
+
+  @Test void enterpriseActorCurrentReadAlsoSeesProductsOwnedByItsRegionalEnterpriseChildren() {
+    authenticate("ENTERPRISE", "ENTERPRISE_PRODUCT_MANAGER");
+    var owner = new ObjectId();
+    var child = new ObjectId();
+    when(tenants.getById(tenant.toHexString())).thenReturn(TenantResponse.builder().enterpriseId(owner.toHexString()).build());
+    when(enterprises.ownedEnterpriseIds(owner.toHexString())).thenReturn(List.of(child.toHexString()));
+    var actor = authorization.currentRead();
+    assertThat(authorization.canRead(actor, owner)).isTrue();
+    assertThat(authorization.canRead(actor, child)).isTrue();
     assertThat(authorization.canRead(actor, new ObjectId())).isFalse();
   }
 }

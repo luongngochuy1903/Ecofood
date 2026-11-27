@@ -32,7 +32,8 @@ public class ComplaintAccess {
   private final NotificationDirectory directory;
   private final CoreTenantQueryClient tenants;
   private final MongoTemplate mongo;
-  public record Actor(String userId, String tenantId, List<ComplaintTypeEnum> types, boolean manage, boolean assign) {
+  public record Actor(String userId, String tenantId, List<ComplaintTypeEnum> types, boolean manage, boolean assign, boolean administrator) {
+    public Actor(String userId,String tenantId,List<ComplaintTypeEnum> types,boolean manage,boolean assign) { this(userId,tenantId,types,manage,assign,true); }
     public void requireManage() { if (!manage) throw denied(); }
   }
   public Actor current() {
@@ -48,10 +49,15 @@ public class ComplaintAccess {
       List<ComplaintTypeEnum> types=new ArrayList<>();
       if(roles.contains("TENANT_ADMIN")) types.add(ComplaintTypeEnum.TENANT);
       if(roles.contains("ECO_ADMIN") && reference.partnerType()==PartnerTypeEnum.ECO) types.add(ComplaintTypeEnum.ECOSYSTEM);
+      boolean administrator=!types.isEmpty();
+      if(!administrator && user.getUserCategory()!=null && "PARTNER".equals(user.getUserCategory().getUserCategoryCode())
+          && !roles.isEmpty() && permissions.contains(MANAGE)) {
+        types.add(reference.partnerType()==PartnerTypeEnum.ECO?ComplaintTypeEnum.ECOSYSTEM:ComplaintTypeEnum.TENANT);
+      }
       if(types.isEmpty()) throw denied();
       // Existing DAR has no Complaint entity. Honor applicable Customer/Bill restrictions conservatively.
       requireFullRelatedDataAccess(id,tenant);
-      return new Actor(id,tenant,List.copyOf(types),permissions.contains(MANAGE),permissions.contains(ASSIGN));
+      return new Actor(id,tenant,List.copyOf(types),permissions.contains(MANAGE),administrator && permissions.contains(ASSIGN),administrator);
     } catch(ResponseStatusException e) { throw e; } catch(RuntimeException e) { throw denied(); }
   }
   private void requireFullRelatedDataAccess(String id,String tenant) {
@@ -82,9 +88,28 @@ public class ComplaintAccess {
     return eco.get(0).id();
   }
   public List<ComplaintDtos.Assignee> assignees(Actor actor,ComplaintTypeEnum type) {
-    if(!actor.types().contains(type)) throw denied();
-    return directory.users(actor.tenantId()).stream().filter(u->eligible(u.getIdAsString(),actor.tenantId(),type))
+    if(!actor.administrator() || !actor.assign() || !actor.types().contains(type)) throw denied();
+    return directory.users(actor.tenantId()).stream().filter(u->eligibleHandler(u.getIdAsString(),actor.tenantId(),type))
         .map(u->new ComplaintDtos.Assignee(u.getIdAsString(),Objects.toString(u.getFirstName(),"")+" "+Objects.toString(u.getLastName(),""))).toList();
+  }
+  public boolean eligibleHandler(String id,String tenant,ComplaintTypeEnum type) {
+    if(eligible(id,tenant,type)) return true;
+    var user=directory.user(id,tenant);
+    if(user==null || user.getUserCategory()==null || !"PARTNER".equals(user.getUserCategory().getUserCategoryCode())) return false;
+    var claims=directory.claims(user,tenant);
+    if(claims.roles().isEmpty() || !claims.permissions().containsAll(List.of(READ,MANAGE))) return false;
+    try {
+      var reference=tenants.propositionReference(tenant);
+      requireFullRelatedDataAccess(id,tenant);
+      return !reference.deleted() && (type==ComplaintTypeEnum.ECOSYSTEM)==(reference.partnerType()==PartnerTypeEnum.ECO);
+    } catch(RuntimeException unavailable) { return false; }
+  }
+  public String supportAdmin(Complaint c) {
+    String tenant=c.getQueue().tenantId();
+    if(c.getAdminOwnerId()!=null && eligible(c.getAdminOwnerId(),tenant,c.getComplaintType())) return c.getAdminOwnerId();
+    return directory.users(tenant).stream().map(u->u.getIdAsString())
+        .filter(id->!id.equals(c.getAssignedTo()) && eligible(id,tenant,c.getComplaintType())).sorted().findFirst()
+        .orElseThrow(()->new ResponseStatusException(HttpStatus.CONFLICT,"No authorized admin is available for support"));
   }
   public void requireScope(Actor actor,Complaint c) {
     if(c.getQueue()==null || !actor.tenantId().equals(c.getQueue().tenantId()) || !actor.types().contains(c.getComplaintType())) throw missing();

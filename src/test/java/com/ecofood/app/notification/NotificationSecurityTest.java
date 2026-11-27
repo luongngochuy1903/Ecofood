@@ -49,7 +49,7 @@ class NotificationSecurityTest {
     assertTrue(resolver.resolve(rule(), invoice).isEmpty());
     invoice.setInvoiceHolder(new com.ecofood.app.transaction.entity.Invoice.InvoiceHolder(USER, USER));
     assertEquals(1, resolver.resolve(rule(), invoice).size());
-    var notice = delivery(); notice.setRecipientUserId(USER); assertFalse(resolver.stillAllowed(notice));
+    var notice = delivery(); notice.setType("INVOICE_CLAIMED"); notice.setRecipientUserId(USER); assertFalse(resolver.stillAllowed(notice));
     when(directory.sourceInvoice(notice)).thenReturn(invoice); assertTrue(resolver.stillAllowed(notice));
   }
   @Test void ecoAdminAllowedOnlyWithMatchingLiveRoleAndPermissionsInCurrentTenant() {
@@ -146,6 +146,12 @@ class NotificationSecurityTest {
   @Test void notificationIdIncludesRuleAndCanonicalRecipient() {
     assertNotEquals(NotificationProcessor.deliveryId("event", "rule", "a@x.com"), NotificationProcessor.deliveryId("event", "rule2", "a@x.com"));
     assertEquals(NotificationProcessor.deliveryId("event", "rule", "a@x.com"), NotificationProcessor.deliveryId("event", "rule", "a@x.com"));
+  }
+  @Test void retiredInvoicePaidSourceIsNotRegisteredAndQueuedEmailsAreNeverSent() {
+    assertFalse(com.ecofood.app.notification.integration.InvoiceNotificationSource.class.isAnnotationPresent(org.springframework.stereotype.Component.class));
+    var directory=mock(NotificationDirectory.class);
+    assertFalse(new NotificationRecipients(directory,settings()).stillAllowed(delivery()));
+    verifyNoInteractions(directory);
   }
   @Test void emailValidationRejectsInjectedHeaderAndLists() {
     assertFalse(NotificationSettings.validEmail("one@example.org\r\nBcc:two@example.org"));

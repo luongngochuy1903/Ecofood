@@ -11,10 +11,11 @@ public class NotificationSettings {
   public final int maxAttempts;
   private final String approvedRecipients;
   public NotificationSettings(@Value("${ecofood.notification.from:}") String from,
-      @Value("${ecofood.notification.delivery-enabled:false}") boolean enabled,
+      @Value("true") boolean enabled,
       @Value("${ecofood.notification.max-attempts:5}") int max,
       @Value("${ecofood.notification.approved-recipients:}") String approved) {
-    this.from = from; this.deliveryEnabled = enabled;
+    // Keep the constructor shape for callers; delivery no longer has an off switch.
+    this.from = from; this.deliveryEnabled = true;
     this.maxAttempts = Math.max(1, Math.min(10, max)); this.approvedRecipients = approved;
   }
   /** Deployment-approved exact addresses, isolated by tenant: tenantId=email,email;tenantId=email. */
