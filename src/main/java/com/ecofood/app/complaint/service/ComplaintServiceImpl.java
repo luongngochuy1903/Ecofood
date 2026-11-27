@@ -33,6 +33,7 @@ public class ComplaintServiceImpl implements ComplaintService {
   private static final String REQUIRED_REVISION_AND_NOTE = "Current revision and note are required";
   private static final String CUSTOMER_ID = "customerId";
   private static final String QUEUE_TENANT_ID = "queue.tenantId";
+  private static final int CUSTOMER_COMPLAINT_LIMIT = 3;
   private final MongoTemplate mongo;
   private final CustomerAccess customers;
   private final CoreCustomerInvoiceClient invoices;
@@ -57,19 +58,49 @@ public class ComplaintServiceImpl implements ComplaintService {
     c.setCreatedAt(Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS)); c.setUpdatedAt(c.getCreatedAt()); c.setRevision(1);
     c.setEvents(List.of(event(c,actor.userId(),"CREATED",null,c.getStatus(),"Complaint submitted",c.getCreatedAt())));
     c.setHandoffs(List.of(new Complaint.Handoff(submission(c,"COMPLAINT_CREATED",c.getCreatedAt()),true)));
-    try { mongo.insert(c); } catch(DuplicateKeyException race) {
-      var winner=mongo.findById(id,Complaint.class);
-      if(winner==null) {
-        throw conflict();
+    // Release quota metadata retained by completed complaints from the previous lifetime limit.
+    // Keep the existing unique slot index and every historical complaint/event unchanged.
+    mongo.updateMulti(Query.query(Criteria.where(CUSTOMER_ID).is(actor.userId())
+        .and("status").in(ComplaintStatusEnum.RESOLVED,ComplaintStatusEnum.CLOSED)
+        .and("customerComplaintSlot").exists(true)),new Update().unset("customerComplaintSlot"),Complaint.class);
+    for(int attempt=0;attempt<CUSTOMER_COMPLAINT_LIMIT;attempt++) {
+      var previous=mongo.find(Query.query(Criteria.where(CUSTOMER_ID).is(actor.userId())
+          .and("status").in(ComplaintStatusEnum.SUBMITTED,ComplaintStatusEnum.IN_PROGRESS,ComplaintStatusEnum.WAITING_REPORTER))
+          .limit(CUSTOMER_COMPLAINT_LIMIT+1),Complaint.class);
+      var repeated=previous.stream().filter(row->id.equals(row.getId())).findFirst();
+      if(repeated.isPresent()) return retry(actor,input,repeated.get());
+      if(previous.size()>=CUSTOMER_COMPLAINT_LIMIT) throw complaintLimit();
+      // Reserve capacity for historical active rows without a slot, without deleting those rows.
+      long legacy=previous.stream().filter(row->row.getCustomerComplaintSlot()==null).count();
+      Set<Integer> used=new HashSet<>();
+      previous.stream().map(Complaint::getCustomerComplaintSlot).filter(Objects::nonNull).forEach(used::add);
+      int slot=(int)legacy+1;
+      while(used.contains(slot)) slot++;
+      if(slot>CUSTOMER_COMPLAINT_LIMIT) throw complaintLimit();
+      c.setCustomerComplaintSlot(slot);
+      try {
+        mongo.insert(c); handoff.deliver(c); return c;
+      } catch(DuplicateKeyException race) {
+        var winner=mongo.findById(id,Complaint.class);
+        if(winner!=null) return retry(actor,input,winner);
+        // Only a collision on this account's quota slot is safe to retry.
+        boolean quotaRace=race.getMessage()!=null && race.getMessage().contains("uq_complaint_customer_slot");
+        if(!quotaRace && !mongo.exists(Query.query(Criteria.where(CUSTOMER_ID).is(actor.userId()).and("customerComplaintSlot").is(slot)),Complaint.class)) {
+          throw new ResponseStatusException(HttpStatus.CONFLICT,"Complaint storage constraint conflict; check complaint collection indexes");
+        }
       }
-      return retry(actor,input,winner);
     }
-    handoff.deliver(c); return c;
+    throw complaintLimit();
+  }
+  private static ResponseStatusException complaintLimit() {
+    return new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,"Each account can have a maximum of 3 active complaints at a time");
   }
   private Complaint retry(CustomerAccess.Actor actor,Create input,Complaint existing) {
     if(!actor.userId().equals(existing.getCustomerId()) || !actor.tenantId().equals(existing.getCustomerTenantId())
         || existing.getComplaintType()!=input.complaintType() || !Objects.equals(existing.getInvoiceId(),blank(input.invoiceId()))
-        || !existing.getSubject().equals(input.subject().trim()) || !existing.getDescription().equals(input.description().trim())) throw conflict();
+        || !existing.getSubject().equals(input.subject().trim()) || !existing.getDescription().equals(input.description().trim())) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT,"requestId was already used for a different complaint; start a new complaint");
+    }
     handoff.deliver(existing); return existing;
   }
   @Override
@@ -101,7 +132,9 @@ public class ComplaintServiceImpl implements ComplaintService {
   @Override
   public Page<Complaint> adminList(ComplaintTypeEnum type,ComplaintStatusEnum status,int page,int size) {
     var a=admins.current(); if(type!=null && !a.types().contains(type)) throw ComplaintAccess.denied();
-    return list(Criteria.where(QUEUE_TENANT_ID).is(a.tenantId()).and("complaintType").in(type==null?a.types():List.of(type)),status,page,size);
+    var scope=Criteria.where(QUEUE_TENANT_ID).is(a.tenantId()).and("complaintType").in(type==null?a.types():List.of(type));
+    if(!a.administrator()) scope.and("assignedTo").is(a.userId());
+    return list(scope,status,page,size);
   }
   @Override
   public Detail adminDetail(String id) {
@@ -111,7 +144,7 @@ public class ComplaintServiceImpl implements ComplaintService {
     // Minimal reference only, never expose financial snapshot/POS payload to complaint handlers.
     var i=c.getInvoiceId()==null || c.getComplaintType()!=ComplaintTypeEnum.TENANT?null:mongo.findOne(Query.query(Criteria.where("_id").is(c.getInvoiceId()).and("tenantId").is(a.tenantId())
         .and("invoiceHolder.userId").is(c.getCustomerId())),Invoice.class);
-    return new Detail(c,name,i==null?null:i.getInvoiceNumber());
+    return new Detail(c,name,i==null?null:i.getInvoiceNumber(),handling(a,c));
   }
   private Complaint adminFind(ComplaintAccess.Actor a,String id) {
     var c=mongo.findOne(Query.query(Criteria.where("_id").is(id).and(QUEUE_TENANT_ID).is(a.tenantId()).and("complaintType").in(a.types())),Complaint.class);
@@ -119,7 +152,20 @@ public class ComplaintServiceImpl implements ComplaintService {
       throw ComplaintAccess.missing();
     }
     admins.requireScope(a,c);
+    if(!a.administrator() && !a.userId().equals(c.getAssignedTo())) throw ComplaintAccess.missing();
     return c;
+  }
+  private Handling handling(ComplaintAccess.Actor actor,Complaint c) {
+    boolean manage=actor.manage() && ownsHandling(actor,c);
+    boolean active=c.getStatus()!=ComplaintStatusEnum.RESOLVED && c.getStatus()!=ComplaintStatusEnum.CLOSED;
+    return new Handling(manage && c.getStatus()==ComplaintStatusEnum.SUBMITTED,
+        manage && (c.getStatus()==ComplaintStatusEnum.IN_PROGRESS || c.getStatus()==ComplaintStatusEnum.WAITING_REPORTER),
+        manage && active && actor.administrator() && actor.assign(),
+        manage && active && c.getAssignedTo()!=null && !actor.userId().equals(c.getAdminOwnerId()),
+        manage?Arrays.stream(ComplaintStatusEnum.values()).filter(next->allowed(c.getStatus(),next)).toList():List.of());
+  }
+  private boolean ownsHandling(ComplaintAccess.Actor actor,Complaint c) {
+    return actor.userId().equals(c.getAssignedTo()) || (c.getAssignedTo()==null && actor.administrator());
   }
   @Override
   public Complaint action(String id,String action,Action input) {
@@ -128,6 +174,8 @@ public class ComplaintServiceImpl implements ComplaintService {
     var c=adminFind(a,id);
     if (input == null) throw bad(REQUIRED_REVISION_AND_NOTE);
     check(input.revision(),input.note(),c);
+    if(!ownsHandling(a,c)) throw ComplaintAccess.denied();
+    var rights=handling(a,c);
     ComplaintStatusEnum next=c.getStatus(); Update update=new Update(); String event; String note=input.note();
     if(!"assign".equals(action) && blank(input.assignedTo())!=null) throw bad("Assignee only accepted by assign action");
     if(!"transition".equals(action) && input.status()!=null) throw bad("Status only accepted by transition action");
@@ -135,13 +183,15 @@ public class ComplaintServiceImpl implements ComplaintService {
       case "accept" -> {
         if(c.getStatus()!=ComplaintStatusEnum.SUBMITTED) throw conflict();
         next=ComplaintStatusEnum.IN_PROGRESS; update.set("assignedTo",a.userId()); event="ACCEPTED";
+        if(a.administrator() && c.getAdminOwnerId()==null) update.set("adminOwnerId",a.userId());
         note="Assignee: "+Objects.toString(c.getAssignedTo(),"UNASSIGNED")+" -> "+a.userId()+"\n"+note;
       }
       case "assign" -> {
-        if(!a.assign()) throw ComplaintAccess.denied();
         if(c.getStatus()==ComplaintStatusEnum.RESOLVED || c.getStatus()==ComplaintStatusEnum.CLOSED) throw conflict();
-        if(blank(input.assignedTo())==null || !admins.eligible(input.assignedTo(),a.tenantId(),c.getComplaintType())) throw bad("Assignee must be an authorized Admin in this queue");
-        update.set("assignedTo",input.assignedTo()); event="ASSIGNED";
+        if(!rights.assign()) throw ComplaintAccess.denied();
+        if(blank(input.assignedTo())==null || !admins.eligibleHandler(input.assignedTo(),a.tenantId(),c.getComplaintType())) throw bad("Assignee must be an authorized handler in this queue");
+        update.set("assignedTo",input.assignedTo()).set("adminOwnerId",a.userId()); event="ASSIGNED";
+        if(c.getStatus()==ComplaintStatusEnum.SUBMITTED) next=ComplaintStatusEnum.IN_PROGRESS;
         note="Assignee: "+Objects.toString(c.getAssignedTo(),"UNASSIGNED")+" -> "+input.assignedTo()+"\n"+note;
       }
       case "respond" -> {
@@ -151,6 +201,13 @@ public class ComplaintServiceImpl implements ComplaintService {
       case "transition" -> {
         next=input.status(); if(!allowed(c.getStatus(),next)) throw conflict();
         event=next==ComplaintStatusEnum.RESOLVED?"RESOLVED":next==ComplaintStatusEnum.CLOSED?"CLOSED":"STATUS_CHANGED";
+      }
+      case "request-support" -> {
+        if(!rights.requestSupport()) throw ComplaintAccess.denied();
+        String admin=admins.supportAdmin(c);
+        next=ComplaintStatusEnum.IN_PROGRESS;
+        update.set("assignedTo",admin).set("adminOwnerId",admin); event="SUPPORT_REQUESTED";
+        note="Support requested; reassigned to admin: "+admin+"\n"+note;
       }
       default -> throw bad("Unsupported Complaint action");
     }
@@ -170,6 +227,7 @@ public class ComplaintServiceImpl implements ComplaintService {
     update.set("status",next).set("updatedAt",now).inc("revision",1).push("events",event(c,actor,type,c.getStatus(),next,note.trim(),now));
     if(next==ComplaintStatusEnum.RESOLVED && c.getStatus()!=next) update.set("resolvedAt",now);
     if(next==ComplaintStatusEnum.CLOSED) update.set("closedAt",now);
+    if(next==ComplaintStatusEnum.RESOLVED || next==ComplaintStatusEnum.CLOSED) update.unset("customerComplaintSlot");
     if(businessEvent!=null) update.push("handoffs",new Complaint.Handoff(submission(c,businessEvent,now),true));
     var result=mongo.findAndModify(Query.query(Criteria.where("_id").is(c.getId()).and("revision").is(c.getRevision()).and("status").is(c.getStatus())
         .and(CUSTOMER_ID).is(c.getCustomerId()).and(QUEUE_TENANT_ID).is(c.getQueue().tenantId())),update,FindAndModifyOptions.options().returnNew(true),Complaint.class);

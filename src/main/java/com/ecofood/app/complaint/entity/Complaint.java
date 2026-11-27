@@ -22,6 +22,8 @@ public class Complaint implements ComplaintView {
   private ComplaintStatusEnum status;
   private Instant createdAt, updatedAt, resolvedAt, closedAt;
   private long revision;
+  @com.fasterxml.jackson.annotation.JsonIgnore private String adminOwnerId;
+  @com.fasterxml.jackson.annotation.JsonIgnore private Integer customerComplaintSlot;
   private ComplaintDtos.Queue queue;
   private List<ComplaintDtos.ComplaintEvent> events;
   @com.fasterxml.jackson.annotation.JsonIgnore private List<Handoff> handoffs;

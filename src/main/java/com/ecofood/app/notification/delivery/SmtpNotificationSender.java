@@ -2,6 +2,7 @@ package com.ecofood.app.notification.delivery;
 
 import com.ecofood.app.notification.entity.Notification;
 import com.ecofood.app.notification.exception.DeliveryFailure;
+import com.ecofood.app.notification.service.EmailHtml;
 import jakarta.mail.MessagingException;
 import jakarta.mail.SendFailedException;
 import jakarta.mail.internet.MimeMessage;
@@ -23,9 +24,11 @@ public class SmtpNotificationSender implements NotificationEmailSender {
     if (sender == null) throw new DeliveryFailure("SMTP_NOT_CONFIGURED", true, false);
     try {
       MimeMessage message = sender.createMimeMessage();
-      MimeMessageHelper helper = new MimeMessageHelper(message, "UTF-8");
+      MimeMessageHelper helper = new MimeMessageHelper(message, EmailHtml.supported(notification.getType(), notification.getContent()), "UTF-8");
       helper.setFrom(notification.getSendFrom()); helper.setTo(notification.getSendTo());
-      helper.setSubject(notification.getSubject()); helper.setText(notification.getContent(), false);
+      helper.setSubject(notification.getSubject());
+      if (EmailHtml.supported(notification.getType(), notification.getContent())) helper.setText(EmailHtml.plainText(notification.getContent()), notification.getContent());
+      else helper.setText(notification.getContent(), false);
       // Stable identity is useful for tracing, but SMTP does not promise idempotent delivery.
       message.setHeader("X-EcoFood-Notification-Id", notification.getId());
       sender.send(message);

@@ -95,6 +95,7 @@ public class NotificationRecipients {
     }
   }
   public boolean stillAllowed(Notification notification) {
+    if ("INVOICE_PAID".equals(notification.getType())) return false;
     if (SaleConfirmationHandoff.TYPE.equals(notification.getType())) {
       var source=directory.sourceBatch(notification);
       var user=directory.user(notification.getRecipientUserId(),notification.getTenantId());

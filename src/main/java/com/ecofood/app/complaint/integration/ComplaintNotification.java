@@ -41,6 +41,15 @@ public class ComplaintNotification implements NotificationAudience {
         values.put("submissionId",event.id()); values.put("eventType",event.event()); values.put("tenantId",event.tenantId());
         values.put("complaintId",c.getId()); values.put("complaintSubject",c.getSubject()); values.put("complaintType",c.getComplaintType().name());
         values.put("complaintStatus",type.equals("COMPLAINT_CREATED")?"SUBMITTED":"RESOLVED");
+        values.put("complaintDescription",c.getDescription());
+        if(c.getCustomerTenantId()!=null) values.put("customerTenantId",c.getCustomerTenantId());
+        var customer=directory.user(c.getCustomerId(),c.getCustomerTenantId());
+        if(customer!=null) {
+          String name=(Objects.toString(customer.getFirstName(),"")+" "+Objects.toString(customer.getLastName(),"")).trim();
+          if(!name.isBlank()) values.put("customerName",name);
+          if(customer.getEmail()!=null) values.put("customerEmail",customer.getEmail());
+        }
+        if(c.getComplaintType()==ComplaintTypeEnum.TENANT) values.put("invoiceId",c.getInvoiceId());
         if(type.equals("COMPLAINT_RESOLVED")) c.getEvents().stream().filter(e->"RESOLVED".equals(e.eventType())).findFirst().ifPresent(e->values.put("resolution",e.note()));
         return new Context(null,true,Map.copyOf(values));
       }
@@ -68,18 +77,13 @@ public class ComplaintNotification implements NotificationAudience {
   }
   @Override public List<NotificationRecipients.Recipient> resolve(NotificationRule rule,Submission event) {
     var c=require(event); if(!Objects.equals(rule.getTenantId(),event.tenantId()) || !Objects.equals(rule.getEventType(),event.event())) return List.of();
-    var config=rule.getRecipients(); if(config==null) return List.of();
     if("COMPLAINT_RESOLVED".equals(event.event())) {
-      if(!Boolean.TRUE.equals(config.complaintCustomer())) return List.of();
       var u=verifiedReporter(c); return u==null?List.of():List.of(new NotificationRecipients.Recipient(canonical(u.getEmail()),u.getIdAsString()));
     }
     Map<String,NotificationRecipients.Recipient> result=new TreeMap<>();
     for(var user:directory.users(event.tenantId())) {
       if(!access.eligible(user.getIdAsString(),event.tenantId(),c.getComplaintType()) || !NotificationSettings.validEmail(user.getEmail())) continue;
-      var claims=directory.claims(user,event.tenantId());
-      if(safe(config.userIds()).contains(user.getIdAsString()) || !Collections.disjoint(claims.roles(),safe(config.roles())) || !Collections.disjoint(claims.permissions(),safe(config.permissions()))) {
-        String email=canonical(user.getEmail()); result.put(email,new NotificationRecipients.Recipient(email,user.getIdAsString()));
-      }
+      String email=canonical(user.getEmail()); result.put(email,new NotificationRecipients.Recipient(email,user.getIdAsString()));
     }
     return List.copyOf(result.values());
   }

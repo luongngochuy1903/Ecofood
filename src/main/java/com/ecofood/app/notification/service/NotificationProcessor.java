@@ -30,6 +30,7 @@ public class NotificationProcessor {
   private final NotificationRecipients recipients;
   private final NotificationTemplate template;
   private final NotificationSettings settings;
+  private final ComplaintEmailRenderer complaintEmails;
   @Scheduled(fixedDelayString = "${ecofood.notification.poll-ms:5000}", initialDelayString = "${ecofood.notification.initial-delay-ms:20000}")
   public void poll() {
     for (int i = 0; i < 20; i++) {
@@ -79,8 +80,9 @@ public class NotificationProcessor {
     List<Notification> plan = new ArrayList<>();
     String result = "WORKFLOW_DISABLED";
     if (context.workflowEnabled()) {
-      var rules = mongo.find(Query.query(Criteria.where(TENANT_ID).is(event.tenantId()).and("eventType").is(event.event())
-          .and("enabled").is(true).and("channel").is("EMAIL")).limit(101), NotificationRule.class);
+      var rules = event.event().startsWith("COMPLAINT_") ? List.of(systemComplaintDelivery(event))
+          : mongo.find(Query.query(Criteria.where(TENANT_ID).is(event.tenantId()).and("eventType").is(event.event())
+              .and("enabled").is(true).and("channel").is("EMAIL")).limit(101), NotificationRule.class);
       if (rules.size() > 100) throw new IllegalStateException("RULE_LIMIT_EXCEEDED");
       result = rules.isEmpty() ? "NO_RULE" : "NO_VALID_RECIPIENT";
       for (NotificationRule rule : rules) addRuleDeliveries(event, context, rule, plan);
@@ -94,9 +96,14 @@ public class NotificationProcessor {
     var targets = Submission.INVOICE_PAID.equals(event.event())
         ? recipients.resolve(rule, context.invoice()) : recipients.resolve(rule, context.invoice(), event);
     if (targets.isEmpty()) return;
-    String subject = template.render(rule.getSubject(), context.values(), true);
-    String body = template.render(rule.getContent(), context.values(), false);
+    boolean created = "COMPLAINT_CREATED".equals(event.event());
+    String subject = template.render(created ? "Complaint {complaintId}" : rule.getSubject(), context.values(), true);
+    String body = created ? template.render("Complaint ID: {complaintId}\n"
+        + (context.values().containsKey("invoiceId") ? "Invoice ID: {invoiceId}\n" : "")
+        + "Content: {complaintDescription}", context.values(), false)
+        : template.render(rule.getContent(), context.values(), false);
     for (var recipient : targets) {
+      var email = ComplaintEmailRenderer.supports(event.event()) ? complaintEmails.render(event, context.values(), recipient) : null;
       Notification notification = new Notification();
       notification.setId(deliveryId(event.id(), rule.getId(), recipient.email()));
       notification.setSubmissionId(event.id());
@@ -104,8 +111,8 @@ public class NotificationProcessor {
       notification.setRuleId(rule.getId());
       notification.setType(event.event());
       notification.setRuleRevision(rule.getRevision());
-      notification.setSubject(subject);
-      notification.setContent(body);
+      notification.setSubject(email == null ? subject : email.subject());
+      notification.setContent(email == null ? body : email.html());
       notification.setSendFrom(settings.from);
       notification.setSendTo(recipient.email());
       notification.setRecipientUserId(recipient.userId());
@@ -121,6 +128,15 @@ public class NotificationProcessor {
     freeze.addCriteria(Criteria.where("notification.plan").exists(false));
     return mongo.updateFirst(freeze, new Update().set("notification.plan", plan.notifications())
         .set("notification.result", plan.result()), SubmissionNotificationState.class).getModifiedCount() == 1;
+  }
+  /** Delivery metadata only: never persisted or loaded from notification rules. */
+  private NotificationRule systemComplaintDelivery(Submission event) {
+    var rule = new NotificationRule();
+    rule.setId("SYSTEM_"+event.event()); rule.setTenantId(event.tenantId());
+    rule.setEventType(event.event()); rule.setRevision(1);
+    rule.setSubject("Complaint {complaintId} resolved");
+    rule.setContent("Complaint ID: {complaintId}\nResolution: {resolution}");
+    return rule;
   }
   private void insertDelivery(Notification notification) {
     try { mongo.insert(notification); }
