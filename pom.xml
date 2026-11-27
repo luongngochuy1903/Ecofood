@@ -42,6 +42,15 @@
 			<artifactId>core</artifactId>
 			<version>3.5.3</version>
 		</dependency>
+		<!-- Parses the submit-transaction CSV upload (BatchTransactionCsvParser) —
+		     chosen over Jackson's CSV dataformat because the dynamic
+		     invoiceHolder.*/item.* columns need plain header->row string maps,
+		     not a fixed schema class. -->
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-csv</artifactId>
+			<version>1.12.0</version>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-mail</artifactId>
