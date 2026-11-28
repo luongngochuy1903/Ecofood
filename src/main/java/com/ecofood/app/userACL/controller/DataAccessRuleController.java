@@ -31,6 +31,11 @@ public class DataAccessRuleController {
 
   private final DataAccessRuleService dataAccessRuleService;
 
+  @GetMapping("/tenants")
+  public java.util.List<com.ecofood.core.dto.DashboardDtos.Option> tenants() {
+    return dataAccessRuleService.eligibleTenants();
+  }
+
   @GetMapping("/users")
   public java.util.List<com.ecofood.core.dto.UserDirectoryResponse> users(@RequestParam String tenantId) {
     return dataAccessRuleService.eligibleUsers(tenantId);

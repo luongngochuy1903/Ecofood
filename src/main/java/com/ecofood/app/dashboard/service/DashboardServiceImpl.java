@@ -36,17 +36,17 @@ public class DashboardServiceImpl implements DashboardQueryService {
   }
   private Context context(Selection s) {
     validate(s);
-    List<DashboardActor> actors = new ArrayList<>();
-    if (s.tenantIds() == null) actors.add(access.current(BUSINESS, s.tenantId()));
+    Map<String, DashboardActor> actors = new LinkedHashMap<>();
+    if (s.tenantIds() == null) access.scopedTenants(BUSINESS, s.tenantId()).forEach(a -> actors.put(a.tenant().id(), a));
     else for (String id : s.tenantIds()) {
-      var actor = access.current(BUSINESS, id);
-      if (actor.tenantScope().isEmpty()) throw DashboardAccess.denied();
-      actors.add(actor);
+      var scope = access.scopedTenants(BUSINESS, id);
+      if (scope.isEmpty()) throw DashboardAccess.denied();
+      for (var actor : scope) actors.merge(actor.tenant().id(), actor, DashboardServiceImpl::mergeActor);
     }
     // Authorize every selected Tenant before reading any Proposition data.
     Map<String, DashboardProposition> propositions = new LinkedHashMap<>();
     Set<String> tenants = new LinkedHashSet<>();
-    for (var actor : actors) {
+    for (var actor : actors.values()) {
       tenants.add(actor.tenant().id());
       if (actor.tenantScope().isEmpty()) continue;
       for (var p : data.propositions(actor)) {
@@ -54,6 +54,13 @@ public class DashboardServiceImpl implements DashboardQueryService {
       }
     }
     return new Context(Set.copyOf(tenants), List.copyOf(propositions.values()));
+  }
+  private static DashboardActor mergeActor(DashboardActor a, DashboardActor b) {
+    Set<String> ids = null;
+    if (a.entityIds() != null && b.entityIds() != null) {
+      ids = new HashSet<>(a.entityIds()); ids.addAll(b.entityIds()); ids = Set.copyOf(ids);
+    }
+    return new DashboardActor(a.userId(), a.tenant(), a.tenantScope(), false, ids);
   }
   private static DashboardProposition merge(DashboardProposition a, DashboardProposition b) {
     // Same Proposition may be returned for several Tenants. Legacy global rows must be counted once.
@@ -94,7 +101,7 @@ public class DashboardServiceImpl implements DashboardQueryService {
         if (row.year() != null) years.add(row.year());
       }
     }
-    return new Filters(session.tenant().id(), options.stream().map(a -> new Option(a.tenant().id(), a.tenant().name(), !a.tenantScope().isEmpty())).toList(),
+    return new Filters(session.tenant().id(), access.selectableTenants(BUSINESS),
         props.values().stream().map(p -> new PropositionOption(p.id(), p.name(), List.copyOf(propTenants.get(p.id())), p.currency(), false)).toList(),
         List.copyOf(currencies), List.copyOf(years), false, false);
   }

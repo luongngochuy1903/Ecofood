@@ -26,7 +26,7 @@ class DataAccessRuleDeleteTest {
   final UserGroupEntityRepository users = mock(UserGroupEntityRepository.class);
   final ACLService acl = mock(ACLService.class);
   final CoreTenantQueryClient tenants = mock(CoreTenantQueryClient.class);
-  final DataAccessRuleServiceImpl service = new DataAccessRuleServiceImpl(groups,entities,users,mock(UserRepository.class),tenants,mock(SequenceGeneratorService.class),acl);
+  final DataAccessRuleServiceImpl service = new DataAccessRuleServiceImpl(groups,entities,users,mock(UserRepository.class),tenants,mock(SequenceGeneratorService.class),acl,mock(DashboardTenantHierarchy.class));
   final ObjectId owner = new ObjectId(), tenant = new ObjectId(), id = new ObjectId();
   Group rule;
   MockedStatic<AuthenticationContext> auth;

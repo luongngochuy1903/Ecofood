@@ -23,6 +23,9 @@ import org.springframework.stereotype.Service;
 public class TenantQueryServiceImpl implements TenantQueryService {
 
   private final TenantRepository tenantRepository;
+  @Override public String tenantCode(String id) {
+    return tenantRepository.findById(new ObjectId(id)).map(TenantEntity::getTenantCode).orElse(null);
+  }
 
   @Override
   public TenantResponse getById(String tenantId) {

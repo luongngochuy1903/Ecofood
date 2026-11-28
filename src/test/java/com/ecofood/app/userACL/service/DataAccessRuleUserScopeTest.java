@@ -22,7 +22,7 @@ class DataAccessRuleUserScopeTest {
         List.of(new PartyRelationshipResponse(parent,"MT","Parent")),false));
     var user = UserEntity.builder().firstName("Parent user").build(); user.setId(new ObjectId());
     when(users.findDirectory(anyList(),eq(false),isNull(),any())).thenReturn(new PageImpl<>(List.of(user)));
-    var service = new DataAccessRuleServiceImpl(mock(GroupRepository.class),mock(GroupEntityRepository.class),mock(UserGroupEntityRepository.class),users,tenants,mock(SequenceGeneratorService.class),acl);
+    var service = new DataAccessRuleServiceImpl(mock(GroupRepository.class),mock(GroupEntityRepository.class),mock(UserGroupEntityRepository.class),users,tenants,mock(SequenceGeneratorService.class),acl,mock(DashboardTenantHierarchy.class));
     var result = service.eligibleUsers(child);
     assertEquals(1,result.size());
     verify(users).findDirectory(eq(List.of(new ObjectId(child),new ObjectId(parent))),eq(false),isNull(),eq(Pageable.unpaged()));

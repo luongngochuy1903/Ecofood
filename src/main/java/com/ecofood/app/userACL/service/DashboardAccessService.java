@@ -30,6 +30,7 @@ public class DashboardAccessService implements com.ecofood.core.service.Dashboar
   private final MongoTemplate mongo;
   private final UserAccessService users;
   private final CoreTenantQueryClient tenants;
+  private final DashboardTenantHierarchy hierarchy;
   public com.ecofood.core.dto.DashboardActor current() {
     String userId, tenantId;
     try { userId = AuthenticationContext.getUserId().toHexString(); tenantId = AuthenticationContext.getTenantId().toHexString(); }
@@ -62,33 +63,122 @@ public class DashboardAccessService implements com.ecofood.core.service.Dashboar
         false, grant == null ? Set.of() : grant.full() ? null : grant.ids());
   }
   public com.ecofood.core.dto.DashboardActor current(AccessEntityTypeEnum type, String tenantId) {
-    com.ecofood.core.dto.DashboardActor session = current();
-    if (tenantId == null || tenantId.equals(session.tenant().id())) return current(type);
-    var target = tenants.propositionReference(tenantId);
-    if (target.deleted() || target.relationships() == null || target.relationships().stream().noneMatch(r ->
-        "MT".equals(r.getRelationshipTypeCode()) && session.tenant().id().equals(r.getToPartyId()))) throw denied();
-    var grant = restrictions(new ObjectId(session.userId()), new ObjectId(tenantId)).get(type);
-    return new com.ecofood.core.dto.DashboardActor(session.userId(), target, grant == null ? Set.of() : Set.of(tenantId), false,
-        grant == null ? Set.of() : grant.full() ? null : grant.ids());
+    var evaluation = evaluate(type);
+    String id = tenantId == null ? evaluation.session().tenant().id() : tenantId;
+    if (!evaluation.candidates().contains(id)) throw denied();
+    return actor(evaluation, id);
   }
   public List<com.ecofood.core.dto.DashboardActor> authorizedTenants(AccessEntityTypeEnum type) {
     return tenantOptions(type).stream().filter(actor -> !actor.tenantScope().isEmpty()).toList();
   }
   public List<com.ecofood.core.dto.DashboardActor> tenantOptions(AccessEntityTypeEnum type) {
-    com.ecofood.core.dto.DashboardActor session = current();
-    Set<String> candidates = new LinkedHashSet<>(); candidates.add(session.tenant().id());
-    if (session.tenant().scopedTenantIds() != null) candidates.addAll(session.tenant().scopedTenantIds());
-    List<com.ecofood.core.dto.DashboardActor> result = new ArrayList<>();
-    for (String id : candidates) {
-      if (!id.equals(session.tenant().id())) {
-        var target = tenants.propositionReference(id);
-        if (target.deleted() || target.relationships() == null || target.relationships().stream().noneMatch(r ->
-            "MT".equals(r.getRelationshipTypeCode()) && session.tenant().id().equals(r.getToPartyId()))) continue;
+    var evaluation = evaluate(type);
+    return evaluation.candidates().stream().map(id -> actor(evaluation, id)).toList();
+  }
+  public List<com.ecofood.core.dto.DashboardActor> scopedTenants(AccessEntityTypeEnum type, String root) {
+    var evaluation = evaluate(type);
+    String selected = root == null ? evaluation.session().tenant().id() : root;
+    if (!evaluation.candidates().contains(selected)) throw denied();
+    return scope(evaluation, selected).entrySet().stream()
+        .map(entry -> actor(evaluation, entry.getKey(), entry.getValue())).toList();
+  }
+  public List<com.ecofood.core.dto.DashboardDtos.Option> selectableTenants(AccessEntityTypeEnum type) {
+    var evaluation = evaluate(type);
+    return evaluation.candidates().stream().map(id -> {
+      var scope = List.copyOf(scope(evaluation, id).keySet());
+      var tenant = evaluation.tree().tenants().get(id);
+      return new com.ecofood.core.dto.DashboardDtos.Option(id, tenant.name(), !scope.isEmpty(), scope, tenant.partnerType());
+    }).toList();
+  }
+  private record Evaluation(com.ecofood.core.dto.DashboardActor session, DashboardTenantHierarchy.Tree tree,
+      Set<String> candidates, Map<String, Grant> grants, Map<String, Grant> edges) {}
+
+  private Map<String, Grant> scope(Evaluation evaluation, String selected) {
+    if (selected.equals(evaluation.session().tenant().id())) return evaluation.grants();
+    if (!evaluation.grants().containsKey(selected)) return Map.of();
+    Map<String, Grant> result = new LinkedHashMap<>(); result.put(selected, evaluation.grants().get(selected));
+    Deque<String> pending = new ArrayDeque<>(); pending.add(selected);
+    while (!pending.isEmpty()) {
+      String parent = pending.removeFirst();
+      for (String child : evaluation.tree().children().getOrDefault(parent, Set.of())) {
+        if (child.equals(selected) || child.equals(evaluation.session().tenant().id())) continue;
+        var next = intersect(result.get(parent), evaluation.edges().get(parent + ":" + child));
+        if (next == null) continue;
+        var merged = union(result.get(child), next);
+        if (!merged.equals(result.get(child))) { result.put(child, merged); pending.add(child); }
       }
-      com.ecofood.core.dto.DashboardActor actor = current(type, id);
-      result.add(actor);
     }
-    return List.copyOf(result);
+    return result;
+  }
+
+  private Evaluation evaluate(AccessEntityTypeEnum type) {
+    var session = current(); // Preserve the live role and session checks before resolving any hierarchy.
+    var tree = hierarchy.load(session.tenant());
+    String root = session.tenant().id();
+    var candidates = tree.descendants(root);
+    Map<String, Grant> grants = new HashMap<>();
+    var own = restrictions(new ObjectId(session.userId()), new ObjectId(root)).get(type);
+    if (own != null) grants.put(root, own);
+    Map<String, Grant> paths = new HashMap<>();
+    paths.put(root, new Grant(true, Set.of())); // Own-data DAR does not gate grants to direct children.
+    Map<String, List<UserEntity>> parentUsers = new HashMap<>();
+    Map<String, Grant> edges = new HashMap<>();
+    Set<String> checked = new HashSet<>();
+    Deque<String> pending = new ArrayDeque<>(); pending.add(root);
+    while (!pending.isEmpty()) {
+      String parent = pending.removeFirst();
+      for (String child : tree.children().getOrDefault(parent, Set.of())) {
+        if (child.equals(root)) continue; // Cycles must never manufacture a grant back into the session Tenant.
+        String key = parent + ":" + child;
+        if (checked.add(key)) {
+          Grant edge = null;
+          if (parent.equals(root)) edge = restrictions(new ObjectId(session.userId()), new ObjectId(child)).get(type);
+          else {
+            // DAR has user memberships rather than a source-Tenant field. A downstream edge belongs
+            // to an active member of this intermediate Tenant; it is not a direct grant to the root user.
+            var members = parentUsers.computeIfAbsent(parent, id -> mongo.find(Query.query(Criteria.where("deleted").ne(true)
+                .and("partyRelationships").elemMatch(Criteria.where("relationshipTypeCode").is("TENANT")
+                    .and("toPartyId").is(new ObjectId(id)))), UserEntity.class));
+            for (var member : members) {
+              if (Boolean.TRUE.equals(member.getDeleted()) || member.getId() == null || member.getPartyRelationships() == null
+                  || member.getPartyRelationships().stream().noneMatch(r -> "TENANT".equals(r.getRelationshipTypeCode())
+                      && new ObjectId(parent).equals(r.getToPartyId()))) continue;
+              edge = union(edge, restrictions(member.getId(), new ObjectId(child)).get(type));
+            }
+          }
+          if (edge != null) edges.put(key, edge);
+        }
+        Grant next = intersect(paths.get(parent), edges.get(key));
+        if (next == null) continue;
+        Grant merged = union(paths.get(child), next);
+        if (!merged.equals(paths.get(child))) {
+          paths.put(child, merged); grants.put(child, merged); pending.addLast(child);
+        }
+      }
+    }
+    return new Evaluation(session, tree, candidates, grants, edges);
+  }
+  private com.ecofood.core.dto.DashboardActor actor(Evaluation evaluation, String id) {
+    var grant = evaluation.grants().get(id);
+    return actor(evaluation, id, grant);
+  }
+  private com.ecofood.core.dto.DashboardActor actor(Evaluation evaluation, String id, Grant grant) {
+    return new com.ecofood.core.dto.DashboardActor(evaluation.session().userId(), evaluation.tree().tenants().get(id),
+        grant == null ? Set.of() : Set.of(id), false, grant == null ? Set.of() : grant.full() ? null : grant.ids());
+  }
+  private static Grant union(Grant a, Grant b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    if (a.full() || b.full()) return new Grant(true, Set.of());
+    Set<String> ids = new HashSet<>(a.ids()); ids.addAll(b.ids());
+    return new Grant(false, Set.copyOf(ids));
+  }
+  private static Grant intersect(Grant a, Grant b) {
+    if (a == null || b == null) return null;
+    if (a.full()) return b;
+    if (b.full()) return a;
+    Set<String> ids = new HashSet<>(a.ids()); ids.retainAll(b.ids());
+    return new Grant(false, Set.copyOf(ids));
   }
   private record Grant(boolean full, Set<String> ids) {}
   private Map<AccessEntityTypeEnum, Grant> restrictions(ObjectId user, ObjectId tenant) {

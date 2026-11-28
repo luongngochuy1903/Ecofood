@@ -11,6 +11,12 @@ import org.springframework.stereotype.Service;
 @Service @RequiredArgsConstructor
 public class DashboardPropositionQueryServiceImpl implements DashboardPropositionQueryService {
   private final MongoTemplate mongo;
+  @Override public List<com.ecofood.core.dto.DashboardDtos.Option> invoiceReferences(Set<String> ids) {
+    var valid = ids.stream().filter(ObjectId::isValid).map(ObjectId::new).toList();
+    if (valid.isEmpty()) return List.of();
+    return mongo.find(Query.query(Criteria.where("_id").in(valid)), PropositionEntity.class).stream()
+        .map(p -> new com.ecofood.core.dto.DashboardDtos.Option(p.getIdAsString(), p.getDefinition() == null ? null : p.getDefinition().name())).toList();
+  }
   @Override public List<DashboardProposition> find(String tenant, Set<String> ids) {
     if (ids != null && ids.isEmpty()) return List.of();
     Query query = Query.query(Criteria.where("deleted").ne(true));

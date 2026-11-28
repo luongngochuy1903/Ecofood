@@ -70,6 +70,19 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
   private final CoreTenantQueryClient tenantQueryClient;
   private final SequenceGeneratorService sequenceGeneratorService;
   private final ACLService aclService;
+  private final DashboardTenantHierarchy hierarchy;
+
+  @Override
+  public List<com.ecofood.core.dto.DashboardDtos.Option> eligibleTenants() {
+    RoleLevel level = aclService.getMaxLevel();
+    if (!ALLOWED_LEVELS.contains(level)) throw new ForbiddenException("Data access rules denied");
+    var scope = level == RoleLevel.SYSTEM ? Set.<ObjectId>of() : Set.copyOf(resolveScopedTenantIds(level));
+    return tenantQueryClient.propositionReferences().stream().filter(t -> !t.deleted())
+        .filter(t -> level == RoleLevel.SYSTEM || scope.contains(new ObjectId(t.id())))
+        .sorted(java.util.Comparator.comparing(com.ecofood.core.dto.PropositionTenantReference::name,
+            java.util.Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
+        .map(t -> new com.ecofood.core.dto.DashboardDtos.Option(t.id(), t.name(), true, List.of(t.id()), t.partnerType())).toList();
+  }
 
   private List<ObjectId> eligibleTenantIds(String tenantId) {
     RoleLevel level = aclService.getMaxLevel();
@@ -82,6 +95,8 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
     if (tenant.relationships() != null) tenant.relationships().stream()
         .filter(r -> "MT".equals(r.getRelationshipTypeCode())).map(r -> r.getToPartyId())
         .filter(java.util.Objects::nonNull).map(ObjectId::new).forEach(ids::add);
+    if (tenant.partnerType() == com.ecofood.core.enums.PartnerTypeEnum.REGIONAL_ENTERPRISE)
+      hierarchy.directParents(tenant).stream().map(ObjectId::new).forEach(ids::add);
     return List.copyOf(ids);
   }
   @Override public List<com.ecofood.core.dto.UserDirectoryResponse> eligibleUsers(String tenantId) {
@@ -393,14 +408,18 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
    * TENANT-level never queries the tenant module at all — its scope is
    * always just its own tenant id (same reasoning as UserServiceImpl.
    * resolveScopedTenantIds). ENTERPRISE/MASTER_TENANT delegate to
-   * CoreTenantQueryClient.getScopedTenantIds for the full self+sub-tenants set.
+   * CoreTenantQueryClient for MT children, adding direct OW/BL Regional children
+   * for DAR only. Grandchildren still require configuration by their own parent.
    */
   private List<ObjectId> resolveScopedTenantIds(RoleLevel level) {
     ObjectId callerTenantId = AuthenticationContext.getTenantId();
     if (level == RoleLevel.TENANT) {
       return List.of(callerTenantId);
     }
-    return tenantQueryClient.getScopedTenantIds(callerTenantId.toHexString()).stream().map(ObjectId::new).toList();
+    var ids = new java.util.LinkedHashSet<ObjectId>(); ids.add(callerTenantId);
+    tenantQueryClient.getScopedTenantIds(callerTenantId.toHexString()).stream().map(ObjectId::new).forEach(ids::add);
+    hierarchy.directRegionalChildren(callerTenantId.toHexString()).stream().map(ObjectId::new).forEach(ids::add);
+    return List.copyOf(ids);
   }
 
   private Sort resolveDirectorySort(String sort) {

@@ -73,7 +73,7 @@ class DataAccessRuleServiceImplTest {
     dataAccessRuleService =
         org.mockito.Mockito.spy(new DataAccessRuleServiceImpl(
             groupRepository, groupEntityRepository, userGroupEntityRepository, userRepository,
-            tenantQueryClient, sequenceGeneratorService, aclService));
+            tenantQueryClient, sequenceGeneratorService, aclService,org.mockito.Mockito.mock(DashboardTenantHierarchy.class)));
     org.mockito.Mockito.lenient().doReturn(List.of()).when(dataAccessRuleService).eligibleUsers(anyString());
   }
 

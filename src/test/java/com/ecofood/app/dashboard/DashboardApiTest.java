@@ -10,10 +10,36 @@ import com.ecofood.core.client.CoreDashboardInvoiceClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class DashboardApiTest {
+  @Test void invoiceCheckboxSelectionMergesOverlappingScopesBeforeOnePaginatedRead() {
+    var access = mock(DashboardAccess.class); var invoices = mock(CoreDashboardInvoiceClient.class);
+    var b = new com.ecofood.core.dto.DashboardActor(DashboardFixtures.USER,DashboardFixtures.tenant(DashboardFixtures.B,false),java.util.Set.of(DashboardFixtures.B),false,null);
+    var c = new com.ecofood.core.dto.DashboardActor(DashboardFixtures.USER,DashboardFixtures.tenant(DashboardFixtures.OWNER,false),java.util.Set.of(DashboardFixtures.OWNER),false,java.util.Set.of("invoice-c"));
+    when(access.scopedTenants(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD,DashboardFixtures.A)).thenReturn(java.util.List.of(b,c));
+    when(access.scopedTenants(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD,DashboardFixtures.B)).thenReturn(java.util.List.of(b));
+    new DashboardController(mock(DashboardServiceImpl.class),access,invoices).invoices(2,20,null,java.util.List.of(DashboardFixtures.A,DashboardFixtures.B,DashboardFixtures.A));
+    verify(invoices).dashboard(org.mockito.ArgumentMatchers.argThat(scopes -> scopes.size() == 2 && scopes.containsKey(DashboardFixtures.B)
+        && scopes.get(DashboardFixtures.B) == null && java.util.Set.of("invoice-c").equals(scopes.get(DashboardFixtures.OWNER))),eq(2),eq(20));
+    verify(access,times(1)).scopedTenants(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD,DashboardFixtures.A);
+  }
+  @Test void invoiceCheckboxSelectionDeniesMissingDarBeforeReadingAnyInvoices() {
+    var access = mock(DashboardAccess.class); var invoices = mock(CoreDashboardInvoiceClient.class);
+    when(access.scopedTenants(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD,DashboardFixtures.A)).thenReturn(java.util.List.of(DashboardFixtures.actor(false)));
+    var controller = new DashboardController(mock(DashboardServiceImpl.class),access,invoices);
+    org.junit.jupiter.api.Assertions.assertThrows(org.springframework.web.server.ResponseStatusException.class,
+        () -> controller.invoices(0,20,null,java.util.List.of(DashboardFixtures.A,DashboardFixtures.B)));
+    verifyNoInteractions(invoices);
+  }
+  @Test void invoiceSelectionRejectsEmptyOrAmbiguousTenantFilters() {
+    var access = mock(DashboardAccess.class); var invoices = mock(CoreDashboardInvoiceClient.class);
+    var controller = new DashboardController(mock(DashboardServiceImpl.class),access,invoices);
+    org.junit.jupiter.api.Assertions.assertThrows(org.springframework.web.server.ResponseStatusException.class,() -> controller.invoices(0,20,null,java.util.List.of()));
+    org.junit.jupiter.api.Assertions.assertThrows(org.springframework.web.server.ResponseStatusException.class,() -> controller.invoices(0,20,DashboardFixtures.A,java.util.List.of(DashboardFixtures.B)));
+    verifyNoInteractions(access,invoices);
+  }
   @Test void noInvoiceRuleDoesNotQueryInvoices() {
     var access = mock(DashboardAccess.class); var invoices = mock(CoreDashboardInvoiceClient.class);
     var actor = new com.ecofood.core.dto.DashboardActor(DashboardFixtures.USER,DashboardFixtures.tenant(DashboardFixtures.A,false),java.util.Set.of(),false,java.util.Set.of());
-    when(access.current(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD,null)).thenReturn(actor);
+    when(access.scopedTenants(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD,null)).thenReturn(java.util.List.of());
     var controller = new DashboardController(mock(DashboardServiceImpl.class),access,invoices);
     org.junit.jupiter.api.Assertions.assertTrue(controller.invoices(0,20,null).isEmpty());
     verifyNoInteractions(invoices);
@@ -21,9 +47,9 @@ class DashboardApiTest {
   @Test void limitedInvoiceIdsAreForwardedWithTenantAndPagination() {
     var access = mock(DashboardAccess.class); var invoices = mock(CoreDashboardInvoiceClient.class);
     var actor = new com.ecofood.core.dto.DashboardActor(DashboardFixtures.USER,DashboardFixtures.tenant(DashboardFixtures.A,false),java.util.Set.of(DashboardFixtures.A),false,java.util.Set.of("invoice"));
-    when(access.current(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD,null)).thenReturn(actor);
+    when(access.scopedTenants(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD,null)).thenReturn(java.util.List.of(actor));
     new DashboardController(mock(DashboardServiceImpl.class),access,invoices).invoices(1,20,null);
-    verify(invoices).dashboard(DashboardFixtures.A,java.util.Set.of("invoice"),1,20);
+    verify(invoices).dashboard(java.util.Map.of(DashboardFixtures.A,java.util.Set.of("invoice")),1,20);
   }
   @Test void invoiceDetailWithoutRuleDoesNotReadInvoice() {
     var access = mock(DashboardAccess.class); var invoices = mock(CoreDashboardInvoiceClient.class);

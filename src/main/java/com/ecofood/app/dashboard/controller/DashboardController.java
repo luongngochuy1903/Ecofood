@@ -28,15 +28,36 @@ public class DashboardController {
   }
   @GetMapping("/invoices/tenants")
   public List<Option> invoiceTenants() {
-    return access.authorizedTenants(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD).stream()
-        .map(a -> new Option(a.tenant().id(), a.tenant().name())).toList();
+    return access.selectableTenants(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD).stream()
+        .filter(Option::accessible).toList();
   }
   @GetMapping("/invoices")
   public org.springframework.data.domain.Page<com.ecofood.core.dto.DashboardInvoice> invoices(
-      @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size, @RequestParam(required = false) String tenantId) {
-    var actor = access.current(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD, tenantId);
-    if (actor.tenantScope().isEmpty()) return org.springframework.data.domain.Page.empty();
-    return invoices.dashboard(actor.tenant().id(), actor.entityIds(), page, size);
+      @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size,
+      @RequestParam(required = false) String tenantId, @RequestParam(required = false) List<String> tenantIds) {
+    if (page < 0 || size < 1 || size > 100)
+      throw DashboardAccess.error(org.springframework.http.HttpStatus.BAD_REQUEST, "Invalid pagination");
+    if (tenantIds != null && (tenantId != null || tenantIds.isEmpty() || tenantIds.stream().anyMatch(id -> id == null || id.isBlank())))
+      throw DashboardAccess.error(org.springframework.http.HttpStatus.BAD_REQUEST, "Select tenants using tenantId or tenantIds");
+    java.util.Map<String, java.util.Set<String>> scopes = new java.util.LinkedHashMap<>();
+    var roots = tenantIds == null ? java.util.Collections.singletonList(tenantId) : new java.util.LinkedHashSet<>(tenantIds);
+    for (String root : roots) {
+      var actors = access.scopedTenants(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD, root);
+      if (tenantIds != null && actors.isEmpty()) throw DashboardAccess.denied();
+      for (var actor : actors) {
+        String id = actor.tenant().id();
+        if (!scopes.containsKey(id)) scopes.put(id, actor.entityIds());
+        else if (scopes.get(id) == null || actor.entityIds() == null) scopes.put(id, null);
+        else {
+          var ids = new java.util.HashSet<>(scopes.get(id)); ids.addAll(actor.entityIds()); scopes.put(id, java.util.Set.copyOf(ids));
+        }
+      }
+    }
+    if (scopes.isEmpty()) return org.springframework.data.domain.Page.empty(org.springframework.data.domain.PageRequest.of(page, size));
+    return invoices.dashboard(scopes, page, size);
+  }
+  public org.springframework.data.domain.Page<com.ecofood.core.dto.DashboardInvoice> invoices(int page, int size, String tenantId) {
+    return invoices(page, size, tenantId, null);
   }
   @GetMapping("/invoices/{id}")
   public com.ecofood.core.dto.DashboardInvoiceDetail invoiceDetail(@PathVariable String id,

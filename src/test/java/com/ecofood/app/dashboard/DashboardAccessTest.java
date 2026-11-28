@@ -29,7 +29,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 class DashboardAccessTest {
   MongoTemplate mongo = mock(MongoTemplate.class); UserAccessService users = mock(UserAccessService.class); CoreTenantQueryClient tenants = mock(CoreTenantQueryClient.class);
-  DashboardAccessService access = new DashboardAccessService(mongo, users, tenants); MockedStatic<AuthenticationContext> token;
+  com.ecofood.core.client.CoreEnterpriseQueryClient enterprises = mock(com.ecofood.core.client.CoreEnterpriseQueryClient.class);
+  DashboardAccessService access = new DashboardAccessService(mongo, users, tenants, new com.ecofood.app.userACL.service.DashboardTenantHierarchy(tenants, enterprises)); MockedStatic<AuthenticationContext> token;
   @BeforeEach void setup() {
     token = mockStatic(AuthenticationContext.class);
     token.when(AuthenticationContext::getUserId).thenReturn(new ObjectId(USER)); token.when(AuthenticationContext::getTenantId).thenReturn(new ObjectId(A));
@@ -38,6 +39,7 @@ class DashboardAccessTest {
     when(mongo.findById(new ObjectId(USER), UserEntity.class)).thenReturn(user);
     when(users.resolveAccess(new ObjectId(USER), new ObjectId(A))).thenReturn(new UserAccessService.UserAccessClaims(List.of("TENANT_ADMIN"), List.of(DashboardAccessService.READ), List.of()));
     when(tenants.propositionReference(A)).thenReturn(tenant(A, false));
+    when(tenants.propositionReferences()).thenReturn(List.of(tenant(A, false)));
   }
   @AfterEach void close() { token.close(); }
   @Test void adminWithoutRuleHasEmptyDataScope() { assertTrue(access.current().tenantScope().isEmpty()); }
@@ -103,6 +105,8 @@ class DashboardAccessTest {
         .groups(List.of(UserGroupEntity.EmbeddedRestrictionGroup.builder().groupIdentifier(id).tenantIdentifier(new ObjectId(B)).build())).build());
     when(mongo.findById(id,Group.class)).thenReturn(Group.builder().groupType(GroupType.ACCESS_CONTROL_GROUP).accessEntityType(AccessEntityTypeEnum.BUSINESS_DASHBOARD)
         .accessLevel(AccessLevelEnum.FULL_ACCESS).partyRelationships(List.of(PartyToPartyRelationship.builder().relationshipTypeCode("TENANT").toPartyId(new ObjectId(B)).build())).build());
+    var references = List.of(parent,tenants.propositionReference(B),tenants.propositionReference(OWNER),tenants.propositionReference(PRODUCT));
+    when(tenants.propositionReferences()).thenReturn(references);
     var options = access.tenantOptions(AccessEntityTypeEnum.BUSINESS_DASHBOARD);
     assertEquals(List.of(A,B,OWNER),options.stream().map(a -> a.tenant().id()).toList());
     assertTrue(options.get(0).tenantScope().isEmpty()); assertEquals(Set.of(B),options.get(1).tenantScope());
