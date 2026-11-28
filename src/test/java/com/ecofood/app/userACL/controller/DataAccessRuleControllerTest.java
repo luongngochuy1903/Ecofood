@@ -38,6 +38,23 @@ class DataAccessRuleControllerTest {
   }
 
   @Test
+  void deleteReturnsNoContentAndDelegatesToService() throws Exception {
+    mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete("/api/v1/data-access-rules/rule-id"))
+        .andExpect(status().isNoContent());
+    org.mockito.Mockito.verify(dataAccessRuleService).delete("rule-id");
+  }
+
+  @Test
+  void createAcceptsDashboardCheckboxSelections() throws Exception {
+    when(dataAccessRuleService.create(any())).thenReturn(DataAccessRuleResponse.builder().id("rule")
+        .accessEntityTypes(java.util.List.of(com.ecofood.core.enums.AccessEntityTypeEnum.BUSINESS_DASHBOARD,com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD)).build());
+    mockMvc.perform(post("/api/v1/data-access-rules").contentType(MediaType.APPLICATION_JSON).content("""
+      {"businessEntityId":"tenant","ruleName":"Rule","description":"Desc","accessLevel":"FULL_ACCESS",
+       "accessEntityTypes":["BUSINESS_DASHBOARD","INVOICE_DASHBOARD"]}
+      """)).andExpect(status().isCreated()).andExpect(jsonPath("$.accessEntityTypes.length()",is(2)));
+    org.mockito.Mockito.verify(dataAccessRuleService).create(org.mockito.ArgumentMatchers.argThat(r -> r.getAccessEntityTypes().size() == 2 && r.getAccessEntityType() == null));
+  }
+  @Test
   void createReturns201WithTheServiceResponse() throws Exception {
     when(dataAccessRuleService.create(any()))
         .thenReturn(

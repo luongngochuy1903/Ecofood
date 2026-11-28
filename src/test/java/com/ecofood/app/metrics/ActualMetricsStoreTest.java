@@ -80,7 +80,7 @@ class ActualMetricsStoreTest {
     db.add(invoice);
     var submissionId2 = invoice.getSubmissionId();
     assertThrows(KpiProcessingException.class, () -> store.process(submissionId2, "other"));
-    invoice.setPaymentStatus(null);
+    invoice.setStatus(null);
     var submissionId3 = invoice.getSubmissionId();
     assertThrows(KpiProcessingException.class, () -> store.process(submissionId3, "tenant"));
     assertTrue(db.metrics.isEmpty());

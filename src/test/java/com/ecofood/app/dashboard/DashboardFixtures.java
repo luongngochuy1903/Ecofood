@@ -35,6 +35,6 @@ final class DashboardFixtures {
         null, null, null, Set.of())); return p;
   }
   static PropositionTenantReference tenant(String id, boolean enterprise) { return new PropositionTenantReference(id, "Tenant " + id, enterprise ? ENTERPRISE : null, enterprise ? PartnerTypeEnum.ENTERPRISE : PartnerTypeEnum.BRAND, TenantTypeEnum.STANDALONE, enterprise ? List.of(OWNER, A, B) : List.of(id), List.of(), false); }
-  static DashboardAccess.Actor actor(boolean enterprise) { return new DashboardAccess.Actor(USER, tenant(enterprise ? OWNER : A, enterprise), enterprise ? Set.of(OWNER, A, B) : Set.of(A), enterprise, null); }
+  static com.ecofood.core.dto.DashboardActor actor(boolean enterprise) { return new com.ecofood.core.dto.DashboardActor(USER, tenant(enterprise ? OWNER : A, enterprise), enterprise ? Set.of(OWNER, A, B) : Set.of(A), enterprise, null); }
   static DashboardDtos.Selection selection(DashboardPeriodEnum period) { return new DashboardDtos.Selection(A, PROP, "USD", 2026, period, 1, 1, false); }
 }

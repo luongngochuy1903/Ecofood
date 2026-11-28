@@ -50,4 +50,22 @@ public class EnterpriseQueryServiceImpl implements EnterpriseQueryService {
                     .toList())
         .orElse(List.of());
   }
+
+  @Override
+  public List<String> dashboardChildEnterpriseIds(String enterpriseId) {
+    if (enterpriseId == null || !ObjectId.isValid(enterpriseId)) return List.of();
+    var parent = enterpriseRepository.findById(new ObjectId(enterpriseId)).orElse(null);
+    if (parent == null || Boolean.TRUE.equals(parent.getDeleted())) return List.of();
+    var ids = new java.util.LinkedHashSet<String>();
+    if (parent.getPartyRelationships() != null) {
+      var owned = parent.getPartyRelationships().stream()
+          .filter(r -> RelationshipTypeEnum.OWN.getCode().equals(r.getRelationshipTypeCode()))
+          .map(r -> r.getToPartyId()).filter(Objects::nonNull).toList();
+      enterpriseRepository.findAllById(owned).stream().filter(e -> !Boolean.TRUE.equals(e.getDeleted()))
+          .forEach(e -> ids.add(e.getIdAsString()));
+    }
+    enterpriseRepository.findDashboardChildren(new ObjectId(enterpriseId))
+        .forEach(e -> ids.add(e.getIdAsString()));
+    return List.copyOf(ids);
+  }
 }

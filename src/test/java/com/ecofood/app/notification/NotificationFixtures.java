@@ -19,8 +19,8 @@ final class NotificationFixtures {
   static Submission event() { return new Submission("event", "INVOICE_PAID", Instant.now(), TENANT, "INVOICE", "invoice", "prop", "plan", "orch", 3); }
   static Invoice invoice() {
     var i = new Invoice(); i.setId("invoice"); i.setTenantId(TENANT); i.setSubmissionId("event");
-    i.setStatus(TransactionStatus.ACCEPTED); i.setPaymentStatus("PAID"); i.setPropositionId("prop"); i.setPlanId("plan");
-    i.setOrchestratorId("orch"); i.setOrchestratorVersion(3); i.setInvoiceNumber("INV1"); i.setPostWorkflowResults(Map.of("SEND_EMAIL_NOTIFICATION", "PENDING"));
+    i.setStatus(TransactionStatus.ACCEPTED); i.setPropositionId("prop"); i.setPlanId("plan");
+    i.setOrchestratorId("orch"); i.setOrchestratorVersion(3); i.setPostWorkflowResults(Map.of("SEND_EMAIL_NOTIFICATION", "PENDING"));
     return i;
   }
   static NotificationSettings settings() { return new NotificationSettings("sender@example.org", true, 3, TENANT + "=approved@example.org"); }

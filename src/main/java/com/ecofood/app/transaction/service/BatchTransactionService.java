@@ -119,18 +119,10 @@ public class BatchTransactionService {
     invoice.setSubmittedBy(subject);
     invoice.setPosId(subject);
     invoice.setDistributionPartnerId(tenant);
-    // No caller-supplied invoice id exists here — the Sale Orchestrator
-    // never defines one. The Invoice's own generated id doubles as its
-    // invoiceNumber so the pre-existing (tenantId, posId, invoiceNumber)
-    // unique index and every other consumer of Invoice.invoiceNumber
-    // (customer receipts, complaints, notifications) keep working unchanged.
-    invoice.setInvoiceNumber(invoice.getId());
     invoice.setCurrency(lines.get(0).snapshot().currency());
     invoice.setReceivedAt(now);
     invoice.setTransactionTimeSource("NOT_SUPPLIED");
-    invoice.setType("PLAN_SALE_BATCH");
     invoice.setStatus(TransactionStatus.ACCEPTED);
-    invoice.setPaymentStatus("PAID");
     invoice.setTotalAmount(lines.stream().map(InvoicePlanLine::amount).reduce(BigDecimal.ZERO, BigDecimal::add));
     invoice.setPlanLines(List.copyOf(lines));
     invoice.setSourcePayloadFingerprint(hash(canonical(receipt)));

@@ -141,10 +141,7 @@ public class ComplaintServiceImpl implements ComplaintService {
     var a=admins.current(); var c=adminFind(a,id);
     var u=directory.user(c.getCustomerId(),c.getCustomerTenantId());
     String name=u==null?null:Objects.toString(u.getFirstName(),"")+" "+Objects.toString(u.getLastName(),"");
-    // Minimal reference only, never expose financial snapshot/POS payload to complaint handlers.
-    var i=c.getInvoiceId()==null || c.getComplaintType()!=ComplaintTypeEnum.TENANT?null:mongo.findOne(Query.query(Criteria.where("_id").is(c.getInvoiceId()).and("tenantId").is(a.tenantId())
-        .and("invoiceHolder.userId").is(c.getCustomerId())),Invoice.class);
-    return new Detail(c,name,i==null?null:i.getInvoiceNumber(),handling(a,c));
+    return new Detail(c,name,handling(a,c));
   }
   private Complaint adminFind(ComplaintAccess.Actor a,String id) {
     var c=mongo.findOne(Query.query(Criteria.where("_id").is(id).and(QUEUE_TENANT_ID).is(a.tenantId()).and("complaintType").in(a.types())),Complaint.class);

@@ -28,7 +28,7 @@ final class CustomerFixtures {
   static CustomerAccess.Actor actor(String id) { return new CustomerAccess.Actor(id, TENANT, user(id)); }
   static Invoice invoice() {
     var i = new Invoice(); i.setId(INVOICE); i.setTenantId(TENANT); i.setSubmittedBy(SELLER); i.setPosId(SELLER); i.setSubmissionId("paid-event");
-    i.setStatus(TransactionStatus.ACCEPTED); i.setPaymentStatus("PAID"); i.setInvoiceNumber("INV-001"); i.setCurrency("USD"); i.setTotalAmount(new BigDecimal("20")); i.setTransactionTime(Instant.now());
+    i.setStatus(TransactionStatus.ACCEPTED); i.setCurrency("USD"); i.setTotalAmount(new BigDecimal("20")); i.setTransactionTime(Instant.now());
     i.setPropositionId("prop"); i.setPlanId("plan"); i.setOrchestratorId("orchestrator"); i.setOrchestratorVersion(2);
     i.setItems(List.of(new InvoiceItemDto("P1", "Product", BigDecimal.ONE, new BigDecimal("20"), new BigDecimal("20")))); return i;
   }

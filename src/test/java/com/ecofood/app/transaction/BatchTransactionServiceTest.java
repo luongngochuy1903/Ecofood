@@ -62,7 +62,7 @@ class BatchTransactionServiceTest {
     var result=service.submit("tenant","seller",request(new Receipt(null,List.of(item("A",1),item("B",2))),new Receipt(null,List.of(item("A",1)))));
     assertEquals(2,invoices.size());assertEquals(1,events.size());
     var event=events.values().iterator().next();assertEquals(2,event.invoiceIds().size());
-    assertTrue(invoices.values().stream().allMatch(i->event.id().equals(i.getSubmissionId()) && i.getPlanId()==null && "PAID".equals(i.getPaymentStatus())));
+    assertTrue(invoices.values().stream().allMatch(i->event.id().equals(i.getSubmissionId()) && i.getPlanId()==null && i.isBatch()));
     assertTrue(result.transaction().invoices().stream().allMatch(r->r.result().equals("ACCEPTED")));
     assertTrue(invoices.values().stream().anyMatch(i->i.getTotalAmount().compareTo(new BigDecimal("150000"))==0));
     verify(confirmations).deliver(event);

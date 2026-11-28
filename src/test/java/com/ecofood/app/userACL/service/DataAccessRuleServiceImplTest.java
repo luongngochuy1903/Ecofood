@@ -71,9 +71,10 @@ class DataAccessRuleServiceImplTest {
 
   private void setUp() {
     dataAccessRuleService =
-        new DataAccessRuleServiceImpl(
+        org.mockito.Mockito.spy(new DataAccessRuleServiceImpl(
             groupRepository, groupEntityRepository, userGroupEntityRepository, userRepository,
-            tenantQueryClient, sequenceGeneratorService, aclService);
+            tenantQueryClient, sequenceGeneratorService, aclService,org.mockito.Mockito.mock(DashboardTenantHierarchy.class)));
+    org.mockito.Mockito.lenient().doReturn(List.of()).when(dataAccessRuleService).eligibleUsers(anyString());
   }
 
   @AfterEach
@@ -127,9 +128,66 @@ class DataAccessRuleServiceImplTest {
     request.setRuleName("Billing Viewer");
     request.setDescription("Lets partners view billing dashboards.");
     request.setAccessLevel(AccessLevelEnum.FULL_ACCESS);
+    org.mockito.Mockito.lenient().doAnswer(invocation -> request.getUserIds() == null ? List.of() : request.getUserIds().stream().map(id -> com.ecofood.core.dto.UserDirectoryResponse.builder().id(id).build()).toList()).when(dataAccessRuleService).eligibleUsers(tenantId);
     return request;
   }
 
+  @Test
+  void createStoresOneRuleWithDistinctDashboardSelectionsAndOneScopeRowPerType() {
+    setUp(); when(aclService.getMaxLevel()).thenReturn(RoleLevel.SYSTEM);
+    var tenant = TenantResponse.builder().id(new ObjectId().toHexString()).tenantName("Tenant").build();
+    when(tenantQueryClient.getById(tenant.getId())).thenReturn(tenant);
+    stubGroupSaveAssignsId();
+    var request = baseRequest(tenant.getId());
+    request.setAccessEntityTypes(List.of(AccessEntityTypeEnum.BUSINESS_DASHBOARD,AccessEntityTypeEnum.INVOICE_DASHBOARD,AccessEntityTypeEnum.BUSINESS_DASHBOARD));
+    var response = dataAccessRuleService.create(request);
+    assertThat(response.getAccessEntityTypes()).containsExactly(AccessEntityTypeEnum.BUSINESS_DASHBOARD,AccessEntityTypeEnum.INVOICE_DASHBOARD);
+    assertThat(response.getAccessEntityType()).isNull();
+    ArgumentCaptor<Group> rule = ArgumentCaptor.forClass(Group.class);
+    verify(groupRepository).save(rule.capture());
+    assertThat(rule.getValue().getAccessEntityTypes()).hasSize(2);
+    ArgumentCaptor<GroupEntity> scopes = ArgumentCaptor.forClass(GroupEntity.class);
+    org.mockito.Mockito.verify(groupEntityRepository,org.mockito.Mockito.times(2)).save(scopes.capture());
+    assertThat(scopes.getAllValues()).extracting(GroupEntity::getAccessEntityType).containsExactly(AccessEntityTypeEnum.BUSINESS_DASHBOARD,AccessEntityTypeEnum.INVOICE_DASHBOARD);
+  }
+  @Test
+  void updatingLegacyAllRuleReplacesItWithOnlyTheCheckedTypes() {
+    setUp(); when(aclService.getMaxLevel()).thenReturn(RoleLevel.SYSTEM);
+    var owner = new ObjectId(); authenticateAsUser(owner.toHexString());
+    var group = tenantScopedGroup("Rule","DAR0001"); group.setCreatedBy(owner); group.setAccessEntityType(AccessEntityTypeEnum.ALL_DASHBOARDS);
+    when(groupRepository.findById(group.getId())).thenReturn(Optional.of(group));
+    var old = GroupEntity.builder().groupIdentifier(group.getId()).accessEntityType(AccessEntityTypeEnum.ALL_DASHBOARDS).entityIds(List.of()).build();
+    when(groupEntityRepository.findAllByGroupIdentifier(group.getId())).thenReturn(List.of(old));
+    when(userGroupEntityRepository.findAllByGroups_GroupIdentifier(group.getId())).thenReturn(List.of());
+    assertThat(dataAccessRuleService.getById(group.getIdAsString()).getAccessEntityTypes()).hasSize(3);
+    var request = new com.ecofood.core.dto.UpdateDataAccessRuleRequest(); request.setRuleName("Rule"); request.setDescription("Desc"); request.setAccessLevel(AccessLevelEnum.FULL_ACCESS);
+    request.setAccessEntityTypes(List.of(AccessEntityTypeEnum.BUSINESS_DASHBOARD));
+    var result = dataAccessRuleService.update(group.getIdAsString(),request);
+    assertThat(group.getAccessEntityType()).isNull();
+    assertThat(result.getAccessEntityTypes()).containsExactly(AccessEntityTypeEnum.BUSINESS_DASHBOARD);
+    verify(groupEntityRepository).deleteAll(List.of(old));
+  }
+  @Test
+  void explicitSelectionRejectsEmptyOrNonDashboardTypesBeforeSaving() {
+    setUp(); when(aclService.getMaxLevel()).thenReturn(RoleLevel.SYSTEM);
+    var request = baseRequest(new ObjectId().toHexString()); request.setAccessEntityTypes(List.of());
+    assertThatThrownBy(()->dataAccessRuleService.create(request)).isInstanceOf(BadRequestException.class);
+    request.setAccessEntityTypes(List.of(AccessEntityTypeEnum.ALL_DASHBOARDS));
+    assertThatThrownBy(()->dataAccessRuleService.create(request)).isInstanceOf(BadRequestException.class);
+    request.setAccessEntityTypes(List.of(AccessEntityTypeEnum.Product));
+    assertThatThrownBy(()->dataAccessRuleService.create(request)).isInstanceOf(BadRequestException.class);
+    verify(groupRepository,never()).save(any());
+  }
+  @Test
+  void combinedDashboardRuleRejectsLimitedAccess() {
+    setUp();
+    when(aclService.getMaxLevel()).thenReturn(RoleLevel.SYSTEM);
+    var request = baseRequest(new ObjectId().toHexString());
+    request.setAccessEntityType(AccessEntityTypeEnum.ALL_DASHBOARDS);
+    request.setAccessLevel(AccessLevelEnum.LIMITED_ACCESS);
+    assertThatThrownBy(() -> dataAccessRuleService.create(request)).isInstanceOf(BadRequestException.class);
+    verify(groupRepository, never()).save(any(Group.class));
+  }
   @Test
   void createRejectsCustomerLevelCallers() {
     setUp();
@@ -153,6 +211,8 @@ class DataAccessRuleServiceImplTest {
 
     DataAccessRuleResponse response = dataAccessRuleService.create(request);
 
+    // Product retains its original assignment flow rather than dashboard user scoping.
+    verify(dataAccessRuleService, never()).eligibleUsers(anyString());
     assertThat(response.getCode()).isEqualTo("DAR0001");
     assertThat(response.getRuleName()).isEqualTo("Billing Viewer");
     assertThat(response.getBusinessEntityId()).isEqualTo(tenant.getId());

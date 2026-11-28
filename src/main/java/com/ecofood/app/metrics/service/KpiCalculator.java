@@ -22,11 +22,8 @@ public class KpiCalculator {
 
   /** Legacy Invoices keep their original one-Plan contribution; batch lines carry explicit quantity. */
   public List<KpiContribution> calculateAll(Invoice invoice) {
-    if (!"PLAN_SALE_BATCH".equals(invoice.getType())) {
+    if (!invoice.isBatch()) {
       return List.of(calculate(invoice));
-    }
-    if (invoice.getPlanLines() == null || invoice.getPlanLines().isEmpty()) {
-      throw new KpiProcessingException("BATCH_PLAN_LINES_MISSING", false);
     }
     var results = new ArrayList<KpiContribution>();
     var ids = new HashSet<String>();
@@ -72,7 +69,6 @@ public class KpiCalculator {
     unit.setReceivedAt(invoice.getReceivedAt());
     unit.setCurrency(invoice.getCurrency());
     unit.setStatus(invoice.getStatus());
-    unit.setPaymentStatus(invoice.getPaymentStatus());
     unit.setSnapshot(line.snapshot());
     return unit;
   }
@@ -106,11 +102,11 @@ public class KpiCalculator {
   }
 
   private void validateInvoice(Invoice invoice) {
-    if ("PLAN_SALE_BATCH".equals(invoice.getType())) {
+    if (invoice.isBatch()) {
       throw new KpiProcessingException("USE_BATCH_CONTRIBUTIONS", false);
     }
-    if (invoice.getStatus() != TransactionStatus.ACCEPTED || !"PAID".equals(invoice.getPaymentStatus())) {
-      throw new KpiProcessingException("INVOICE_NOT_ACCEPTED_PAID", false);
+    if (invoice.getStatus() != TransactionStatus.ACCEPTED) {
+      throw new KpiProcessingException("INVOICE_NOT_ACCEPTED", false);
     }
     if (blank(invoice.getId()) || invoice.getReceivedAt() == null) {
       throw new KpiProcessingException("INVOICE_ID_OR_RECEIVED_AT_MISSING", false);

@@ -15,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -29,6 +30,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class DataAccessRuleController {
 
   private final DataAccessRuleService dataAccessRuleService;
+
+  @GetMapping("/tenants")
+  public java.util.List<com.ecofood.core.dto.DashboardDtos.Option> tenants() {
+    return dataAccessRuleService.eligibleTenants();
+  }
+
+  @GetMapping("/users")
+  public java.util.List<com.ecofood.core.dto.UserDirectoryResponse> users(@RequestParam String tenantId) {
+    return dataAccessRuleService.eligibleUsers(tenantId);
+  }
 
   @Audited(AuditAction.CREATE)
   @PostMapping
@@ -55,6 +66,13 @@ public class DataAccessRuleController {
   @GetMapping("/{id}")
   public ResponseEntity<DataAccessRuleDetailResponse> getById(@PathVariable String id) {
     return ResponseEntity.ok(dataAccessRuleService.getById(id));
+  }
+
+  @Audited(AuditAction.DELETE)
+  @DeleteMapping("/{id}")
+  public ResponseEntity<Void> delete(@PathVariable String id) {
+    dataAccessRuleService.delete(id);
+    return ResponseEntity.noContent().build();
   }
 
   /** Only the rule's own creator may call this — see DataAccessRuleServiceImpl.update's ownership check. */

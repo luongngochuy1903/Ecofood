@@ -110,7 +110,6 @@ class MetricsMongoMappingTest {
     bson.put("actualMetrics",converter.convertToMongoType(state));
     assertEquals(state,converter.read(SubmissionMetricsState.class,bson).actualMetrics());
     var invoice=invoice("i1","tenant","p1","USD",null);
-    invoice.setType("PLAN_SALE_BATCH");
     invoice.setPlanLines(List.of(new com.ecofood.app.transaction.entity.InvoicePlanLine("1","orch","plan","Plan",2,bd("50"),bd("100"),invoice.getSnapshot(),false,Map.of("note","gift"))));
     var row=new Document(); converter.write(invoice,row);
     var line=row.getList("planLines",Document.class).get(0);

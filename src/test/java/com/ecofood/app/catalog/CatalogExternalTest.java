@@ -97,7 +97,7 @@ class CatalogExternalTest {
     var publicationId8 = p.id();
     assertThrows(ResponseStatusException.class,()-> f.external.read(identity, publicationId8, 1, null, null, 0, 20)); assertEquals(oldPins,f.publications.detail(p.id()).pins());
     assertEquals(B,f.publications.detail(p.id()).lastDeniedPartnerId()); assertEquals("SOURCE_NOT_PUBLISHABLE",f.publications.detail(p.id()).lastDeniedCode());
-    f.proposition.getPlans().get(0).setEndDate(Instant.now().minusSeconds(1));
+    f.proposition.getPlans().get(0).setStatus(com.ecofood.core.enums.PlanStatusEnum.PENDING_REVIEW);
     var publicationId9 = p.id();
     assertThrows(ResponseStatusException.class,()-> f.external.read(identity, publicationId9, 1, null, null, 0, 20));
     AtomicCatalogMongo.put(f.db.raw(ApiPublication.class,p.id()),"policy.expiresAt",Date.from(Instant.now().minusSeconds(1)),false);

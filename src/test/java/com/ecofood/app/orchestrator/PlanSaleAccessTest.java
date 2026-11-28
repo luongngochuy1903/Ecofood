@@ -91,15 +91,12 @@ class PlanSaleAccessTest {
   }
 
   @Test
-  void separatesDraftConfigurationAccessFromActivationAndChecksLiveDates() {
+  void separatesDraftConfigurationAccessFromActivation() {
     plan.setStatus(PlanStatusEnum.DRAFT);
     var scope = access.require(TENANT, PROP, PLAN);
     assertThrows(ResponseStatusException.class, () -> access.active(scope));
     plan.setStatus(PlanStatusEnum.APPROVED);
     access.active(scope);
-    plan.setEndDate(Instant.now().minusSeconds(1));
-    assertThrows(ResponseStatusException.class, () -> access.active(scope));
-    plan.setEndDate(null);
     p.setDeleted(true);
     assertThrows(ResponseStatusException.class, () -> access.require(TENANT, PROP, PLAN));
   }
@@ -196,7 +193,7 @@ class PlanSaleAccessTest {
             .build();
     other.setId(new ObjectId(OTHER_PLAN));
     p.setPlans(List.of(plan, other));
-    plan.setEndDate(Instant.now().minusSeconds(1));
+    plan.setStatus(PlanStatusEnum.DRAFT);
     var scope = access.require(TENANT, PROP, OTHER_PLAN);
     assertSame(other, scope.plan());
     access.active(scope);

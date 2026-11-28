@@ -60,13 +60,9 @@ public class PropositionValidation {
                     HttpStatus.CONFLICT, "Proposition changed; reload before retrying");
     }
 
-    public void dates(Instant start, Instant end, Instant parentStart, Instant parentEnd) {
+    public void dates(Instant start, Instant end) {
         if (start != null && end != null && !start.isBefore(end))
             bad("End date must be after start date");
-        if (parentStart != null && (start == null || start.isBefore(parentStart)))
-            bad("Plan start must be within the Proposition period");
-        if (parentEnd != null && (end == null || end.isAfter(parentEnd)))
-            bad("Plan end must be within the Proposition period");
     }
 
     public void metrics(PropositionDefinition d) {
@@ -153,7 +149,6 @@ public class PropositionValidation {
                     && !plan.getRegionIds().contains(tenant.country()))
                 bad(
                         "Plan Country of Sale must match every selected Sub-Tenant's onboarding country");
-        dates(plan.getStartDate(), plan.getEndDate(), d.startDate(), d.endDate());
         if (approving
                 && (content == null
                         || content.costing() == null

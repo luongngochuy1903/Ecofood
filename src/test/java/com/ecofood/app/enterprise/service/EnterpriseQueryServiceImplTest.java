@@ -25,6 +25,30 @@ class EnterpriseQueryServiceImplTest {
   private EnterpriseQueryServiceImpl enterpriseQueryService;
 
   @Test
+  void dashboardOwnershipAcceptsOwnOrBelongToAndDeduplicatesActiveChildren() {
+    var parentId = new ObjectId(); var childId = new ObjectId(); var deletedId = new ObjectId(); var blId = new ObjectId();
+    var parent = EnterpriseEntity.builder().partyRelationships(List.of(
+        PartyToPartyRelationship.builder().relationshipTypeCode("OW").toPartyId(childId).build(),
+        PartyToPartyRelationship.builder().relationshipTypeCode("OW").toPartyId(deletedId).build())).build();
+    var child = EnterpriseEntity.builder().build(); child.setId(childId);
+    var deleted = EnterpriseEntity.builder().build(); deleted.setId(deletedId); deleted.setDeleted(true);
+    var bl = EnterpriseEntity.builder().build(); bl.setId(blId);
+    when(enterpriseRepository.findById(parentId)).thenReturn(Optional.of(parent));
+    when(enterpriseRepository.findAllById(List.of(childId,deletedId))).thenReturn(List.of(child,deleted));
+    when(enterpriseRepository.findDashboardChildren(parentId)).thenReturn(List.of(child,bl));
+    var service = new EnterpriseQueryServiceImpl(enterpriseRepository);
+    assertThat(service.dashboardChildEnterpriseIds(parentId.toHexString())).containsExactly(childId.toHexString(),blId.toHexString());
+  }
+
+  @Test
+  void deletedEnterpriseCannotExposeDashboardChildren() {
+    var parentId = new ObjectId(); var parent = EnterpriseEntity.builder().build(); parent.setDeleted(true);
+    when(enterpriseRepository.findById(parentId)).thenReturn(Optional.of(parent));
+    assertThat(new EnterpriseQueryServiceImpl(enterpriseRepository).dashboardChildEnterpriseIds(parentId.toHexString())).isEmpty();
+    org.mockito.Mockito.verify(enterpriseRepository,org.mockito.Mockito.never()).findDashboardChildren(parentId);
+  }
+
+  @Test
   void returnsTheDtoWhenFound() {
     enterpriseQueryService = new EnterpriseQueryServiceImpl(enterpriseRepository);
     EnterpriseEntity enterprise = EnterpriseEntity.builder().partyName("Acme Co").build();

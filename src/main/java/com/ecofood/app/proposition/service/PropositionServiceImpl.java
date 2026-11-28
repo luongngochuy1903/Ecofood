@@ -449,8 +449,6 @@ public class PropositionServiceImpl implements PropositionService {
                         .code(old.getCode())
                         .regionIds(old.getRegionIds())
                         .tenantIds(old.getTenantIds())
-                        .startDate(old.getStartDate())
-                        .endDate(old.getEndDate())
                         .status(PlanStatusEnum.DRAFT)
                         .previousVersionId(old.getIdAsString())
                         .build();
@@ -573,7 +571,7 @@ public class PropositionServiceImpl implements PropositionService {
                         d.allowedOverrides() == null ? Set.of() : Set.copyOf(d.allowedOverrides()),
                         d.targetYear(),
                         d.currentRevenue());
-        validation.dates(result.startDate(), result.endDate(), null, null);
+        validation.dates(result.startDate(), result.endDate());
         validation.metrics(result);
         return result;
     }
@@ -589,11 +587,6 @@ public class PropositionServiceImpl implements PropositionService {
                         .code(FormatCode.byPaddingZeros(sequence, 5, "PL"))
                         .regionIds(validation.codes(r.regionIds()))
                         .tenantIds(validation.ids(r.tenantIds()))
-                        .startDate(
-                                r.startDate() == null
-                                        ? p.getDefinition().startDate()
-                                        : r.startDate())
-                        .endDate(r.endDate() == null ? p.getDefinition().endDate() : r.endDate())
                         .status(PlanStatusEnum.DRAFT)
                         .build();
         plan.setId(new ObjectId());
@@ -613,8 +606,6 @@ public class PropositionServiceImpl implements PropositionService {
                         .code(old.getCode())
                         .regionIds(validation.codes(r.regionIds()))
                         .tenantIds(validation.ids(r.tenantIds()))
-                        .startDate(r.startDate() == null ? old.getStartDate() : r.startDate())
-                        .endDate(r.endDate() == null ? old.getEndDate() : r.endDate())
                         .status(wasRejected ? PlanStatusEnum.DRAFT : old.getStatus())
                         .rejectionReason(wasRejected ? null : old.getRejectionReason())
                         .previousVersionId(old.getPreviousVersionId())

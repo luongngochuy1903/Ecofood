@@ -41,9 +41,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * Owns Access Control Group (Data Access Rule) creation — a Group row
- * (groupType = ACCESS_CONTROL_GROUP), its GroupEntity child (one per rule —
- * accessEntityType is a single value, see CreateDataAccessRuleRequest's
- * javadoc), and an update to each selected user's own UserGroupEntity
+ * (groupType = ACCESS_CONTROL_GROUP), its per-entity-type GroupEntity children, and an update to each selected user's own UserGroupEntity
  * document (membership lives on the user's side, not the group's — see
  * UserGroupEntity's javadoc). Deliberately a separate service from
  * GroupService, which only ever seeds ROLE_GROUP rows for ACLService.
@@ -72,13 +70,82 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
   private final CoreTenantQueryClient tenantQueryClient;
   private final SequenceGeneratorService sequenceGeneratorService;
   private final ACLService aclService;
+  private final DashboardTenantHierarchy hierarchy;
 
+  @Override
+  public List<com.ecofood.core.dto.DashboardDtos.Option> eligibleTenants() {
+    RoleLevel level = aclService.getMaxLevel();
+    if (!ALLOWED_LEVELS.contains(level)) throw new ForbiddenException("Data access rules denied");
+    var scope = level == RoleLevel.SYSTEM ? Set.<ObjectId>of() : Set.copyOf(resolveScopedTenantIds(level));
+    return tenantQueryClient.propositionReferences().stream().filter(t -> !t.deleted())
+        .filter(t -> level == RoleLevel.SYSTEM || scope.contains(new ObjectId(t.id())))
+        .sorted(java.util.Comparator.comparing(com.ecofood.core.dto.PropositionTenantReference::name,
+            java.util.Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
+        .map(t -> new com.ecofood.core.dto.DashboardDtos.Option(t.id(), t.name(), true, List.of(t.id()), t.partnerType())).toList();
+  }
+
+  private List<ObjectId> eligibleTenantIds(String tenantId) {
+    RoleLevel level = aclService.getMaxLevel();
+    if (!ALLOWED_LEVELS.contains(level)) throw new ForbiddenException("Data access rules denied");
+    if (level != RoleLevel.SYSTEM && !resolveScopedTenantIds(level).contains(new ObjectId(tenantId)))
+      throw new ForbiddenException("Tenant is outside caller scope");
+    var tenant = tenantQueryClient.propositionReference(tenantId);
+    if (tenant.deleted()) throw new BadRequestException("Tenant is deleted");
+    var ids = new java.util.LinkedHashSet<ObjectId>(); ids.add(new ObjectId(tenantId));
+    if (tenant.relationships() != null) tenant.relationships().stream()
+        .filter(r -> "MT".equals(r.getRelationshipTypeCode())).map(r -> r.getToPartyId())
+        .filter(java.util.Objects::nonNull).map(ObjectId::new).forEach(ids::add);
+    if (tenant.partnerType() == com.ecofood.core.enums.PartnerTypeEnum.REGIONAL_ENTERPRISE)
+      hierarchy.directParents(tenant).stream().map(ObjectId::new).forEach(ids::add);
+    return List.copyOf(ids);
+  }
+  @Override public List<com.ecofood.core.dto.UserDirectoryResponse> eligibleUsers(String tenantId) {
+    return userRepository.findDirectory(eligibleTenantIds(tenantId), false, null, Pageable.unpaged()).stream()
+        .filter(u -> !Boolean.TRUE.equals(u.getDeleted()))
+        .map(u -> com.ecofood.core.dto.UserDirectoryResponse.builder().id(u.getIdAsString())
+            .firstName(u.getFirstName()).lastName(u.getLastName()).email(u.getEmail()).build()).toList();
+  }
+  private void validateCombinedDashboardRule(com.ecofood.core.enums.AccessEntityTypeEnum type, AccessLevelEnum level) {
+    if (type == com.ecofood.core.enums.AccessEntityTypeEnum.ALL_DASHBOARDS && level != AccessLevelEnum.FULL_ACCESS)
+      throw new BadRequestException("All Dashboards currently supports Full Access only");
+  }
+  private List<com.ecofood.core.enums.AccessEntityTypeEnum> selectedTypes(
+      List<com.ecofood.core.enums.AccessEntityTypeEnum> types, com.ecofood.core.enums.AccessEntityTypeEnum legacy, AccessLevelEnum level) {
+    if (types == null) { validateCombinedDashboardRule(legacy, level); return null; }
+    var allowed = Set.of(com.ecofood.core.enums.AccessEntityTypeEnum.BUSINESS_DASHBOARD,
+        com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD, com.ecofood.core.enums.AccessEntityTypeEnum.CUSTOMER_DASHBOARD);
+    if (types.isEmpty() || types.stream().anyMatch(t -> t == null || !allowed.contains(t)))
+      throw new BadRequestException("Select at least one valid dashboard entity type");
+    if (level != AccessLevelEnum.FULL_ACCESS) throw new BadRequestException("Dashboard selections currently support Full Access only");
+    return List.copyOf(new java.util.LinkedHashSet<>(types));
+  }
+  private List<com.ecofood.core.enums.AccessEntityTypeEnum> storedTypes(Group group) {
+    if (group.getAccessEntityTypes() != null) return group.getAccessEntityTypes();
+    return group.getAccessEntityType() == null ? List.of() : List.of(group.getAccessEntityType());
+  }
+  private List<com.ecofood.core.enums.AccessEntityTypeEnum> responseTypes(Group group) {
+    if (group.getAccessEntityTypes() == null && group.getAccessEntityType() == com.ecofood.core.enums.AccessEntityTypeEnum.ALL_DASHBOARDS)
+      return List.of(com.ecofood.core.enums.AccessEntityTypeEnum.BUSINESS_DASHBOARD,
+          com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD, com.ecofood.core.enums.AccessEntityTypeEnum.CUSTOMER_DASHBOARD);
+    return storedTypes(group);
+  }
+  private void validateUsers(String tenantId, List<String> userIds) {
+    var eligible = eligibleUsers(tenantId).stream().map(com.ecofood.core.dto.UserDirectoryResponse::getId).collect(java.util.stream.Collectors.toSet());
+    if (userIds != null && !eligible.containsAll(userIds)) throw new BadRequestException("Users must belong to the selected Tenant or its direct parent");
+  }
+  private String ruleTenant(Group group) {
+    return group.getPartyRelationships().stream().filter(r -> "TENANT".equals(r.getRelationshipTypeCode()))
+        .map(r -> r.getToPartyId().toHexString()).findFirst().orElseThrow();
+  }
   @Override
   public DataAccessRuleResponse create(CreateDataAccessRuleRequest request) {
     if (!ALLOWED_LEVELS.contains(aclService.getMaxLevel())) {
       throw new ForbiddenException("Caller's role level does not grant access to data access rules");
     }
 
+    var types = selectedTypes(request.getAccessEntityTypes(), request.getAccessEntityType(), request.getAccessLevel());
+    if (types != null || request.getAccessEntityType() != com.ecofood.core.enums.AccessEntityTypeEnum.Product)
+      validateUsers(request.getBusinessEntityId(), request.getUserIds());
     TenantResponse tenant = tenantQueryClient.getById(request.getBusinessEntityId());
 
     long sequence = sequenceGeneratorService.generateSequence(Group.SEQUENCE_NAME);
@@ -89,7 +156,8 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
             .groupType(GroupType.ACCESS_CONTROL_GROUP)
             .groupDescription(request.getDescription())
             .accessLevel(request.getAccessLevel())
-            .accessEntityType(request.getAccessEntityType())
+            .accessEntityType(types == null ? request.getAccessEntityType() : null)
+            .accessEntityTypes(types)
             .partyRelationships(List.of(buildTenantRelation(tenant)))
             .build();
     groupRepository.save(group);
@@ -101,23 +169,13 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
   }
 
   private void createGroupEntity(Group group, CreateDataAccessRuleRequest request) {
-    if (request.getAccessEntityType() == null) {
-      return;
-    }
-
-    boolean isLimited = request.getAccessLevel() == AccessLevelEnum.LIMITED_ACCESS;
-    List<ObjectId> limitedEntityIds =
-        !isLimited || request.getLimitedEntityIds() == null
-            ? List.of()
-            : request.getLimitedEntityIds().stream().map(ObjectId::new).toList();
-
-    GroupEntity groupEntity =
-        GroupEntity.builder()
-            .groupIdentifier(group.getId())
-            .accessEntityType(request.getAccessEntityType())
-            .entityIds(limitedEntityIds)
-            .build();
-    groupEntityRepository.save(groupEntity);
+    saveGroupEntities(group, request.getLimitedEntityIds());
+  }
+  private void saveGroupEntities(Group group, List<String> limitedIds) {
+    var ids = group.getAccessLevel() != AccessLevelEnum.LIMITED_ACCESS || limitedIds == null
+        ? List.<ObjectId>of() : limitedIds.stream().map(ObjectId::new).toList();
+    for (var type : storedTypes(group)) groupEntityRepository.save(GroupEntity.builder()
+        .groupIdentifier(group.getId()).accessEntityType(type).entityIds(ids).build());
   }
 
   /** Appends a snapshot of this rule onto each selected user's own UserGroupEntity — never a members[] list on the Group itself. */
@@ -171,10 +229,14 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
       throw new ForbiddenException("Only the creator of this rule can edit it");
     }
 
+    var types = selectedTypes(request.getAccessEntityTypes(), request.getAccessEntityType(), request.getAccessLevel());
+    if (types != null || request.getAccessEntityType() != com.ecofood.core.enums.AccessEntityTypeEnum.Product)
+      validateUsers(ruleTenant(group), request.getUserIds());
     group.setName(request.getRuleName());
     group.setGroupDescription(request.getDescription());
     group.setAccessLevel(request.getAccessLevel());
-    group.setAccessEntityType(request.getAccessEntityType());
+    group.setAccessEntityType(types == null ? request.getAccessEntityType() : null);
+    group.setAccessEntityTypes(types);
     groupRepository.save(group);
 
     updateGroupEntity(group, request);
@@ -183,10 +245,33 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
     return toDetailResponse(group);
   }
 
+  @Override
+  public void delete(String id) {
+    var level = aclService.getMaxLevel();
+    if (!ALLOWED_LEVELS.contains(level)) throw new ForbiddenException("Data access rules denied");
+    // Allow retrying cleanup of an already-deleted rule after a partial failure.
+    Group group = groupRepository.findById(new ObjectId(id))
+        .filter(g -> g.getGroupType() == GroupType.ACCESS_CONTROL_GROUP)
+        .orElseThrow(() -> new IllegalArgumentException("Data access rule not found: " + id));
+    if (!isOwnedByCaller(group)) throw new ForbiddenException("Only the creator of this rule can delete it");
+    if (level != RoleLevel.SYSTEM && !resolveScopedTenantIds(level).contains(new ObjectId(ruleTenant(group))))
+      throw new ForbiddenException("Tenant is outside caller scope");
+    // Readers ignore deleted groups immediately, even if subsequent cleanup needs a retry.
+    group.setDeleted(true);
+    groupRepository.save(group);
+    for (var membership : userGroupEntityRepository.findAllByGroups_GroupIdentifier(group.getId())) {
+      if (membership.getGroups() != null) {
+        membership.getGroups().removeIf(link -> group.getId().equals(link.getGroupIdentifier()));
+        userGroupEntityRepository.save(membership);
+      }
+    }
+    groupEntityRepository.deleteAll(groupEntityRepository.findAllByGroupIdentifier(group.getId()));
+  }
+
   private Group loadAccessControlGroup(String id) {
     Group group =
         groupRepository.findById(new ObjectId(id)).orElseThrow(() -> new IllegalArgumentException("Data access rule not found: " + id));
-    if (group.getGroupType() != GroupType.ACCESS_CONTROL_GROUP) {
+    if (group.getGroupType() != GroupType.ACCESS_CONTROL_GROUP || Boolean.TRUE.equals(group.getDeleted())) {
       throw new IllegalArgumentException("Data access rule not found: " + id);
     }
     return group;
@@ -196,28 +281,11 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
     return AuthenticationContext.getUserId().equals(group.getCreatedBy());
   }
 
-  /** Replaces any existing GroupEntity row for this rule wholesale — simpler than diffing since there's at most one (accessEntityType is a single value). */
+  /** Replaces scope rows so unchecked dashboard types are revoked on update. */
   private void updateGroupEntity(Group group, UpdateDataAccessRuleRequest request) {
-    List<GroupEntity> existing = groupEntityRepository.findAllByGroupIdentifier(group.getId());
-    if (!existing.isEmpty()) {
-      groupEntityRepository.deleteAll(existing);
-    }
-    if (request.getAccessEntityType() == null) {
-      return;
-    }
-
-    boolean isLimited = request.getAccessLevel() == AccessLevelEnum.LIMITED_ACCESS;
-    List<ObjectId> limitedEntityIds =
-        !isLimited || request.getLimitedEntityIds() == null
-            ? List.of()
-            : request.getLimitedEntityIds().stream().map(ObjectId::new).toList();
-
-    groupEntityRepository.save(
-        GroupEntity.builder()
-            .groupIdentifier(group.getId())
-            .accessEntityType(request.getAccessEntityType())
-            .entityIds(limitedEntityIds)
-            .build());
+    var existing = groupEntityRepository.findAllByGroupIdentifier(group.getId());
+    if (!existing.isEmpty()) groupEntityRepository.deleteAll(existing);
+    saveGroupEntities(group, request.getLimitedEntityIds());
   }
 
   /** Revokes the rule from users no longer in desiredUserIds, grants it to newly-added ones — never touches already-assigned users. */
@@ -303,6 +371,7 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
         .businessEntityName(businessEntityName)
         .accessLevel(group.getAccessLevel())
         .accessEntityType(group.getAccessEntityType())
+        .accessEntityTypes(responseTypes(group))
         .limitedEntityIds(limitedEntityIds)
         .userIds(userIds)
         .editable(isOwnedByCaller(group))
@@ -339,14 +408,18 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
    * TENANT-level never queries the tenant module at all — its scope is
    * always just its own tenant id (same reasoning as UserServiceImpl.
    * resolveScopedTenantIds). ENTERPRISE/MASTER_TENANT delegate to
-   * CoreTenantQueryClient.getScopedTenantIds for the full self+sub-tenants set.
+   * CoreTenantQueryClient for MT children, adding direct OW/BL Regional children
+   * for DAR only. Grandchildren still require configuration by their own parent.
    */
   private List<ObjectId> resolveScopedTenantIds(RoleLevel level) {
     ObjectId callerTenantId = AuthenticationContext.getTenantId();
     if (level == RoleLevel.TENANT) {
       return List.of(callerTenantId);
     }
-    return tenantQueryClient.getScopedTenantIds(callerTenantId.toHexString()).stream().map(ObjectId::new).toList();
+    var ids = new java.util.LinkedHashSet<ObjectId>(); ids.add(callerTenantId);
+    tenantQueryClient.getScopedTenantIds(callerTenantId.toHexString()).stream().map(ObjectId::new).forEach(ids::add);
+    hierarchy.directRegionalChildren(callerTenantId.toHexString()).stream().map(ObjectId::new).forEach(ids::add);
+    return List.copyOf(ids);
   }
 
   private Sort resolveDirectorySort(String sort) {
@@ -405,6 +478,7 @@ public class DataAccessRuleServiceImpl implements DataAccessRuleService {
                 .orElse(null))
         .accessLevel(group.getAccessLevel())
         .accessEntityType(group.getAccessEntityType())
+        .accessEntityTypes(responseTypes(group))
         .assignedUserCount(userIds == null ? 0 : userIds.size())
         .build();
   }

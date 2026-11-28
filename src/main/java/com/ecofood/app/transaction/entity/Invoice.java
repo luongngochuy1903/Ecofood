@@ -24,13 +24,10 @@ public class Invoice implements CustomerInvoiceReference {
   private String planId;
   private String orchestratorId;
   private int orchestratorVersion;
-  private String invoiceNumber;
   private String currency;
   private Instant transactionTime;
   private Instant receivedAt;
   private TransactionStatus status;
-  private String type;
-  private String paymentStatus;
   private String submissionId;
   private String invoiceDocumentId;
   private InvoiceHolder invoiceHolder;
@@ -41,6 +38,13 @@ public class Invoice implements CustomerInvoiceReference {
   private String transactionTimeSource;
 
   public record InvoiceHolder(String customerId, String userId) {}
+
+  /** Batch (multi-Plan) Invoices are identified by their planLines; legacy one-Plan Invoices have none. */
+  @JsonIgnore
+  @org.springframework.data.annotation.Transient
+  public boolean isBatch() {
+    return planLines != null && !planLines.isEmpty();
+  }
 
   @JsonIgnore private Submission submissionHandoff;
   @JsonIgnore private boolean submissionPending;

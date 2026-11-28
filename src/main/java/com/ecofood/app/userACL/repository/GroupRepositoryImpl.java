@@ -25,6 +25,7 @@ public class GroupRepositoryImpl implements GroupRepositoryCustom {
   public Page<Group> findDirectory(
       GroupType groupType, List<ObjectId> scopedTenantIds, boolean unrestricted, String search, Pageable pageable) {
     Query query = new Query(Criteria.where("group_type").is(groupType));
+    if (groupType == GroupType.ACCESS_CONTROL_GROUP) query.addCriteria(Criteria.where("deleted").ne(true));
 
     if (!unrestricted) {
       query.addCriteria(

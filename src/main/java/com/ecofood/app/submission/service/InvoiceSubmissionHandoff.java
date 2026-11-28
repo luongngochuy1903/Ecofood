@@ -97,7 +97,6 @@ public class InvoiceSubmissionHandoff {
 
   private void validate(Invoice invoice, Submission event) {
     if (event == null || invoice.getStatus() != TransactionStatus.ACCEPTED
-        || !"PAID".equals(invoice.getPaymentStatus())
         || !Objects.equals(event.id(), invoice.getSubmissionId())
         || !Objects.equals(event.id(), invoice.getId() + ":" + Submission.INVOICE_PAID)
         || !Submission.INVOICE_PAID.equals(event.event()) || !"INVOICE".equals(event.sourceType())

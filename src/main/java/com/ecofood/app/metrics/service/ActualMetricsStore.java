@@ -247,7 +247,7 @@ public class ActualMetricsStore {
     for (String id : batch.invoiceIds().stream().sorted().toList()) {
       var invoice = sourceInvoice(ops, id, event.tenantId());
       validateSource(invoice, event);
-      if (!"PLAN_SALE_BATCH".equals(invoice.getType())
+      if (!invoice.isBatch()
           || !Objects.equals(invoice.getSubmittedBy(), batch.submittedBy())) {
         throw new KpiProcessingException("BATCH_INVOICE_SCOPE_MISMATCH", false);
       }
@@ -272,8 +272,7 @@ public class ActualMetricsStore {
     var start = LocalDate.of(key.year(), key.month(), 1).atStartOfDay(KpiCalculator.ZONE).toInstant();
     var end = LocalDate.of(key.year(), key.month(), 1).plusMonths(1).atStartOfDay(KpiCalculator.ZONE).toInstant();
     var criteria = Criteria.where(TENANT_ID).is(key.tenantId()).and("currency").is(key.currency())
-        .and("receivedAt").gte(start).lt(end).and("status").is(TransactionStatus.ACCEPTED)
-        .and("paymentStatus").is("PAID");
+        .and("receivedAt").gte(start).lt(end).and("status").is(TransactionStatus.ACCEPTED);
     criteria.orOperator(Criteria.where("propositionId").is(key.propositionId()),
         Criteria.where("planLines.snapshot.propositionId").is(key.propositionId()));
     var rows = ops.find(Query.query(criteria).limit(rebuildLimit + 1), Invoice.class);
@@ -320,7 +319,7 @@ public class ActualMetricsStore {
       throw new KpiProcessingException("SUBMISSION_INVOICE_SCOPE_MISMATCH", false);
     }
     if ("INVOICE_BATCH".equals(event.sourceType())) {
-      if (!event.id().equals(event.sourceId()) || !"PLAN_SALE_BATCH".equals(invoice.getType())) {
+      if (!event.id().equals(event.sourceId()) || !invoice.isBatch()) {
         throw new KpiProcessingException(INVALID_BATCH, false);
       }
       return;
