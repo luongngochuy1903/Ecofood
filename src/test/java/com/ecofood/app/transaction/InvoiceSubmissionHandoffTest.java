@@ -36,7 +36,6 @@ class InvoiceSubmissionHandoffTest {
     invoice.setOrchestratorVersion(2);
     invoice.setReceivedAt(Instant.parse("2026-11-20T00:00:00Z"));
     invoice.setStatus(TransactionStatus.ACCEPTED);
-    invoice.setPaymentStatus("PAID");
     service.prepare(invoice);
     return invoice;
   }

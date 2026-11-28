@@ -75,6 +75,29 @@ class DashboardHierarchyAccessTest {
     assertTrue(access.scopedTenants(AccessEntityTypeEnum.BUSINESS_DASHBOARD,A).isEmpty());
     assertTrue(access.current(AccessEntityTypeEnum.BUSINESS_DASHBOARD,PROP).tenantScope().isEmpty());
   }
+  @ParameterizedTest
+  @EnumSource(value=AccessEntityTypeEnum.class,names={"BUSINESS_DASHBOARD","INVOICE_DASHBOARD"})
+  void dashboardFiltersOnlyOfferOwnTenantAndDirectChildrenWhileRegionalSelectionIncludesItsChildren(AccessEntityTypeEnum type) {
+    grant(USER,B,type);
+    grant(REGIONAL_USER,PROP,type);
+    var options = access.selectableTenants(type);
+    assertEquals(Set.of(A,B,OWNER),options.stream().map(com.ecofood.core.dto.DashboardDtos.Option::id).collect(java.util.stream.Collectors.toSet()));
+    assertThrows(org.springframework.web.server.ResponseStatusException.class,() -> access.scopedTenants(type,PROP));
+    assertEquals(Set.of(B,PROP),ids(access.scopedTenants(type,B)));
+    assertEquals(Set.of(B,PROP),ids(access.scopedTenants(type,A)));
+    assertEquals(Set.of(PROP),access.current(type,PROP).tenantScope()); // Detail of an aggregated child remains readable.
+  }
+  @Test void regionalSessionCanSelectItsOwnDirectBrand() {
+    var regional = tenants.propositionReferences().stream().filter(t -> t.id().equals(B)).findFirst().orElseThrow();
+    token.when(AuthenticationContext::getTenantId).thenReturn(new ObjectId(B));
+    when(mongo.findById(new ObjectId(USER),UserEntity.class)).thenReturn(user(USER,B));
+    when(users.resolveAccess(new ObjectId(USER),new ObjectId(B))).thenReturn(new UserAccessService.UserAccessClaims(List.of("ENTERPRISE_ADMIN"),List.of(),List.of()));
+    when(tenants.propositionReference(B)).thenReturn(regional);
+    grant(USER,PROP,AccessEntityTypeEnum.BUSINESS_DASHBOARD);
+    assertEquals(Set.of(B,PROP,PRODUCT),access.selectableTenants(AccessEntityTypeEnum.BUSINESS_DASHBOARD).stream()
+        .map(com.ecofood.core.dto.DashboardDtos.Option::id).collect(java.util.stream.Collectors.toSet()));
+    assertEquals(Set.of(PROP),ids(access.scopedTenants(AccessEntityTypeEnum.BUSINESS_DASHBOARD,PROP)));
+  }
   @Test void missingSecondEdgeAndOtherDashboardTypeCannotGrantGrandchild() {
     grant(USER,B,AccessEntityTypeEnum.BUSINESS_DASHBOARD);
     grant(REGIONAL_USER,PROP,AccessEntityTypeEnum.INVOICE_DASHBOARD);

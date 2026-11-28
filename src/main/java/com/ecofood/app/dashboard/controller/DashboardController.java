@@ -28,8 +28,7 @@ public class DashboardController {
   }
   @GetMapping("/invoices/tenants")
   public List<Option> invoiceTenants() {
-    return access.selectableTenants(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD).stream()
-        .filter(Option::accessible).toList();
+    return access.selectableTenants(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD);
   }
   @GetMapping("/invoices")
   public org.springframework.data.domain.Page<com.ecofood.core.dto.DashboardInvoice> invoices(

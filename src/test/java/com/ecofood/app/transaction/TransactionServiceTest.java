@@ -50,12 +50,12 @@ class TransactionServiceTest {
 
   @Test
   void dashboardDetailUsesExistingTenantScopedInvoiceRead() {
-    var invoice = new Invoice(); invoice.setId("invoice"); invoice.setTenantId("tenant"); invoice.setInvoiceNumber("INV-1");
+    var invoice = new Invoice(); invoice.setId("invoice"); invoice.setTenantId("tenant");
     invoice.setItems(java.util.List.of(new com.ecofood.core.dto.InvoiceItemDto("P1","Product",java.math.BigDecimal.ONE,java.math.BigDecimal.TEN,java.math.BigDecimal.TEN)));
     invoice.setPlanLines(java.util.List.of(new com.ecofood.app.transaction.entity.InvoicePlanLine("line","orchestrator","plan","Plan",1,java.math.BigDecimal.TEN,java.math.BigDecimal.TEN,null,true,java.util.Map.of())));
     when(repo.findByIdAndTenantId("invoice","tenant")).thenReturn(Optional.of(invoice));
     var result = service.dashboardDetail("tenant","invoice");
-    assertEquals("INV-1",result.invoice().invoiceNumber());
+    assertEquals("invoice",result.invoice().id());
     assertEquals("Product",result.items().get(0).productName());
     assertEquals("Plan",result.planLines().get(0).planName());
     verify(repo).findByIdAndTenantId("invoice","tenant");
@@ -69,6 +69,7 @@ class TransactionServiceTest {
   }
   @Test void dashboardPageResolvesAllLinePropositionsOnceAndPreservesPagination() {
     var first = new Invoice(); first.setId("first"); first.setTenantId("tenant");
+    first.setReceivedAt(java.time.Instant.parse("2026-11-28T00:00:00Z"));
     var second = new Invoice(); second.setId("second"); second.setTenantId("tenant"); second.setPropositionId("legacy");
     var snapshotA = mock(com.ecofood.app.transaction.entity.InvoiceSnapshot.class);
     var snapshotB = mock(com.ecofood.app.transaction.entity.InvoiceSnapshot.class);
@@ -82,6 +83,7 @@ class TransactionServiceTest {
         new com.ecofood.core.dto.DashboardDtos.Option("A","Proposition A"),new com.ecofood.core.dto.DashboardDtos.Option("B","Proposition B")));
     var result = service.dashboard("tenant",null,1,20);
     assertEquals(42,result.getTotalElements()); assertEquals(1,result.getNumber());
+    assertEquals(first.getReceivedAt(),result.getContent().get(0).receivedAt());
     assertEquals(java.util.List.of("A","B"),result.getContent().get(0).propositions().stream().map(com.ecofood.core.dto.DashboardDtos.Option::id).toList());
     assertEquals("Proposition A",result.getContent().get(0).propositions().get(0).name());
     assertEquals("legacy",result.getContent().get(1).propositions().get(0).id());

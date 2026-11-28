@@ -34,7 +34,7 @@ class CustomerApiTest {
     var mvc = MockMvcBuilders.standaloneSetup(new CustomerController(service, service)).setControllerAdvice(new CustomerApiErrors(), new GlobalExceptionHandler()).build();
     mvc.perform(get("/api/v1/customers/me/invoices/" + INVOICE).header("X-Tenant-Id", OTHER_TENANT))
         .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
-        .andExpect(jsonPath("$.invoiceNumber").value("INV-001")).andExpect(jsonPath("$.totalAmount").value("20"))
+        .andExpect(jsonPath("$.id").value(INVOICE)).andExpect(jsonPath("$.invoiceNumber").doesNotExist()).andExpect(jsonPath("$.type").doesNotExist()).andExpect(jsonPath("$.paymentStatus").doesNotExist()).andExpect(jsonPath("$.totalAmount").value("20"))
         .andExpect(jsonPath("$.tenantId").value(TENANT)).andExpect(jsonPath("$.tenantName").value("Submitting tenant"))
         .andExpect(jsonPath("$.snapshot").doesNotExist()).andExpect(jsonPath("$.posId").doesNotExist()).andExpect(jsonPath("$.submittedBy").doesNotExist()).andExpect(jsonPath("$.orchestratorPayload").doesNotExist());
     when(access.current()).thenReturn(actor(B)); mvc.perform(get("/api/v1/customers/me/invoices/" + INVOICE)).andExpect(status().isNotFound());

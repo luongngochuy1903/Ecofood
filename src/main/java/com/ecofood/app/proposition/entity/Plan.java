@@ -12,8 +12,8 @@ import lombok.*;
  * record: its name/description/category/image/ingredients/recipe/costing
  * live in their own product_process + attribute documents (see
  * CoreProductProcessClient), not on this class — this holds only what's
- * specific to being embedded in a Proposition (scoping, effective dates,
- * review status). `type` is always PLAN; `version` is this Plan's OWN
+ * specific to being embedded in a Proposition (scoping and
+ * review status; effective dates belong to the Proposition only). `type` is always PLAN; `version` is this Plan's OWN
  * version (bumped only by "Create New Version") and is unrelated to the
  * cloned process's own version, which always stays 1.
  */
@@ -40,7 +40,7 @@ public class Plan extends BaseEntity {
     private Integer productVersion;
     private String code;
     private List<String> regionIds, tenantIds;
-    private Instant startDate, endDate, approvedAt;
+    private Instant approvedAt;
     private String approvedBy;
     private PlanStatusEnum status;
     private String rejectionReason;

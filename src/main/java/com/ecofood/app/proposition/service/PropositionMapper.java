@@ -122,8 +122,6 @@ public class PropositionMapper {
                 costing,
                 plan.getRegionIds(),
                 plan.getTenantIds(),
-                plan.getStartDate(),
-                plan.getEndDate(),
                 plan.getStatus(),
                 approverName(plan.getApprovedBy()),
                 plan.getApprovedAt(),

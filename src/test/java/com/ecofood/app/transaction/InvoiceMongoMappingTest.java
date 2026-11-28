@@ -51,11 +51,8 @@ class InvoiceMongoMappingTest {
         "tenant", "INVOICE", "invoice", "prop", "plan", "orch", 4);
     var invoice = new Invoice();
     invoice.setId("invoice");
-    invoice.setInvoiceNumber("INV-0001-A");
     invoice.setTenantId("tenant");
     invoice.setStatus(TransactionStatus.ACCEPTED);
-    invoice.setPaymentStatus("PAID");
-    invoice.setType("PLAN_SALE");
     invoice.setReceivedAt(receivedAt);
     invoice.setSubmissionId(event.id());
     invoice.setSubmissionHandoff(event);
@@ -77,8 +74,10 @@ class InvoiceMongoMappingTest {
     assertEquals(invoice.getSnapshot(), copy.getSnapshot());
     assertEquals(event, copy.getSubmissionHandoff());
     assertTrue(copy.isSubmissionPending());
-    assertEquals("PAID", copy.getPaymentStatus());
-    assertEquals("INV-0001-A", copy.getInvoiceNumber());
+    assertFalse(bson.containsKey("type"));
+    assertFalse(bson.containsKey("paymentStatus"));
+    assertFalse(bson.containsKey("invoiceNumber"));
+    assertFalse(bson.containsKey("batch"));
     assertNull(copy.getSnapshot().netRevenue());
     assertNull(copy.getSnapshot().profit());
     var eventBson = new Document();
@@ -90,17 +89,16 @@ class InvoiceMongoMappingTest {
     assertFalse(json.has("submissionPending"));
     assertFalse(json.has("submissionRetryAt"));
     assertFalse(json.has("submissionAttempts"));
+    assertFalse(json.has("batch"));
     assertEquals(event.id(), json.get("submissionId").asText());
   }
 
   @Test
   void oldInvoiceRemainsReadableWithoutInventingPaidStatusSnapshotOrCustomer() throws Exception {
     var copy = converter().read(Invoice.class,
-        new Document("_id", "legacy").append("invoiceNumber", "0001")
+        new Document("_id", "legacy").append("invoiceNumber", "0001").append("paymentStatus", "PAID")
             .append("status", "ACCEPTED").append("tenantId", "tenant"));
-    assertEquals("0001", copy.getInvoiceNumber());
     assertEquals(TransactionStatus.ACCEPTED, copy.getStatus());
-    assertNull(copy.getPaymentStatus());
     assertNull(copy.getSnapshot());
     assertNull(copy.getInvoiceHolder());
     assertNull(copy.getSubmissionId());

@@ -4,7 +4,7 @@ import com.ecofood.app.proposition.entity.*;
 import com.ecofood.core.enums.*;
 import java.time.Instant;
 
-/** A Proposition has no review status of its own — only its effective dates gate it. */
+/** A Proposition has no review status of its own — only its effective dates gate it. Plans have no dates. */
 public final class PlanAvailability {
     private PlanAvailability() {}
 
@@ -16,16 +16,13 @@ public final class PlanAvailability {
     public static boolean active(PropositionEntity p, Plan plan, Instant now) {
         if (!propositionActive(p, now)
                 || Boolean.TRUE.equals(plan.getDeleted())
-                || plan.getStatus() != PlanStatusEnum.APPROVED
-                || !within(plan.getStartDate(), plan.getEndDate(), now)) return false;
+                || plan.getStatus() != PlanStatusEnum.APPROVED) return false;
         return p.getPlans().stream()
                 .noneMatch(
                         next ->
                                 !Boolean.TRUE.equals(next.getDeleted())
                                         && next.getStatus() == PlanStatusEnum.APPROVED
-                                        && plan.getIdAsString().equals(next.getPreviousVersionId())
-                                        && (next.getStartDate() == null
-                                                || !now.isBefore(next.getStartDate())));
+                                        && plan.getIdAsString().equals(next.getPreviousVersionId()));
     }
 
     private static boolean within(Instant start, Instant end, Instant now) {

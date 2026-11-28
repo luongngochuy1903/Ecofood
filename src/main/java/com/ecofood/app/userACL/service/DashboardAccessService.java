@@ -78,17 +78,26 @@ public class DashboardAccessService implements com.ecofood.core.service.Dashboar
   public List<com.ecofood.core.dto.DashboardActor> scopedTenants(AccessEntityTypeEnum type, String root) {
     var evaluation = evaluate(type);
     String selected = root == null ? evaluation.session().tenant().id() : root;
-    if (!evaluation.candidates().contains(selected)) throw denied();
+    if (!selectionCandidates(evaluation, type).contains(selected)) throw denied();
     return scope(evaluation, selected).entrySet().stream()
         .map(entry -> actor(evaluation, entry.getKey(), entry.getValue())).toList();
   }
   public List<com.ecofood.core.dto.DashboardDtos.Option> selectableTenants(AccessEntityTypeEnum type) {
     var evaluation = evaluate(type);
-    return evaluation.candidates().stream().map(id -> {
+    return selectionCandidates(evaluation, type).stream().map(id -> {
       var scope = List.copyOf(scope(evaluation, id).keySet());
       var tenant = evaluation.tree().tenants().get(id);
       return new com.ecofood.core.dto.DashboardDtos.Option(id, tenant.name(), !scope.isEmpty(), scope, tenant.partnerType());
     }).toList();
+  }
+  private Set<String> selectionCandidates(Evaluation evaluation, AccessEntityTypeEnum type) {
+    if (type != AccessEntityTypeEnum.BUSINESS_DASHBOARD && type != AccessEntityTypeEnum.INVOICE_DASHBOARD)
+      return evaluation.candidates();
+    String root = evaluation.session().tenant().id();
+    Set<String> result = new LinkedHashSet<>(); result.add(root);
+    result.addAll(evaluation.tree().children().getOrDefault(root, Set.of()));
+    result.retainAll(evaluation.candidates());
+    return result;
   }
   private record Evaluation(com.ecofood.core.dto.DashboardActor session, DashboardTenantHierarchy.Tree tree,
       Set<String> candidates, Map<String, Grant> grants, Map<String, Grant> edges) {}

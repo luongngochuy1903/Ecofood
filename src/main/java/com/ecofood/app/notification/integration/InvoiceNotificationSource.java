@@ -19,13 +19,13 @@ public class InvoiceNotificationSource implements NotificationEventSource {
       return new Context(null,false,Map.of());
     if (!Submission.INVOICE_PAID.equals(event.event()) || !"INVOICE".equals(event.sourceType())) throw new IllegalStateException("INVALID_EVENT_SOURCE");
     Invoice invoice = mongo.findOne(Query.query(Criteria.where("_id").is(event.sourceId()).and("tenantId").is(event.tenantId())), Invoice.class);
-    if (invoice == null || invoice.getStatus() != TransactionStatus.ACCEPTED || !"PAID".equals(invoice.getPaymentStatus())
+    if (invoice == null || invoice.getStatus() != TransactionStatus.ACCEPTED
         || !Objects.equals(invoice.getSubmissionId(), event.id()) || !Objects.equals(invoice.getPropositionId(), event.propositionId())
         || !Objects.equals(invoice.getPlanId(), event.planId()) || !Objects.equals(invoice.getOrchestratorId(), event.orchestratorId())
         || invoice.getOrchestratorVersion() != event.orchestratorVersion()) throw new IllegalStateException("INVALID_INVOICE_SCOPE");
     Map<String, String> values = new HashMap<>();
     values.put("submissionId", event.id()); values.put("eventType", event.event()); values.put("tenantId", event.tenantId());
-    values.put("invoiceNumber", invoice.getInvoiceNumber()); values.put("propositionId", invoice.getPropositionId()); values.put("planId", invoice.getPlanId());
+    values.put("invoiceNumber", invoice.getId()); values.put("propositionId", invoice.getPropositionId()); values.put("planId", invoice.getPlanId());
     values.put("currency", invoice.getCurrency());
     if (invoice.getTotalAmount() != null) values.put("totalAmount", invoice.getTotalAmount().toPlainString());
     if (invoice.getReceivedAt() != null) values.put("receivedAt", invoice.getReceivedAt().toString());

@@ -10,6 +10,16 @@ import com.ecofood.core.client.CoreDashboardInvoiceClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class DashboardApiTest {
+  @Test void invoiceTenantPickerRetainsUnavailableTenantsForNoAccessLabels() {
+    var access = mock(DashboardAccess.class);
+    var denied = new com.ecofood.core.dto.DashboardDtos.Option(DashboardFixtures.B,"No DAR",false);
+    when(access.selectableTenants(com.ecofood.core.enums.AccessEntityTypeEnum.INVOICE_DASHBOARD))
+        .thenReturn(java.util.List.of(new com.ecofood.core.dto.DashboardDtos.Option(DashboardFixtures.A,"Allowed"),denied));
+    var result = new DashboardController(mock(DashboardServiceImpl.class),access,mock(CoreDashboardInvoiceClient.class)).invoiceTenants();
+    org.junit.jupiter.api.Assertions.assertEquals(2,result.size());
+    org.junit.jupiter.api.Assertions.assertFalse(result.get(1).accessible());
+    org.junit.jupiter.api.Assertions.assertTrue(result.get(1).scopeTenantIds().isEmpty());
+  }
   @Test void invoiceCheckboxSelectionMergesOverlappingScopesBeforeOnePaginatedRead() {
     var access = mock(DashboardAccess.class); var invoices = mock(CoreDashboardInvoiceClient.class);
     var b = new com.ecofood.core.dto.DashboardActor(DashboardFixtures.USER,DashboardFixtures.tenant(DashboardFixtures.B,false),java.util.Set.of(DashboardFixtures.B),false,null);

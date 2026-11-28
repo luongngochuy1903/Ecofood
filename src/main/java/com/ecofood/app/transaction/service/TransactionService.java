@@ -34,9 +34,9 @@ public class TransactionService implements com.ecofood.core.service.DashboardInv
     var ids = new java.util.LinkedHashSet<String>();
     page.forEach(invoice -> ids.addAll(propositionIds(invoice)));
     var names = propositionNames(ids); // One owning-module lookup for the authorized page, not one per invoice.
-    return page.map(i -> new com.ecofood.core.dto.DashboardInvoice(i.getId(), i.getTenantId(), i.getInvoiceNumber(), i.getPropositionId(),
+    return page.map(i -> new com.ecofood.core.dto.DashboardInvoice(i.getId(), i.getTenantId(), i.getPropositionId(),
         i.getTransactionTime(), i.getTotalAmount(), i.getCurrency(), i.getStatus() == null ? null : i.getStatus().name(),
-        propositionReferences(propositionIds(i), names)));
+        propositionReferences(propositionIds(i), names), i.getReceivedAt()));
   }
   private java.util.Set<String> propositionIds(Invoice invoice) {
     var ids = new java.util.LinkedHashSet<String>();
@@ -58,7 +58,7 @@ public class TransactionService implements com.ecofood.core.service.DashboardInv
   @Override
   public com.ecofood.core.dto.DashboardInvoiceDetail dashboardDetail(String tenant, String id) {
     var invoice = detail(tenant, id);
-    var header = new com.ecofood.core.dto.DashboardInvoice(invoice.getId(), invoice.getTenantId(), invoice.getInvoiceNumber(),
+    var header = new com.ecofood.core.dto.DashboardInvoice(invoice.getId(), invoice.getTenantId(),
         invoice.getPropositionId(), invoice.getTransactionTime(), invoice.getTotalAmount(), invoice.getCurrency(),
         invoice.getStatus() == null ? null : invoice.getStatus().name());
     var lines = invoice.getPlanLines() == null ? java.util.List.<com.ecofood.core.dto.DashboardInvoiceDetail.PlanLine>of()
@@ -67,7 +67,7 @@ public class TransactionService implements com.ecofood.core.service.DashboardInv
     var propositionIds = propositionIds(invoice);
     var propositionReferences = propositionReferences(propositionIds, propositionNames(propositionIds));
     return new com.ecofood.core.dto.DashboardInvoiceDetail(header, invoice.getPosId(), invoice.getSubmittedBy(),
-        invoice.getDistributionPartnerId(), invoice.getPlanId(), invoice.getType(), invoice.getPaymentStatus(), invoice.getReceivedAt(),
+        invoice.getDistributionPartnerId(), invoice.getPlanId(), invoice.getReceivedAt(),
         invoice.getItems() == null ? java.util.List.of() : invoice.getItems(), lines,
         tenants.tenantCode(invoice.getTenantId()), propositionReferences);
   }

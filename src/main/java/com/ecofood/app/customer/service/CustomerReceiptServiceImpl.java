@@ -51,7 +51,7 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
   }
   private Query source(String id, Seller seller) {
     return Query.query(Criteria.where("_id").is(id).and(TENANT_ID).is(seller.tenant()).and("submittedBy").is(seller.user())
-        .and("posId").is(seller.user()).and("status").is(TransactionStatus.ACCEPTED).and("paymentStatus").is("PAID"));
+        .and("posId").is(seller.user()).and("status").is(TransactionStatus.ACCEPTED));
   }
   private Criteria unowned() { return Criteria.where(INVOICE_HOLDER_USER_ID).is(null).and(INVOICE_HOLDER_CUSTOMER_ID).is(null); }
   @Override
@@ -105,14 +105,14 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
   private Criteria valid(String token, Instant now) {
     CustomerReceiptTokens.validate(token);
     return Criteria.where("customerReceipt.tokenHash").is(CustomerReceiptTokens.hash(token)).and(RECEIPT_REVOKED_AT).is(null)
-        .and("customerReceipt.expiresAt").gt(now).and("status").is(TransactionStatus.ACCEPTED).and("paymentStatus").is("PAID");
+        .and("customerReceipt.expiresAt").gt(now).and("status").is(TransactionStatus.ACCEPTED);
   }
   @Override
   public CustomerReceiptDtos.GuestInvoice view(String token) {
     var invoice = mongo.findOne(Query.query(new Criteria().andOperator(valid(token, Instant.now()), unowned())), CustomerInvoice.class);
     if (invoice == null) throw CustomerServiceImpl.unavailable();
     var safe = CustomerServiceImpl.invoice(invoice);
-    return new CustomerReceiptDtos.GuestInvoice(safe.invoiceNumber(), safe.transactionTime(), safe.currency(), safe.totalAmount(), safe.items(), identity.config(invoice.getTenantId()));
+    return new CustomerReceiptDtos.GuestInvoice(safe.id(), safe.transactionTime(), safe.currency(), safe.totalAmount(), safe.items(), identity.config(invoice.getTenantId()));
   }
   @Override
   public CustomerReceiptDtos.Claimed claim(String token) {
@@ -129,7 +129,7 @@ public class CustomerReceiptServiceImpl implements CustomerReceiptService {
     Notification notice = new Notification(); notice.setId(CustomerReceiptTokens.hash(eventId + ":customer-email")); notice.setSubmissionId(eventId);
     notice.setTenantId(actor.tenantId()); notice.setRuleId("UC021_INVOICE_LINKED"); notice.setType(CLAIMED); notice.setRuleRevision(1);
     notice.setRecipientUserId(actor.userId()); notice.setSendTo(NotificationSettings.canonical(actor.user().getEmail())); notice.setSendFrom(mail.from);
-    notice.setSubject("Hóa đơn " + String.valueOf(invoice.getInvoiceNumber()).replace('\r', ' ').replace('\n', ' '));
+    notice.setSubject("Hóa đơn " + String.valueOf(invoice.getId()).replace('\r', ' ').replace('\n', ' '));
     notice.setContent("Hóa đơn đã được liên kết với tài khoản của bạn.\n" + settings.base() + "/customer/invoices/" + invoice.getId() + "?tenant=" + actor.tenantId());
     notice.setCreatedAt(now); notice.setNextAttemptAt(now);
     var saved = mongo.findAndModify(query, new Update().set("invoiceHolder", new com.ecofood.app.transaction.entity.Invoice.InvoiceHolder(actor.userId(), actor.userId()))

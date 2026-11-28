@@ -21,7 +21,7 @@ public class DataAccessRuleOptionsService {
       org.springframework.data.domain.Page<com.ecofood.core.dto.DashboardInvoice> rows;
       do {
         rows = invoices.dashboard(tenantId, null, page++, 100);
-        rows.forEach(i -> result.add(new Option(i.id(), i.invoiceNumber())));
+        rows.forEach(i -> result.add(new Option(i.id(), i.id())));
       } while (rows.hasNext());
       return result;
     }

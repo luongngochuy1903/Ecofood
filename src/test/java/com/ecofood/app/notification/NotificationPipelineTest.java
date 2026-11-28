@@ -46,7 +46,7 @@ class NotificationPipelineTest {
     processor.poll(); delivery.poll();
     assertEquals(1, db.rows(Notification.class).size());
     var row = db.find(new Query(), Notification.class).get(0);
-    assertEquals("SENT", row.getStatus()); assertNotNull(row.getSentAt()); assertEquals("Invoice INV1", row.getSubject()); assertEquals(2, row.getRuleRevision());
+    assertEquals("SENT", row.getStatus()); assertNotNull(row.getSentAt()); assertEquals("Invoice invoice", row.getSubject()); assertEquals(2, row.getRuleRevision());
     assertEquals(before, db.raw(Invoice.class, "invoice"));
     assertEquals("SUCCEEDED", ((Document) db.raw(Submission.class, "event").get("actualMetrics")).getString("state"));
     verify(sender, times(1)).send(any());
@@ -82,7 +82,7 @@ class NotificationPipelineTest {
     db.raw(NotificationRule.class, "rule").put("content", "Changed later");
     ((Document) db.raw(Submission.class, "event").get("notification")).put("nextAttemptAt", Date.from(Instant.now().minusSeconds(1)));
     processor.poll();
-    assertEquals("Recorded INV1", db.find(new Query(), Notification.class).get(0).getContent());
+    assertEquals("Recorded invoice", db.find(new Query(), Notification.class).get(0).getContent());
   }
   @Test void twoWorkersCannotClaimSameSubmissionOrNotification() throws Exception {
     ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -112,7 +112,7 @@ class NotificationPipelineTest {
       db.raw(Notification.class, "delivery").put("nextAttemptAt", Date.from(Instant.now().minusSeconds(1)));
     }
     delivery.poll(); verify(sender, times(3)).send(any());
-    assertEquals("PAID", db.find(new Query(), Invoice.class).get(0).getPaymentStatus());
+    assertEquals(com.ecofood.core.enums.TransactionStatus.ACCEPTED, db.find(new Query(), Invoice.class).get(0).getStatus());
   }
   @Test void crashDuringSmtpRequiresExplicitRetryNeverAutomaticResend() {
     db.insert(NotificationFixtures.delivery()); var claimed = delivery.claim(Instant.now());

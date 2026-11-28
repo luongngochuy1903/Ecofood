@@ -91,7 +91,7 @@ public class CustomerServiceImpl implements CustomerService, CustomerQueryServic
   public OwnedInvoice detail(String id) {
     var owned=requireOwned(access.current(),id);
     var view=invoice(owned);
-    return new OwnedInvoice(view.id(),view.invoiceNumber(),view.type(),view.status(),view.paymentStatus(),view.transactionTime(),view.receivedAt(),
+    return new OwnedInvoice(view.id(),view.status(),view.transactionTime(),view.receivedAt(),
         view.currency(),view.totalAmount(),view.invoiceDocumentId(),view.items(),owned.getTenantId(),tenantName(owned.getTenantId()));
   }
   private String tenantName(String id) {
@@ -99,7 +99,7 @@ public class CustomerServiceImpl implements CustomerService, CustomerQueryServic
     catch(IllegalArgumentException missingTenant) { return null; }
   }
   static OwnedInvoice invoice(Invoice i) {
-    return new OwnedInvoice(i.getId(), i.getInvoiceNumber(), i.getType(), i.getStatus() == null ? null : i.getStatus().name(), i.getPaymentStatus(),
+    return new OwnedInvoice(i.getId(), i.getStatus() == null ? null : i.getStatus().name(),
         i.getTransactionTime(), i.getReceivedAt(), i.getCurrency(), i.getTotalAmount(), i.getInvoiceDocumentId(), items(i), i.getTenantId(), null);
   }
   /**

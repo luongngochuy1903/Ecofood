@@ -22,7 +22,6 @@ final class MetricsFixtures {
     invoice.setOrchestratorId("orch");
     invoice.setOrchestratorVersion(2);
     invoice.setStatus(TransactionStatus.ACCEPTED);
-    invoice.setPaymentStatus("PAID");
     invoice.setReceivedAt(Instant.parse("2026-11-20T03:00:00Z"));
     invoice.setTransactionTime(Instant.parse("2020-01-01T00:00:00Z"));
     invoice.setCurrency(currency);

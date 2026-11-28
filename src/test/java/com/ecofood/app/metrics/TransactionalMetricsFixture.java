@@ -110,7 +110,7 @@ final class TransactionalMetricsFixture {
                 && row.getPlanLines().stream().anyMatch(line->Objects.equals(proposition,line.snapshot().propositionId()));
           })
           .filter(row -> Objects.equals(criteria.getString("currency"), row.getCurrency()))
-          .filter(row -> row.getStatus() == TransactionStatus.ACCEPTED && "PAID".equals(row.getPaymentStatus()))
+          .filter(row -> row.getStatus() == TransactionStatus.ACCEPTED)
           .filter(row -> !row.getReceivedAt().isBefore(start) && row.getReceivedAt().isBefore(end))
           .sorted(Comparator.comparing(Invoice::getId)).limit(query.getLimit()).toList();
     });

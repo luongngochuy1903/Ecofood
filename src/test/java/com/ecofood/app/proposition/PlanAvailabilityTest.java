@@ -45,37 +45,32 @@ class PlanAvailabilityTest {
     }
 
     @Test
-    void onlyThePlansOwnApprovalAndEffectivePeriodsAreRequired() {
+    void onlyThePlansOwnApprovalIsRequiredWithinTheProposition() {
         var p = proposition();
         var plan = plan();
         p.setPlans(List.of(plan));
         plan.setStatus(PlanStatusEnum.PENDING_REVIEW);
         assertThat(PlanAvailability.active(p, plan, now)).isFalse();
         plan.setStatus(PlanStatusEnum.APPROVED);
-        plan.setStartDate(now.plusSeconds(1));
-        assertThat(PlanAvailability.active(p, plan, now)).isFalse();
-        plan.setStartDate(now);
-        plan.setEndDate(now.plusSeconds(1));
         assertThat(PlanAvailability.active(p, plan, now)).isTrue();
-        assertThat(PlanAvailability.active(p, plan, now.plusSeconds(1))).isFalse();
+        // Plans carry no dates of their own; any time inside the Proposition period is sellable.
+        assertThat(PlanAvailability.active(p, plan, now.plusSeconds(86_400))).isTrue();
         assertThat(plan.getStatus()).isEqualTo(PlanStatusEnum.APPROVED);
     }
 
     @Test
-    void successorWaitsForItsOwnApprovalAndEffectiveDate() {
+    void approvedSuccessorReplacesItsPreviousVersionImmediately() {
         var p = proposition();
         var old = plan();
         var next = plan();
         next.setPreviousVersionId(old.getIdAsString());
-        next.setStartDate(now.plusSeconds(10));
+        next.setStatus(PlanStatusEnum.PENDING_REVIEW);
         p.setPlans(List.of(old, next));
         assertThat(PlanAvailability.active(p, old, now)).isTrue();
         assertThat(PlanAvailability.active(p, next, now)).isFalse();
-        next.setStatus(PlanStatusEnum.PENDING_REVIEW);
-        assertThat(PlanAvailability.active(p, old, now.plusSeconds(10))).isTrue();
         next.setStatus(PlanStatusEnum.APPROVED);
-        assertThat(PlanAvailability.active(p, old, now.plusSeconds(10))).isFalse();
-        assertThat(PlanAvailability.active(p, next, now.plusSeconds(10))).isTrue();
+        assertThat(PlanAvailability.active(p, old, now)).isFalse();
+        assertThat(PlanAvailability.active(p, next, now)).isTrue();
     }
 
     @Test

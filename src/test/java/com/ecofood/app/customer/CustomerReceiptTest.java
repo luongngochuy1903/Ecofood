@@ -47,7 +47,7 @@ class CustomerReceiptTest {
   CustomerReceiptDtos.Issued issue() { return service.issue(INVOICE, new CustomerReceiptDtos.IssueRequest("f9cb5497-2ba8-4bf2-9457-494ef47e98d4")); }
   String token(CustomerReceiptDtos.Issued receipt) { return receipt.receiptUrl().substring(receipt.receiptUrl().indexOf("#token=") + 7); }
   @Test void guestCanViewMinimalInvoiceButIssueAndViewDoNotCreateEmailOrOwner() {
-    var receipt = issue(); var guest = service.view(token(receipt)); assertEquals("INV-001", guest.invoiceNumber()); assertEquals(TENANT, guest.login().tenantId());
+    var receipt = issue(); var guest = service.view(token(receipt)); assertEquals(INVOICE, guest.invoiceId()); assertEquals(TENANT, guest.login().tenantId());
     assertTrue(db.rows(Notification.class).isEmpty()); assertTrue(db.rows(Submission.class).isEmpty());
     assertNull(db.converter.read(Invoice.class, db.raw(Invoice.class, new ObjectId(INVOICE))).getInvoiceHolder());
     assertFalse(db.raw(Invoice.class, new ObjectId(INVOICE)).toJson().contains(token(receipt))); assertTrue(receipt.qrPngBase64().startsWith("iVBOR"));

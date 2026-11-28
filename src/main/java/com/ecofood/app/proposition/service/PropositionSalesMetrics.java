@@ -47,8 +47,7 @@ public class PropositionSalesMetrics {
   /** Rebuild before inserting a new batch; historical amounts are never added to old aggregates twice. */
   public void rebuild(MongoOperations ops, PropositionEntity proposition) {
     var id = proposition.getIdAsString();
-    var criteria = Criteria.where("status").is(TransactionStatus.ACCEPTED)
-        .and("paymentStatus").is("PAID");
+    var criteria = Criteria.where("status").is(TransactionStatus.ACCEPTED);
     criteria.orOperator(Criteria.where("propositionId").is(id),
         Criteria.where("planLines.snapshot.propositionId").is(id));
     var invoices = ops.find(Query.query(criteria), Invoice.class);

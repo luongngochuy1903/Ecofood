@@ -8,9 +8,6 @@ import org.springframework.data.domain.*;
 import org.springframework.data.mongodb.repository.MongoRepository;
 
 public interface InvoiceRepository extends MongoRepository<Invoice, String> {
-  boolean existsByTenantIdAndPosIdAndInvoiceNumber(
-      String tenantId, String posId, String invoiceNumber);
-
   Optional<Invoice> findByIdAndTenantId(String id, String tenantId);
 
   Page<Invoice> findByTenantIdAndIdIn(String tenantId, java.util.Collection<String> ids, Pageable page);

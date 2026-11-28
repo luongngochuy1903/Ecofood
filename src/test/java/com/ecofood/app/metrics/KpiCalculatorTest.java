@@ -94,9 +94,6 @@ class KpiCalculatorTest {
   @Test
   void invalidInvoiceStatusOrPaymentIsRejectedRatherThanCounted() {
     var invoice = invoice("i", "tenant", "prop", "USD", null);
-    invoice.setPaymentStatus(null);
-    assertThrows(KpiProcessingException.class, () -> calculator.calculate(invoice));
-    invoice.setPaymentStatus("PAID");
     invoice.setStatus(null);
     assertThrows(KpiProcessingException.class, () -> calculator.calculate(invoice));
   }
